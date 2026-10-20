@@ -1,1 +1,15 @@
-//! Playback state machine, queue, and transport policy. Implemented from M1.
+//! Playback engine: controller, bounded buffering, transport state.
+//!
+//! Independent of Tauri and of ALSA: output goes through [`AudioSink`], so the
+//! engine is tested with [`mock::MockSink`] and runs on the DAC through
+//! `audio-alsa`.
+
+pub mod mock;
+mod player;
+mod sink;
+mod status;
+mod writer;
+
+pub use player::{POOL_SIZE, Player};
+pub use sink::{AudioSink, HardwareVolume, OutputFormat, SinkError, SinkErrorKind};
+pub use status::{ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus};

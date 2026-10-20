@@ -1,1 +1,13 @@
-//! ALSA device enumeration, format negotiation, and streaming. Implemented from M1.
+//! Direct ALSA hardware output: device discovery and capability probing.
+//!
+//! Only `hw:` devices are used. No `plughw`, `default`, dmix, PulseAudio or
+//! PipeWire: what the DAC receives is exactly what Lyra writes.
+
+mod device;
+mod error;
+mod sink;
+mod volume;
+
+pub use device::{Capabilities, Device, DsdFormat, PcmSupport, list_playback_devices, probe};
+pub use error::{AlsaError, Holder};
+pub use sink::{AlsaSink, BufferConfig};
