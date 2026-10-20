@@ -34,9 +34,11 @@ Hardware results (exact format and rate, busy device, unplug, DAC volume at 0 dB
 - [x] Add golden fixtures for stereo, block boundaries, seek, truncated/corrupt files (`scripts/make-dsd-fixtures.py`).
 - [x] Implement and unit-test DoP framing and endian handling.
 - [x] Implement DoP device negotiation, output policy and diagnostics. DoP only at 0 dB USB volume; channel counts the DAC lacks are refused.
-- [ ] Validate DSD64/128 on physical DAC. DSD64 plays on the ZEN ONE (176.4 kHz carrier); DSD128 and the DAC indicator pending.
+- [x] Validate DSD64/128 on physical DAC. ZEN ONE: DSD64 at 176.4 kHz and DSD128 at 352.8 kHz carriers; the DAC indicates DSD.
 
 **Done when:** test fixtures verify exact DSD bytes and DAC recognizes DoP.
+
+Done 2026-10-20: fixtures and engine tests verify every DSD bit through DoP; results in the [ZEN ONE report](hardware/ifi-zen-one.md#dop-m2).
 
 ## M3 — Native DSD
 

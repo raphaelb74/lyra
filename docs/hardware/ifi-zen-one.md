@@ -1,6 +1,6 @@
 # iFi ZEN ONE — hardware report
 
-Status: **PCM verified (M1); DoP DSD64 playing (M2)**, see [Playback results](#playback-results-m1) and [DoP](#dop-m2). Native DSD (M3) is descriptor evidence only.
+Status: **PCM verified (M1); DoP DSD64 and DSD128 verified (M2)**, see [Playback results](#playback-results-m1) and [DoP](#dop-m2). Native DSD (M3) is descriptor evidence only.
 
 Collected 2026-10-20 with `scripts/probe-dac.sh` (read-only; the PCM device was never opened).
 
@@ -77,10 +77,9 @@ pactl set-card-profile alsa_card.usb-iFi__by_AMR__ZEN_ONE_0025-00 output:analog-
 | Source | Lyra output | Kernel `hw_params` (during playback) | Buffer / period | Device owner | USB volume |
 | --- | --- | --- | --- | --- | --- |
 | DSF DSD64, 2 ch | DoP, `S24_3LE`, 176400, 2 ch | `S24_3LE`, 176400 (176400/1), 2 ch, `RUNNING` | 44100 / 11025 frames | `lyra-writer` | 32512 (0 dB) |
+| DSF DSD128, 2 ch | DoP, `S24_3LE`, 352800, 2 ch | `S24_3LE`, 352800 (352800/1), 2 ch, `RUNNING` | 88200 / 22050 frames | `lyra-writer` | 32512 (0 dB) |
 
-The user confirmed playback on the DAC. The engine tests prove the DoP stream carries every DSD bit of the file with alternating `0x05`/`0xFA` markers (DSF and DFF); DoP is refused unless the USB volume is at 0 dB or absent.
-
-Still to check: DSD128 (352.8 kHz carrier) and the DAC's own DSD indicator.
+The user confirmed playback on the DAC, and the ZEN ONE's format LED changes colour to its DSD indication: the DAC recognises the DoP markers (supporting evidence, not proof of bit-exactness). The engine tests prove the DoP stream carries every DSD bit of the file with alternating `0x05`/`0xFA` markers (DSF and DFF); DoP is refused unless the USB volume is at 0 dB or absent.
 
 ## Bit-perfect risks found
 
@@ -93,6 +92,7 @@ Still to check: DSD128 (352.8 kHz carrier) and the DAC's own DSD indicator.
 - [x] Busy device reported with the holding process (A06).
 - [x] Rate switching between 44.1 and 48 kHz families: no audible clicks (listening test).
 - [ ] Behaviour of the hardware volume control (digital or analog).
-- [x] DoP DSD64 plays at the 176.4 kHz carrier (M2).
-- [ ] DoP DSD128 (352.8 kHz) and the DAC's DSD indicator (M2); native DSD64/128/256 (M3).
+- [x] DoP DSD64 plays at the 176.4 kHz carrier; the DAC indicates DSD (M2).
+- [x] DoP DSD128 plays at the 352.8 kHz carrier; the DAC indicates DSD (M2).
+- [ ] Native DSD64/128/256 (M3).
 - [x] Unplug mid-track → controlled error (A05).
