@@ -24,7 +24,7 @@ Validated on Linux Mint 22.3 on 20 October 2026. All acceptance checks pass; see
 - [ ] Handle a DAC held by PipeWire/WirePlumber: clear "device busy" error naming the holder where possible; document how to release the device.
 - [ ] Verify direct `hw:` PCM output, rate changes, and no implicit resampling.
 
-**Done when:** 16/44.1 and 24/96 test files play bit-perfectly through iFi DAC.
+**Done when:** 16/44.1 and 24/96 test files play bit-perfectly through the iFi ZEN ONE (`hw:CARD=ONE,DEV=0`), with the result recorded in `docs/hardware/ifi-zen-one.md`.
 
 ## M2 — DSF, DFF, DoP
 

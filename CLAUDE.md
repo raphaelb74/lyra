@@ -1,7 +1,7 @@
 # Lyra — Claude Code project instructions
 
 ## Mission
-Linux-first bit-perfect audiophile player. Rust workspace + Tauri 2 + Svelte 5/TypeScript + ALSA. iFi ZEN DAC Signature is the first test device. Audio engine is independent of Tauri; never use Web Audio for playback.
+Linux-first bit-perfect audiophile player. Rust workspace + Tauri 2 + Svelte 5/TypeScript + ALSA. iFi ZEN ONE is the first test device (see `docs/hardware/`); support any ALSA DAC, nothing model-specific. Audio engine is independent of Tauri; never use Web Audio for playback.
 
 ## Source of truth
 Read `AGENTS.md`, `docs/SPECIFICATION.md`, and `docs/IMPLEMENTATION_PLAN.md` **only when relevant**. Current milestone is M0 unless the user explicitly advances it. Check actual source and Git status before assuming work is complete. Do not blindly follow stale docs; flag contradictions.
