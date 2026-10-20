@@ -3,9 +3,9 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use format_pcm::{SampleEncoding, StreamInfo};
+use format_pcm::SampleEncoding;
 
-use crate::sink::{AudioSink, OutputFormat, SinkError, SinkErrorKind};
+use crate::sink::{AudioSink, HardwareVolume, OutputFormat, PcmStream, SinkError, SinkErrorKind};
 
 /// Calls the sink received, in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,6 +55,8 @@ pub struct MockSink {
     pub open_error: Option<SinkError>,
     /// Sleep per write, to make playback take time.
     pub write_delay: Duration,
+    /// Reported in the opened [`OutputFormat`].
+    pub hardware_volume: HardwareVolume,
     pub recorder: MockRecorder,
 }
 
@@ -66,6 +68,7 @@ impl MockSink {
             rates: vec![44_100, 48_000, 88_200, 96_000, 176_400, 192_000],
             open_error: None,
             write_delay: Duration::ZERO,
+            hardware_volume: HardwareVolume::None,
             recorder: MockRecorder::default(),
         }
     }
@@ -78,7 +81,7 @@ impl Default for MockSink {
 }
 
 impl AudioSink for MockSink {
-    fn open(&mut self, device: &str, stream: &StreamInfo) -> Result<OutputFormat, SinkError> {
+    fn open(&mut self, device: &str, stream: &PcmStream) -> Result<OutputFormat, SinkError> {
         if let Some(error) = &self.open_error {
             return Err(error.clone());
         }
@@ -94,8 +97,10 @@ impl AudioSink for MockSink {
         if !self.rates.contains(&stream.sample_rate) {
             return Err(unsupported());
         }
-        let format = OutputFormat::negotiate(stream, |encoding| self.encodings.contains(&encoding))
-            .ok_or_else(unsupported)?;
+        let mut format =
+            OutputFormat::negotiate(stream, |encoding| self.encodings.contains(&encoding))
+                .ok_or_else(unsupported)?;
+        format.hardware_volume = self.hardware_volume;
         self.recorder.record(SinkCall::Open(format), None);
         Ok(format)
     }

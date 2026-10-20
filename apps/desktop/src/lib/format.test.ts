@@ -1,25 +1,52 @@
 import { describe, expect, it } from 'vitest';
 
 import { clock, outputLabel, sourceLabel } from './format';
+import type { Track } from './ipc';
+
+const flac: Track = {
+  fileName: 'a.flac',
+  device: 'hw:CARD=ONE,DEV=0',
+  codec: 'flac',
+  sampleRate: 44100,
+  bitsPerSample: 16,
+  dsdMultiple: null,
+  channels: 2,
+  durationSeconds: null,
+  output: null,
+  bitPerfect: null,
+};
 
 describe('display formatting', () => {
-  it('labels source and output the way audiophiles read them', () => {
+  it('labels PCM source and output the way audiophiles read them', () => {
+    expect(sourceLabel(flac)).toBe('FLAC 16/44.1');
+    expect(
+      outputLabel({
+        transport: 'pcm',
+        format: 'S24_3LE',
+        sampleRate: 96000,
+        channels: 2,
+      }),
+    ).toBe('S24_3LE · 96 kHz');
+  });
+
+  it('labels DSD sources and DoP output', () => {
     expect(
       sourceLabel({
-        fileName: 'a.flac',
-        device: 'hw:CARD=ONE,DEV=0',
-        codec: 'flac',
-        sampleRate: 44100,
-        bitsPerSample: 16,
-        channels: 2,
-        durationSeconds: null,
-        output: null,
-        bitPerfect: null,
+        ...flac,
+        codec: 'dsf',
+        sampleRate: 2822400,
+        bitsPerSample: 1,
+        dsdMultiple: 64,
       }),
-    ).toBe('FLAC 16/44.1');
+    ).toBe('DSD64 · DSF');
     expect(
-      outputLabel({ format: 'S24_3LE', sampleRate: 96000, channels: 2 }),
-    ).toBe('S24_3LE · 96 kHz');
+      outputLabel({
+        transport: 'dop',
+        format: 'S24_3LE',
+        sampleRate: 176400,
+        channels: 2,
+      }),
+    ).toBe('DoP · S24_3LE · 176.4 kHz');
   });
 
   it.each([

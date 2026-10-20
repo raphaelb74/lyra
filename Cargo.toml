@@ -19,6 +19,7 @@ repository = "https://github.com/raphaelb74/lyra"
 # Shared versions: crates write `name = { workspace = true }`.
 [workspace.dependencies]
 # Workspace crates.
+format-dsd = { path = "crates/format-dsd", version = "0.1.0" }
 format-pcm = { path = "crates/format-pcm", version = "0.1.0" }
 player-core = { path = "crates/player-core", version = "0.1.0" }
 audio-alsa = { path = "crates/audio-alsa", version = "0.1.0" }

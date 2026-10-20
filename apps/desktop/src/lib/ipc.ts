@@ -42,6 +42,7 @@ export interface Verdict {
 }
 
 export interface Output {
+  transport: 'pcm' | 'dop';
   format: string;
   sampleRate: number;
   channels: number;
@@ -50,9 +51,13 @@ export interface Output {
 export interface Track {
   fileName: string;
   device: string;
-  codec: 'flac' | 'wav';
+  codec: 'flac' | 'wav' | 'dsf' | 'dff';
+  /** PCM sample rate, or DSD bit rate per channel. */
   sampleRate: number;
+  /** 1 for DSD. */
   bitsPerSample: number;
+  /** 64 for DSD64; null for PCM. */
+  dsdMultiple: number | null;
   channels: number;
   durationSeconds: number | null;
   output: Output | null;
@@ -176,6 +181,7 @@ function isVerdict(value: Field): value is JsonValue & Verdict {
 function isOutput(value: Field): value is JsonValue & Output {
   return (
     isRecord(value) &&
+    (value.transport === 'pcm' || value.transport === 'dop') &&
     isText(value.format) &&
     isNumber(value.sampleRate) &&
     isNumber(value.channels)
@@ -187,9 +193,13 @@ function isTrack(value: Field): value is JsonValue & Track {
     isRecord(value) &&
     isText(value.fileName) &&
     isText(value.device) &&
-    (value.codec === 'flac' || value.codec === 'wav') &&
+    (value.codec === 'flac' ||
+      value.codec === 'wav' ||
+      value.codec === 'dsf' ||
+      value.codec === 'dff') &&
     isNumber(value.sampleRate) &&
     isNumber(value.bitsPerSample) &&
+    isNullableNumber(value.dsdMultiple) &&
     isNumber(value.channels) &&
     isNullableNumber(value.durationSeconds) &&
     (value.output === null || isOutput(value.output)) &&

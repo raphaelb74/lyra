@@ -122,7 +122,7 @@ Enumerate ALSA cards, devices, hardware PCM rates/formats, and whether exclusive
 ## 11. Decisions pending hardware testing
 
 - ZEN ONE exposes `DSD_U32_BE` (native DSD up to DSD256 by descriptor). Does playback confirm it, and which USB quirks apply? Is its USB volume control digital (bit-perfect only at maximum)?
-- How to get exclusive access while PipeWire is running? When WirePlumber has the USB DAC as an active sink it usually holds the `hw:` device, so a direct open fails with `EBUSY`. Expect this as the common case on Mint, not an edge case: detect it, report it clearly (A06), and document how to release the device (e.g. disable the DAC's PipeWire node or use device reservation).
+- How to get exclusive access while PipeWire is running? When WirePlumber has the USB DAC as an active sink it usually holds the `hw:` device, so a direct open fails with `EBUSY`. Expect this as the common case on Mint, not an edge case: detect it, report it clearly (A06), and document how to release the device (done in M1: switch the card's PipeWire profile off). Planned for M5: request the device through `org.freedesktop.ReserveDevice1` so PipeWire releases it and gets it back automatically.
 - What period/buffer sizes provide stable playback without excessive latency?
 - Which exact metadata parser supports required DSF/DFF tags? Verify crate capabilities before adoption.
 - How to manage PCM↔DSD and rate changes without audible transients?

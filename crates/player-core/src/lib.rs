@@ -7,9 +7,11 @@
 pub mod mock;
 mod player;
 mod sink;
+mod source;
 mod status;
 mod writer;
 
 pub use player::{POOL_SIZE, Player};
-pub use sink::{AudioSink, HardwareVolume, OutputFormat, SinkError, SinkErrorKind};
+pub use sink::{AudioSink, HardwareVolume, OutputFormat, PcmStream, SinkError, SinkErrorKind};
+pub use source::{SourceInfo, Transport};
 pub use status::{BitPerfect, ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus};

@@ -1,9 +1,11 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use format_pcm::{DecodeError, StreamInfo};
+use format_dsd::DsdError;
+use format_pcm::DecodeError;
 
 use crate::sink::{HardwareVolume, OutputFormat, SinkError, SinkErrorKind};
+use crate::source::SourceInfo;
 
 /// Playback states. Every change is published as a [`PlayerStatus`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,12 +80,28 @@ impl From<DecodeError> for PlayerError {
     }
 }
 
+impl From<DsdError> for PlayerError {
+    fn from(error: DsdError) -> Self {
+        let kind = match error {
+            DsdError::Unsupported(_) => ErrorKind::Unsupported,
+            DsdError::Io(_)
+            | DsdError::NotDsd
+            | DsdError::Malformed(_)
+            | DsdError::SeekOutOfRange => ErrorKind::InvalidFile,
+        };
+        Self {
+            kind,
+            message: error.to_string(),
+        }
+    }
+}
+
 /// The track being played and how it reaches the DAC.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NowPlaying {
     pub path: PathBuf,
     pub device: String,
-    pub source: StreamInfo,
+    pub source: SourceInfo,
     /// Set once the device accepted the stream.
     pub output: Option<OutputFormat>,
 }
@@ -108,9 +126,10 @@ impl NowPlaying {
     /// is refused), so the remaining question is the device's own volume.
     pub fn bit_perfect(&self) -> Option<BitPerfect> {
         let output = self.output?;
-        let exact = output.sample_rate == self.source.sample_rate
-            && output.channels == self.source.channels
-            && output.encoding.bits() >= self.source.bits_per_sample;
+        let wanted = self.source.pcm_stream();
+        let exact = output.sample_rate == wanted.sample_rate
+            && output.channels == wanted.channels
+            && output.encoding.bits() >= wanted.bits_per_sample;
         if !exact {
             return Some(BitPerfect::No {
                 reason: "output format differs from the source".into(),
@@ -159,6 +178,7 @@ mod tests {
 
     use super::{BitPerfect, NowPlaying};
     use crate::sink::{HardwareVolume, OutputFormat};
+    use crate::source::SourceInfo;
 
     fn playing(volume: HardwareVolume) -> NowPlaying {
         let source = StreamInfo {
@@ -177,7 +197,7 @@ mod tests {
         NowPlaying {
             path: PathBuf::new(),
             device: String::new(),
-            source,
+            source: SourceInfo::Pcm(source),
             output: Some(output),
         }
     }

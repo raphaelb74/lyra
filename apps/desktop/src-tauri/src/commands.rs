@@ -43,12 +43,15 @@ impl AppState {
     }
 }
 
-/// FLAC and WAV, by extension; content is checked when the file is opened.
+/// FLAC, WAV, DSF and DFF, by extension; content is checked when the file is
+/// opened (so a macOS `._` file named `.dsf` is refused there).
 pub fn is_playable(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("flac") || extension.eq_ignore_ascii_case("wav")
+            ["flac", "wav", "dsf", "dff"]
+                .iter()
+                .any(|known| extension.eq_ignore_ascii_case(known))
         })
 }
 
@@ -110,7 +113,7 @@ pub fn seek(seconds: f64, state: State<'_, AppState>) -> Result<(), IpcError> {
         .player
         .status()
         .track
-        .map(|track| track.source.sample_rate)
+        .map(|track| track.source.frame_rate())
     else {
         return Err(IpcError::invalid_request("Nothing is playing."));
     };
@@ -132,7 +135,7 @@ pub fn get_position(state: State<'_, AppState>) -> f64 {
         .player
         .status()
         .track
-        .map_or(0, |track| track.source.sample_rate);
+        .map_or(0, |track| track.source.frame_rate());
     if rate == 0 {
         0.0
     } else {
@@ -159,6 +162,8 @@ mod tests {
     fn plays_flac_and_wav_only() {
         assert!(is_playable(Path::new("/music/a.flac")));
         assert!(is_playable(Path::new("/music/B.WAV")));
+        assert!(is_playable(Path::new("/music/c.dsf")));
+        assert!(is_playable(Path::new("/music/d.DFF")));
         assert!(!is_playable(Path::new("/music/c.mp3")));
         assert!(!is_playable(Path::new("/music/noext")));
     }

@@ -274,3 +274,89 @@ fn stop_releases_the_device() {
         );
     });
 }
+
+fn dsd_fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../format-dsd/tests/fixtures")
+        .join(name)
+}
+
+/// The DFF sound chunk: canonical DSD frames (MSB first, interleaved).
+fn dsd_reference() -> Vec<u8> {
+    let bytes = std::fs::read(dsd_fixture("dsd64_stereo.dff")).unwrap();
+    let mut at = 16;
+    loop {
+        let size = usize::try_from(u64::from_be_bytes(
+            bytes[at + 4..at + 12].try_into().unwrap(),
+        ))
+        .unwrap();
+        if &bytes[at..at + 4] == b"DSD " {
+            return bytes[at + 12..at + 12 + size].to_vec();
+        }
+        at += 12 + size + size % 2;
+    }
+}
+
+#[test]
+fn dop_carries_every_dsd_bit_with_alternating_markers() {
+    for name in ["dsd64_stereo.dsf", "dsd64_stereo.dff"] {
+        let mut sink = MockSink::new();
+        sink.rates.push(176_400);
+        sink.hardware_volume = HardwareVolume::Unity;
+        let recorder = sink.recorder.clone();
+        let (player, updates) = start(sink);
+        player.play(dsd_fixture(name), DEVICE.into()).unwrap();
+
+        let (status, _) = wait_for(&updates, PlaybackState::Stopped);
+        let output = status.track.unwrap().output.unwrap();
+        assert_eq!(
+            (output.encoding, output.sample_rate),
+            (SampleEncoding::S24In3Le, 176_400)
+        );
+        drop(player);
+
+        recorder.with(|recording| {
+            // S24_3LE stereo: [newer, older, marker] per channel.
+            let mut dsd = Vec::new();
+            for (index, frame) in recording.bytes.as_chunks::<6>().0.iter().enumerate() {
+                let marker = if index % 2 == 0 { 0x05 } else { 0xFA };
+                assert_eq!(
+                    (frame[2], frame[5]),
+                    (marker, marker),
+                    "{name}: marker at DoP frame {index}"
+                );
+                dsd.extend_from_slice(&[frame[1], frame[4], frame[0], frame[3]]);
+            }
+            assert_same_bytes(&dsd, &dsd_reference(), name);
+        });
+    }
+}
+
+#[test]
+fn dop_is_refused_unless_the_dac_volume_is_known_to_be_untouched() {
+    for volume in [
+        HardwareVolume::Unknown,
+        HardwareVolume::Attenuated { centibels: -600 },
+    ] {
+        let mut sink = MockSink::new();
+        sink.rates.push(176_400);
+        sink.hardware_volume = volume;
+        let recorder = sink.recorder.clone();
+        let (player, updates) = start(sink);
+        player
+            .play(dsd_fixture("dsd64_stereo.dsf"), DEVICE.into())
+            .unwrap();
+
+        let error = wait_for(&updates, PlaybackState::Error).0.error.unwrap();
+        assert_eq!(error.kind, ErrorKind::Unsupported, "{volume:?}");
+        drop(player);
+        recorder.with(|recording| {
+            assert!(
+                !recording
+                    .calls
+                    .iter()
+                    .any(|call| matches!(call, SinkCall::Write { .. }))
+            );
+        });
+    }
+}

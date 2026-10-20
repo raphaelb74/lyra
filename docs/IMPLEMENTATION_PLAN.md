@@ -30,11 +30,11 @@ Hardware results (exact format and rate, busy device, unplug, DAC volume at 0 dB
 
 ## M2 — DSF, DFF, DoP
 
-- [ ] Implement validated DSF/DFF readers with bounded allocations.
-- [ ] Add golden fixtures for stereo, block boundaries, seek, truncated/corrupt files.
-- [ ] Implement and unit-test DoP framing and endian handling.
-- [ ] Implement DoP device negotiation, output policy and diagnostics.
-- [ ] Validate DSD64/128 on physical DAC.
+- [x] Implement validated DSF/DFF readers with bounded allocations.
+- [x] Add golden fixtures for stereo, block boundaries, seek, truncated/corrupt files (`scripts/make-dsd-fixtures.py`).
+- [x] Implement and unit-test DoP framing and endian handling.
+- [x] Implement DoP device negotiation, output policy and diagnostics. DoP only at 0 dB USB volume; channel counts the DAC lacks are refused.
+- [ ] Validate DSD64/128 on physical DAC. DSD64 plays on the ZEN ONE (176.4 kHz carrier); DSD128 and the DAC indicator pending.
 
 **Done when:** test fixtures verify exact DSD bytes and DAC recognizes DoP.
 
@@ -59,7 +59,9 @@ Hardware results (exact format and rate, busy device, unplug, DAC volume at 0 dB
 ## M5 — Production hardening
 
 - [ ] Gapless and seek regression tests; unplug/replug tests; buffer underrun diagnostics.
-- [ ] MPRIS integration, packaging and icons.
+- [ ] MPRIS integration and icons.
+- [ ] Take the DAC from PipeWire cleanly: request it through the device-reservation D-Bus protocol (`org.freedesktop.ReserveDevice1`), which PipeWire/WirePlumber honor, and hand it back when Lyra releases it. One D-Bus client (`zbus`) serves this and MPRIS.
+- [ ] Packages for recent distributions: `.deb`, `.rpm`, AppImage, Flatpak (needs explicit ALSA device access in the sandbox), AUR. Test each on a real install.
 - [ ] Parser fuzzing, dependency license/security audit, log privacy review.
 - [ ] Release notes, installation instructions, hardware compatibility report.
 

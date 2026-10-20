@@ -47,7 +47,7 @@
       <small>{sourceLabel(track)} · {status.state}</small>
     {:else}
       <strong>Nothing playing</strong>
-      <small>Drop a FLAC or WAV file onto the window</small>
+      <small>Drop a FLAC, WAV, DSF or DFF file onto the window</small>
     {/if}
   </div>
   <div class="transport">

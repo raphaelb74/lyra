@@ -1,6 +1,6 @@
 [package]
 name = "format-dsd"
-description = "DSF/DFF parsing and DoP packing"
+description = "DSF/DFF readers and DoP packing"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 publish = false
+
+[dependencies]
+format-pcm.workspace = true
 
 [lints]
 workspace = true

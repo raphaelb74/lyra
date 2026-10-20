@@ -1,7 +1,8 @@
 //! Playback controller.
 //!
 //! Two threads, no async runtime:
-//! - the **controller** owns the decoder, handles commands, and packs audio
+//! - the **controller** owns the source (decoder or DSD reader), handles
+//!   commands, and packs audio
 //!   into a fixed pool of byte buffers;
 //! - the **writer** owns the sink and only moves full buffers to it.
 //!
@@ -19,9 +20,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle, Thread};
 use std::time::Duration;
 
-use format_pcm::Decoder;
-
-use crate::sink::{AudioSink, OutputFormat};
+use crate::sink::{AudioSink, HardwareVolume, OutputFormat};
+use crate::source::{Source, Transport};
 use crate::status::{ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus};
 use crate::writer::{Chunk, ToWriter, Writer, WriterEvent};
 
@@ -217,7 +217,7 @@ impl Drop for Player {
 }
 
 struct Track {
-    decoder: Decoder,
+    source: Source,
     generation: u64,
     output: Option<OutputFormat>,
     next_frame: u64,
@@ -317,28 +317,28 @@ impl Controller {
             }
         });
 
-        let decoder = match Decoder::open(&path) {
-            Ok(decoder) => decoder,
-            Err(error) => return self.fail(error.into()),
+        let source = match Source::open(&path) {
+            Ok(source) => source,
+            Err(error) => return self.fail(error),
         };
-        let source = *decoder.info();
+        let info = source.info();
         let generation = self.shared.next_generation();
         self.update(|status| {
             status.state = PlaybackState::Negotiating;
             status.track = Some(NowPlaying {
                 path,
                 device: device.clone(),
-                source,
+                source: info,
                 output: None,
             });
         });
         self.to_writer(ToWriter::Open {
             generation,
             device,
-            stream: source,
+            stream: info.pcm_stream(),
         });
         self.track = Some(Track {
-            decoder,
+            source,
             generation,
             output: None,
             next_frame: 0,
@@ -352,8 +352,8 @@ impl Controller {
         if track.output.is_none() {
             return;
         }
-        if let Err(error) = track.decoder.seek(frame) {
-            return self.fail(error.into());
+        if let Err(error) = track.source.seek(frame) {
+            return self.fail(error);
         }
         track.generation = self.shared.next_generation();
         track.next_frame = frame;
@@ -384,6 +384,11 @@ impl Controller {
             WriterEvent::Opened {
                 result: Ok(output), ..
             } => {
+                if let Err(error) =
+                    dop_allowed(track.source.info().transport(), output.hardware_volume)
+                {
+                    return self.fail(error);
+                }
                 track.output = Some(output);
                 track.decoding = true;
                 self.update(|status| {
@@ -423,11 +428,10 @@ impl Controller {
             // Writer busy or paused: check commands, then try again.
             Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return,
         };
-        match track.decoder.decode_next(&mut self.samples) {
-            Ok(true) => {
+        match track.source.next(&mut self.samples) {
+            Ok(Some(frames)) => {
                 buffer.clear();
                 output.encoding.pack(&self.samples, &mut buffer);
-                let frames = (self.samples.len() / output.channels) as u64;
                 let chunk = Chunk {
                     generation: track.generation,
                     start_frame: track.next_frame,
@@ -437,7 +441,7 @@ impl Controller {
                 track.next_frame += frames;
                 self.to_writer(ToWriter::Chunk(chunk));
             }
-            Ok(false) => {
+            Ok(None) => {
                 track.decoding = false;
                 let generation = track.generation;
                 let _ = self.free_tx.send(buffer);
@@ -445,7 +449,7 @@ impl Controller {
             }
             Err(error) => {
                 let _ = self.free_tx.send(buffer);
-                self.fail(error.into());
+                self.fail(error);
             }
         }
     }
@@ -491,5 +495,22 @@ impl Controller {
             status.clone()
         };
         (self.on_change)(&snapshot);
+    }
+}
+
+/// DoP only reaches a DAC whose volume is known to be untouched. Attenuated
+/// DoP breaks the markers, and a device that does not decode DoP plays it as
+/// loud noise; a USB DAC at 0 dB (or without volume control) is the safe case.
+fn dop_allowed(transport: Transport, volume: HardwareVolume) -> Result<(), PlayerError> {
+    match (transport, volume) {
+        (Transport::Pcm, _) | (Transport::Dop, HardwareVolume::Unity | HardwareVolume::None) => {
+            Ok(())
+        }
+        (Transport::Dop, _) => Err(PlayerError {
+            kind: ErrorKind::Unsupported,
+            message:
+                "DSD over DoP needs a USB DAC with its volume at 0 dB; this device's volume is not."
+                    .into(),
+        }),
     }
 }
