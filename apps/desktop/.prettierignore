@@ -1,0 +1,7 @@
+node_modules
+dist
+package-lock.json
+src-tauri/gen
+src-tauri/icons
+# Vendored upstream code keeps its own formatting (see tools/anti-slop/UPSTREAM.md).
+tools/anti-slop

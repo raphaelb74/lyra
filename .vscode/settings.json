@@ -1,0 +1,24 @@
+{
+  // rust-analyzer builds in target/rust-analyzer so it never fights terminal
+  // builds for the cargo lock or invalidates their artifacts.
+  "rust-analyzer.cargo.targetDir": true,
+  // Fewer parallel compiler jobs for background checks: less memory pressure.
+  "rust-analyzer.check.extraArgs": ["--jobs", "2"],
+  "rust-analyzer.numThreads": 2,
+  "rust-analyzer.cachePriming.numThreads": 1,
+
+  // Huge generated folders: don't watch or search them.
+  "files.watcherExclude": {
+    "**/target/**": true,
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/artifacts/**": true,
+    "**/src-tauri/gen/**": true
+  },
+  "search.exclude": {
+    "**/target": true,
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/artifacts": true
+  }
+}

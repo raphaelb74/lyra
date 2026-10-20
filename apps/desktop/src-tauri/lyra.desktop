@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Lyra
+Comment=Local music player
+Exec={{exec}}
+Icon={{icon}}
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=Music;Audio;DSD;PCM;
+StartupWMClass=lyra-desktop

@@ -1,0 +1,52 @@
+# cargo-deny policy: `cargo deny check` (runs in scripts/check.sh and CI).
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Lyra ships for Linux x86_64 only; ignore dependencies of other platforms.
+targets = ["x86_64-unknown-linux-gnu"]
+
+[advisories]
+# RustSec advisories: vulnerable, unmaintained, or yanked crates fail the check.
+yanked = "deny"
+# Add an entry only with a reason and a removal plan, e.g.
+# { id = "RUSTSEC-0000-0000", reason = "not reachable: …; remove after upgrading X" }
+ignore = [
+  # Both come from gtk-rs 0.18, which Tauri 2 pins for WebKitGTK 4.1 on Linux.
+  # Remove when Tauri moves to newer GTK bindings.
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error is unmaintained; compile-time only, inside glib-macros" },
+]
+# `cargo audit` also warns about RUSTSEC-2024-0429 (glib VariantStrIter
+# unsoundness, same gtk-rs 0.18 origin); cargo-deny does not flag it, and Lyra
+# never uses glib Variant APIs.
+
+[licenses]
+# Permissive licenses compatible with distributing an MIT application.
+# MPL-2.0 is file-level copyleft (Tauri's HTML/CSS parsers): fine unmodified.
+# No GPL/AGPL/LGPL-only crates (AGENTS.md); dual-licensed crates pass via
+# their permissive option.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "Zlib",
+  "Unicode-3.0",
+  "MPL-2.0",
+]
+confidence-threshold = 0.93
+
+[licenses.private]
+# Our own unpublished workspace crates.
+ignore = true
+
+[bans]
+# Tauri pulls duplicate versions of some crates; report, don't fail.
+multiple-versions = "warn"
+# `version = "*"` makes builds unreproducible.
+wildcards = "deny"
+
+[sources]
+# Only crates.io; no git or third-party registries without review.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

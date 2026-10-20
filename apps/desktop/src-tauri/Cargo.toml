@@ -1,0 +1,31 @@
+[package]
+name = "lyra-desktop"
+description = "Lyra desktop shell: Tauri adapter between the Svelte UI and the Rust engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "lyra_desktop_lib"
+
+[features]
+# Set by `tauri build`: serve the bundled frontend instead of the dev server.
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+serde = { workspace = true }
+tauri = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tauri = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true

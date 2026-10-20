@@ -1,0 +1,8 @@
+# Tests may unwrap/expect/panic: a failing test should fail loudly.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-dbg-in-tests = true
+
+# Audio terms that are words, not code; ".." keeps Clippy's defaults.
+doc-valid-idents = ["DoP", "DSD", "DSF", "DFF", "DSDIFF", "ALSA", "PipeWire", "WirePlumber", "MPRIS", ".."]

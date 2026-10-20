@@ -1,0 +1,33 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #11161d;
+  color: #edf1ee;
+  font-family: system-ui, sans-serif;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: #263a36;
+  border: 1px solid #577369;
+  padding: 11px 17px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #b4d9cb;
+  outline-offset: 4px;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
