@@ -63,7 +63,7 @@ pub(crate) enum Command {
 pub struct Player {
     inbox: Sender<Inbox>,
     shared: Arc<Shared>,
-    controller: Option<JoinHandle<()>>,
+    controller: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl fmt::Debug for Player {
@@ -127,7 +127,7 @@ impl Player {
         Ok(Self {
             inbox: inbox_tx,
             shared,
-            controller: Some(controller),
+            controller: Mutex::new(Some(controller)),
         })
     }
 
@@ -177,12 +177,26 @@ impl Player {
     }
 }
 
-impl Drop for Player {
-    fn drop(&mut self) {
+impl Player {
+    /// Stops playback, releases the device (restoring anything the sink
+    /// changed) and joins the engine threads. Later commands fail. Called by
+    /// `Drop`; call it explicitly where `Drop` may not run (app exit).
+    pub fn shutdown(&self) {
         let _ = self.inbox.send(Inbox::Command(Command::Shutdown));
-        if let Some(controller) = self.controller.take() {
+        let controller = self
+            .controller
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(controller) = controller {
             let _ = controller.join();
         }
+    }
+}
+
+impl Drop for Player {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 

@@ -12,4 +12,4 @@ mod writer;
 
 pub use player::{POOL_SIZE, Player};
 pub use sink::{AudioSink, HardwareVolume, OutputFormat, SinkError, SinkErrorKind};
-pub use status::{ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus};
+pub use status::{BitPerfect, ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus};

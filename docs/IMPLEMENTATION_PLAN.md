@@ -20,11 +20,13 @@ Validated on Linux Mint 22.3 on 20 October 2026. All acceptance checks pass; see
 - [x] Implement an output abstraction (`AudioSink`) and a mock sink.
 - [x] Decode WAV/FLAC via Symphonia (verify supported features). Integer PCM only; float WAV and >2 channels are refused.
 - [x] Build playback controller, bounded buffering, stop/pause/seek, error handling.
-- [ ] Define the IPC error format (code + message) used by fallible commands.
+- [x] Define the IPC error format (code + message) used by fallible commands. `IpcError { code, message }` in `src-tauri/src/ipc.rs`, mirrored in `src/lib/ipc.ts`.
 - [x] Handle a DAC held by PipeWire/WirePlumber: clear "device busy" error naming the holder where possible; document how to release the device.
 - [x] Verify direct `hw:` PCM output, rate changes, and no implicit resampling.
 
 **Done when:** 16/44.1 and 24/96 test files play bit-perfectly through the iFi ZEN ONE (`hw:CARD=ONE,DEV=0`), with the result recorded in `docs/hardware/ifi-zen-one.md`.
+
+Hardware results (exact format and rate, busy device, unplug, DAC volume at 0 dB) are in the [ZEN ONE report](hardware/ifi-zen-one.md). The desktop app plays dropped FLAC/WAV files on a chosen `hw:` device.
 
 ## M2 — DSF, DFF, DoP
 

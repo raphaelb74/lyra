@@ -29,9 +29,18 @@ pub struct Device {
     pub card_id: String,
     /// Long card name, e.g. `iFi (by AMR) ZEN One at usb-0000:00:14.0-2, high speed`.
     pub card_name: String,
+    /// Kernel driver, e.g. `USB-Audio` or `HDA-Intel`.
+    pub driver: String,
     pub device: u32,
     /// PCM name, e.g. `USB Audio`.
     pub pcm_name: String,
+}
+
+impl Device {
+    /// A USB Audio class device: the usual external DAC.
+    pub fn is_usb(&self) -> bool {
+        self.driver == "USB-Audio"
+    }
 }
 
 /// Native DSD sample layouts ALSA can expose.
@@ -104,6 +113,7 @@ pub fn list_playback_devices() -> Result<Vec<Device>, alsa::Error> {
         let info = ctl.card_info()?;
         let card_id = info.get_id()?.to_owned();
         let card_name = info.get_longname()?.to_owned();
+        let driver = info.get_driver()?.to_owned();
         for device in alsa::ctl::DeviceIter::new(&ctl) {
             let Ok(device) = u32::try_from(device) else {
                 continue;
@@ -117,6 +127,7 @@ pub fn list_playback_devices() -> Result<Vec<Device>, alsa::Error> {
                 card_index: card.get_index(),
                 card_id: card_id.clone(),
                 card_name: card_name.clone(),
+                driver: driver.clone(),
                 device,
                 pcm_name: pcm_info.get_name()?.to_owned(),
             });
