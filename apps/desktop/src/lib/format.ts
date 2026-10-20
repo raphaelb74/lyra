@@ -1,13 +1,19 @@
 import type { Output, Track } from './ipc';
 
-/** `FLAC 24/96`, `WAV 16/44.1`. */
+/** `FLAC 24/96`, `WAV 16/44.1`, `DSD64 · DSF`. */
 export function sourceLabel(track: Track): string {
+  if (track.dsdMultiple !== null) {
+    return `DSD${String(track.dsdMultiple)} · ${track.codec.toUpperCase()}`;
+  }
+
   return `${track.codec.toUpperCase()} ${String(track.bitsPerSample)}/${kilohertz(track.sampleRate)}`;
 }
 
-/** `S24_3LE · 96 kHz`. */
+/** `S24_3LE · 96 kHz`, `DoP · S24_3LE · 176.4 kHz`. */
 export function outputLabel(output: Output): string {
-  return `${output.format} · ${kilohertz(output.sampleRate)} kHz`;
+  const pcm = `${output.format} · ${kilohertz(output.sampleRate)} kHz`;
+
+  return output.transport === 'dop' ? `DoP · ${pcm}` : pcm;
 }
 
 /** `44.1`, `96`, `352.8`. */

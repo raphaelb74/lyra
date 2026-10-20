@@ -6,8 +6,12 @@
 use std::path::Path;
 
 use audio_alsa::Device;
+use format_dsd::Container;
 use format_pcm::{Codec, SampleEncoding};
-use player_core::{BitPerfect, ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus};
+use player_core::{
+    BitPerfect, ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus, SourceInfo,
+    Transport,
+};
 use serde::Serialize;
 
 /// Response of the `get_app_info` command.
@@ -102,9 +106,14 @@ pub struct Status {
 pub struct Track {
     pub file_name: String,
     pub device: String,
+    /// `flac`, `wav`, `dsf` or `dff`.
     pub codec: &'static str,
+    /// PCM sample rate, or DSD bit rate per channel.
     pub sample_rate: u32,
+    /// 1 for DSD.
     pub bits_per_sample: u32,
+    /// 64 for DSD64, …; `None` for PCM.
+    pub dsd_multiple: Option<u32>,
     pub channels: usize,
     pub duration_seconds: Option<f64>,
     pub output: Option<Output>,
@@ -114,6 +123,8 @@ pub struct Track {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Output {
+    /// `pcm` or `dop`.
+    pub transport: &'static str,
     /// ALSA format name, e.g. `S24_3LE`.
     pub format: &'static str,
     pub sample_rate: u32,
@@ -140,20 +151,42 @@ impl From<&PlayerStatus> for Status {
 impl From<&NowPlaying> for Track {
     fn from(now: &NowPlaying) -> Self {
         let source = now.source;
+        let (codec, sample_rate, bits_per_sample, dsd_multiple) = match source {
+            SourceInfo::Pcm(info) => (
+                match info.codec {
+                    Codec::Flac => "flac",
+                    Codec::Wav => "wav",
+                },
+                info.sample_rate,
+                info.bits_per_sample,
+                None,
+            ),
+            SourceInfo::Dsd(info) => (
+                match info.container {
+                    Container::Dsf => "dsf",
+                    Container::Dff => "dff",
+                },
+                info.dsd_rate,
+                1,
+                Some(info.multiple()),
+            ),
+        };
         Self {
             file_name: file_name(&now.path),
             device: now.device.clone(),
-            codec: match source.codec {
-                Codec::Flac => "flac",
-                Codec::Wav => "wav",
-            },
-            sample_rate: source.sample_rate,
-            bits_per_sample: source.bits_per_sample,
-            channels: source.channels,
+            codec,
+            sample_rate,
+            bits_per_sample,
+            dsd_multiple,
+            channels: source.channels(),
             duration_seconds: source
-                .total_frames
-                .map(|frames| frames_to_seconds(frames, source.sample_rate)),
+                .total_frames()
+                .map(|frames| frames_to_seconds(frames, source.frame_rate())),
             output: now.output.map(|output| Output {
+                transport: match source.transport() {
+                    Transport::Pcm => "pcm",
+                    Transport::Dop => "dop",
+                },
                 format: alsa_format_name(output.encoding),
                 sample_rate: output.sample_rate,
                 channels: output.channels,

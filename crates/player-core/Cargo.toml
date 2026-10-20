@@ -10,6 +10,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+format-dsd.workspace = true
 format-pcm.workspace = true
 
 [lints]

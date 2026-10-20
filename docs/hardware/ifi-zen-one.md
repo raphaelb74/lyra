@@ -1,6 +1,6 @@
 # iFi ZEN ONE — hardware report
 
-Status: **PCM playback verified (M1)**, see [Playback results](#playback-results-m1). DoP and native DSD (M2/M3) are descriptor evidence only.
+Status: **PCM verified (M1); DoP DSD64 and DSD128 verified (M2)**, see [Playback results](#playback-results-m1) and [DoP](#dop-m2). Native DSD (M3) is descriptor evidence only.
 
 Collected 2026-10-20 with `scripts/probe-dac.sh` (read-only; the PCM device was never opened).
 
@@ -70,6 +70,17 @@ pactl set-card-profile alsa_card.usb-iFi__by_AMR__ZEN_ONE_0025-00 output:analog-
 
 **Unplug mid-track (A05):** pulling the USB cable 6 s into the 24/96 file gave `DeviceNotFound: hw:CARD=ONE,DEV=0 was disconnected`; the player stopped cleanly, without a crash, hang, or switch to another device.
 
+## DoP (M2)
+
+2026-10-20, Lyra desktop app, DSF DSD64 stereo from the user's library, PipeWire running.
+
+| Source | Lyra output | Kernel `hw_params` (during playback) | Buffer / period | Device owner | USB volume |
+| --- | --- | --- | --- | --- | --- |
+| DSF DSD64, 2 ch | DoP, `S24_3LE`, 176400, 2 ch | `S24_3LE`, 176400 (176400/1), 2 ch, `RUNNING` | 44100 / 11025 frames | `lyra-writer` | 32512 (0 dB) |
+| DSF DSD128, 2 ch | DoP, `S24_3LE`, 352800, 2 ch | `S24_3LE`, 352800 (352800/1), 2 ch, `RUNNING` | 88200 / 22050 frames | `lyra-writer` | 32512 (0 dB) |
+
+The user confirmed playback on the DAC, and the ZEN ONE's format LED changes colour to its DSD indication: the DAC recognises the DoP markers (supporting evidence, not proof of bit-exactness). The engine tests prove the DoP stream carries every DSD bit of the file with alternating `0x05`/`0xFA` markers (DSF and DFF); DoP is refused unless the USB volume is at 0 dB or absent.
+
 ## Bit-perfect risks found
 
 1. **USB volume control.** The device exposes hardware volume (`'ZEN ONE ',0`, 0–32512). It was at 32511 = **−0.01 dB**, not 0 dB; PipeWire had set it. The ZEN ONE has no volume knob: this control is only visible to software. If the XMOS firmware applies it digitally, any setting below maximum alters samples. Set to 0 dB with `amixer -c ONE cset numid=4 32512,32512 && amixer -c ONE cset numid=5 32512`; it stayed at 0 dB after PipeWire used the device again, but **after unplugging and replugging it was back at 32511**, so setting it once is not enough. **Lyra now handles it** (`audio-alsa` `volume.rs`): on USB Audio cards, a control within 0.5 dB of 0 dB is set to exactly 0 dB while Lyra holds the device and restored on release (verified: 32511 → 32512 during playback → 32511 after). Lower settings are left alone and reported as attenuated (not bit-perfect), since on a headphone DAC they are the listening level.
@@ -81,5 +92,7 @@ pactl set-card-profile alsa_card.usb-iFi__by_AMR__ZEN_ONE_0025-00 output:analog-
 - [x] Busy device reported with the holding process (A06).
 - [x] Rate switching between 44.1 and 48 kHz families: no audible clicks (listening test).
 - [ ] Behaviour of the hardware volume control (digital or analog).
-- [ ] DoP DSD64/128 recognised (M2); native DSD64/128/256 (M3).
+- [x] DoP DSD64 plays at the 176.4 kHz carrier; the DAC indicates DSD (M2).
+- [x] DoP DSD128 plays at the 352.8 kHz carrier; the DAC indicates DSD (M2).
+- [ ] Native DSD64/128/256 (M3).
 - [x] Unplug mid-track → controlled error (A05).

@@ -104,7 +104,7 @@
       onFilesDropped((dropped) => {
         dropNotice =
           dropped.length === 0
-            ? 'Only FLAC and WAV files can be played.'
+            ? 'Only FLAC, WAV, DSF and DFF files can be played.'
             : null;
         const known = new Set(files.map((f) => f.path));
 
@@ -227,7 +227,7 @@
         {/if}
         <p class="drop">
           {dropNotice ??
-            'Drop FLAC or WAV files anywhere on this window, then choose one to play.'}
+            'Drop FLAC, WAV, DSF or DFF files anywhere on this window, then choose one to play.'}
         </p>
       </section>
     </main>

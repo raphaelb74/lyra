@@ -1,6 +1,16 @@
 use std::fmt;
 
-use format_pcm::{SampleEncoding, StreamInfo};
+use format_pcm::SampleEncoding;
+
+/// What the device must accept: integer PCM at an exact rate. DoP is PCM
+/// here (24-bit at the carrier rate); only the source knows it carries DSD.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PcmStream {
+    pub sample_rate: u32,
+    pub channels: usize,
+    /// Significant bits per sample; the layout must hold all of them.
+    pub bits_per_sample: u32,
+}
 
 /// The exact format the DAC was opened with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,7 +43,7 @@ impl OutputFormat {
     /// own rate and channel count. `None` means the stream cannot be played
     /// bit-perfectly: no rate or channel change is ever made.
     pub fn negotiate(
-        stream: &StreamInfo,
+        stream: &PcmStream,
         mut accepts: impl FnMut(SampleEncoding) -> bool,
     ) -> Option<Self> {
         SampleEncoding::lossless_for(stream.bits_per_sample)
@@ -89,7 +99,7 @@ impl std::error::Error for SinkError {}
 pub trait AudioSink: Send + 'static {
     /// Opens `device` for exactly this stream, closing any previous stream.
     /// Fails with [`SinkErrorKind::Unsupported`] instead of adapting.
-    fn open(&mut self, device: &str, stream: &StreamInfo) -> Result<OutputFormat, SinkError>;
+    fn open(&mut self, device: &str, stream: &PcmStream) -> Result<OutputFormat, SinkError>;
 
     /// Writes interleaved frames in the opened format; returns once all of
     /// `bytes` is queued on the device.

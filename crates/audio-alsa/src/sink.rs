@@ -5,8 +5,7 @@ use std::time::Duration;
 
 use alsa::pcm::{Access, HwParams, State};
 use alsa::{PCM, ValueOr};
-use format_pcm::StreamInfo;
-use player_core::{AudioSink, OutputFormat, SinkError, SinkErrorKind};
+use player_core::{AudioSink, OutputFormat, PcmStream, SinkError, SinkErrorKind};
 
 use crate::device::{alsa_format, open};
 use crate::error::{AlsaError, errno};
@@ -70,7 +69,7 @@ impl AlsaSink {
 }
 
 impl AudioSink for AlsaSink {
-    fn open(&mut self, device: &str, stream: &StreamInfo) -> Result<OutputFormat, SinkError> {
+    fn open(&mut self, device: &str, stream: &PcmStream) -> Result<OutputFormat, SinkError> {
         self.close();
         let fail = |error| {
             sink_error(&AlsaError::from_alsa(

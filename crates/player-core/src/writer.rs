@@ -6,10 +6,8 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
-use format_pcm::StreamInfo;
-
 use crate::player::{Inbox, Shared};
-use crate::sink::{AudioSink, OutputFormat, SinkError};
+use crate::sink::{AudioSink, OutputFormat, PcmStream, SinkError};
 
 /// How often a paused writer re-checks for resume, seek or stop.
 const PAUSE_POLL: Duration = Duration::from_millis(20);
@@ -30,7 +28,7 @@ pub(crate) enum ToWriter {
     Open {
         generation: u64,
         device: String,
-        stream: StreamInfo,
+        stream: PcmStream,
     },
     Chunk(Chunk),
     /// End of track: play out what is queued.

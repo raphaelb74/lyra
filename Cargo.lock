@@ -862,6 +862,9 @@ dependencies = [
 [[package]]
 name = "format-dsd"
 version = "0.1.0"
+dependencies = [
+ "format-pcm",
+]
 
 [[package]]
 name = "format-pcm"
@@ -1785,6 +1788,7 @@ name = "lyra-desktop"
 version = "0.1.0"
 dependencies = [
  "audio-alsa",
+ "format-dsd",
  "format-pcm",
  "player-core",
  "serde",
@@ -2290,6 +2294,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 name = "player-core"
 version = "0.1.0"
 dependencies = [
+ "format-dsd",
  "format-pcm",
 ]
 
