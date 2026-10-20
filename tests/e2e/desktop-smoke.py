@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Exercise the actual WebKitGTK window and Rust IPC through tauri-driver.
 
-Requires a custom-protocol native build (tauri build --debug), tauri-driver,
-WebKitWebDriver (webkit2gtk-driver), and a display (xvfb-run in CI).
-Uses only the Python standard library. Never opens an audio device.
+Launches the binary packaged by `tauri build --debug --bundles deb`
+(scripts/check.sh). That copy embeds the frontend; target/debug/lyra-desktop
+may have been overwritten by `tauri dev`, which expects a dev server.
+Requires tauri-driver, WebKitWebDriver (webkit2gtk-driver), and a display
+(xvfb-run in CI). Uses only the Python standard library. Never opens an
+audio device.
 """
 import base64
 import json
@@ -24,16 +27,23 @@ def unused_port():
         return connection.getsockname()[1]
 
 
+def packaged_binary():
+    matches = sorted(ROOT.glob('target/debug/bundle/deb/*/data/usr/bin/lyra-desktop'))
+    if not matches:
+        raise SystemExit('No packaged binary; run scripts/check.sh (tauri build --debug --bundles deb) first.')
+    return matches[-1]
+
+
 PORT = unused_port()
 BASE = f'http://127.0.0.1:{PORT}'
 
 
-def request(method, path, body=None):
+def request(method, path, body=None, timeout=30):
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(BASE + path, data=data, method=method,
                                  headers={'Content-Type': 'application/json'})
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             value = json.load(response)['value']
     except urllib.error.HTTPError as error:
         raise RuntimeError(error.read().decode()) from error
@@ -65,9 +75,11 @@ def main():
         driver = subprocess.Popen(command, stdout=log, stderr=log)
         try:
             wait_for(lambda: request('GET', '/status'))
+            # Session creation launches the app; a cold CI runner needs far longer
+            # than a desktop for WebKitGTK's first start.
             session = request('POST', '/session', {'capabilities': {'alwaysMatch': {
-                'tauri:options': {'application': str(ROOT / 'target/debug/lyra-desktop')}
-            }}})['sessionId']
+                'tauri:options': {'application': str(packaged_binary())}
+            }}}, timeout=120)['sessionId']
             prefix = f'/session/{session}'
 
             def execute(script):

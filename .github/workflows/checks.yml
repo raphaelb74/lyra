@@ -30,6 +30,11 @@ jobs:
         run: cargo install --locked cargo-deny && cargo install --locked tauri-driver --version 2.0.5
       - name: Rust, dependency policy, frontend, native build and desktop metadata
         run: scripts/check.sh
+      # Ubuntu 24.04 runners block unprivileged user namespaces via AppArmor;
+      # WebKitGTK needs them for its web-process sandbox. CI-only; the app and
+      # its sandbox are unchanged.
+      - name: Allow WebKitGTK sandbox on the runner
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Desktop and real IPC smoke test
         working-directory: apps/desktop
         run: xvfb-run -a npm run test:desktop
