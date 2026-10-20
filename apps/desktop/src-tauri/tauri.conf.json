@@ -29,7 +29,7 @@
     "targets": ["deb"],
     "category": "Music",
     "shortDescription": "Lyra local music player",
-    "longDescription": "Linux-first local music player. M0 provides a mock library and player shell; audio playback is not implemented.",
+    "longDescription": "Linux-first bit-perfect music player. Plays FLAC and WAV directly to an ALSA hardware device at the exact source format and rate.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

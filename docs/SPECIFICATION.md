@@ -3,7 +3,7 @@
 **Project:** Lyra (identifiers and package names: `lyra`)  
 **Version:** Draft 0.1  
 **Platform:** Linux x86_64 first (Linux Mint 22.3 / Ubuntu-based)  
-**Primary validation DAC:** iFi ZEN DAC Signature, exact revision and firmware to be recorded  
+**Primary validation DAC:** iFi ZEN ONE (USB `20b1:3009`, release 1.0c), see [hardware report](hardware/ifi-zen-one.md). Lyra must work with any ALSA DAC; nothing is specific to one model.  
 **Target stack:** Rust + ALSA + Tauri 2 + Svelte 5 + TypeScript
 
 ## 1. Product objective
@@ -31,7 +31,7 @@ crates/player-core     Playback state machine, queue, transport policy
 crates/audio-alsa      Device enumeration, negotiation, ALSA streaming
 crates/format-dsd      DSF/DFF parsers and DoP packer
 crates/format-pcm      PCM decode interface (Symphonia integration)
-crates/library         SQLite schema, scanner, metadata/artwork
+crates/library         SQLite schema, scanner, metadata/artwork (created in M4)
 ```
 
 The engine should expose control messages (play/pause/stop/seek/select device) over channels and publish immutable state snapshots/events. Use plain threads and channels; the engine does not need an async runtime, and the Tauri adapter bridges to Tauri's own async layer. Use an audio writer thread isolated from the UI and database. A bounded decoded-frame ring buffer feeds the writer; define backpressure, cancellation, underrun, and shutdown semantics. Keep format parsing and transport encoding testable without a DAC.
@@ -69,7 +69,7 @@ The engine should expose control messages (play/pause/stop/seek/select device) o
 
 Enumerate ALSA cards, devices, hardware PCM rates/formats, and whether exclusive open succeeds. Persist stable identifiers where possible; card indices may change after reconnect. Surface firmware/kernel/ALSA details in diagnostics. If the DAC is busy, explain which device failed to open; never route to the default sound card silently.
 
-**Hardware gate for iFi ZEN DAC Signature:** obtain `aplay -l`, `/proc/asound/card*/stream0`, ALSA format probe, USB VID/PID, model revision, and firmware version. Do not promise native DSD256 before confirming an exposed and functioning native DSD ALSA path.
+**Hardware gate (every DAC):** obtain `aplay -l`, `/proc/asound/card*/stream0`, ALSA format probe, USB VID/PID, model revision, and firmware version (`scripts/probe-dac.sh` collects these), and record them in `docs/hardware/<model>.md`. Do not promise native DSD256 before confirming an exposed and functioning native DSD ALSA path. Descriptor evidence for the ZEN ONE is recorded; playback evidence is pending.
 
 ## 6. Music library
 
@@ -121,7 +121,7 @@ Enumerate ALSA cards, devices, hardware PCM rates/formats, and whether exclusive
 
 ## 11. Decisions pending hardware testing
 
-- Which ALSA native DSD formats and USB quirks apply to the exact ZEN DAC Signature revision?
+- ZEN ONE exposes `DSD_U32_BE` (native DSD up to DSD256 by descriptor). Does playback confirm it, and which USB quirks apply? Is its USB volume control digital (bit-perfect only at maximum)?
 - How to get exclusive access while PipeWire is running? When WirePlumber has the USB DAC as an active sink it usually holds the `hw:` device, so a direct open fails with `EBUSY`. Expect this as the common case on Mint, not an edge case: detect it, report it clearly (A06), and document how to release the device (e.g. disable the DAC's PipeWire node or use device reservation).
 - What period/buffer sizes provide stable playback without excessive latency?
 - Which exact metadata parser supports required DSF/DFF tags? Verify crate capabilities before adoption.

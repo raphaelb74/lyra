@@ -2,8 +2,18 @@
 //! Every command must be listed here or the capability check rejects it.
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let attributes = tauri_build::Attributes::new()
-        .app_manifest(tauri_build::AppManifest::new().commands(&["get_app_info"]));
+    let attributes =
+        tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
+            "get_app_info",
+            "list_devices",
+            "play",
+            "pause",
+            "resume",
+            "stop",
+            "seek",
+            "get_status",
+            "get_position",
+        ]));
     tauri_build::try_build(attributes)?;
     Ok(())
 }

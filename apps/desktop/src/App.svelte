@@ -1,53 +1,137 @@
 <script lang="ts">
+  import { isTauri } from '@tauri-apps/api/core';
   import { onMount } from 'svelte';
-  import { BackendError, getAppInfo } from './lib/ipc';
 
-  let status = $state('Connecting to Rust…');
+  import {
+    BackendError,
+    backend,
+    onFilesDropped,
+    onStatus,
+    type DeviceInfo,
+    type DroppedFile,
+    type PlayerStatus,
+  } from './lib/ipc';
+  import PlayerBar from './lib/PlayerBar.svelte';
+
+  const api = backend();
+  const laterViews = ['Albums', 'Artists', 'Playlists', 'Settings'];
+
+  let connection = $state('Connecting to Rust…');
   let connected = $state(false);
   let checking = $state(false);
-  const laterViews = ['Albums', 'Artists', 'Playlists', 'Settings'];
-  const albums = [
-    {
-      title: 'Still water',
-      artist: 'Mira Sol',
-      format: 'FLAC · 24 / 96',
-      color: 'water',
-    },
-    {
-      title: 'Night forms',
-      artist: 'The Quiet Hours',
-      format: 'DSD64 · DSF',
-      color: 'night',
-    },
-    {
-      title: 'Open spaces',
-      artist: 'Aster Ensemble',
-      format: 'WAV · 16 / 44.1',
-      color: 'space',
-    },
-  ];
+  let devices = $state<DeviceInfo[]>([]);
+  let devicesLoaded = $state(false);
+  let selectedDevice = $state('');
+  let files = $state<DroppedFile[]>([]);
+  let dropNotice = $state<string | null>(null);
+  let status = $state<PlayerStatus>({
+    state: 'stopped',
+    track: null,
+    error: null,
+  });
+  let position = $state(0);
+  let actionError = $state<string | null>(null);
+
+  const device = $derived(devices.find((d) => d.name === selectedDevice));
+  const shownError = $derived(actionError ?? status.error?.message ?? null);
+
+  const UNEXPECTED = 'Unexpected error while contacting Rust.';
 
   async function checkBackend() {
     checking = true;
     connected = false;
 
     try {
-      const info = await getAppInfo();
+      const info = await api.appInfo();
 
-      status = `${info.name} ${info.version} · Rust connected · ${info.platform}`;
+      connection = `${info.name} ${info.version} · Rust connected · ${info.platform}`;
       connected = true;
     } catch (error) {
-      status =
-        error instanceof BackendError
-          ? error.message
-          : 'Unexpected error while contacting Rust.';
+      connection = error instanceof BackendError ? error.message : UNEXPECTED;
     } finally {
       checking = false;
     }
   }
 
+  async function loadDevices() {
+    try {
+      devices = await api.listDevices();
+
+      if (!devices.some((d) => d.name === selectedDevice)) {
+        // Prefer an external DAC; never switch while one is chosen.
+        selectedDevice = (devices.find((d) => d.usb) ?? devices[0])?.name ?? '';
+      }
+    } catch (error) {
+      actionError = error instanceof BackendError ? error.message : UNEXPECTED;
+    } finally {
+      devicesLoaded = true;
+    }
+  }
+
+  /** Runs a command; shows its error instead of throwing. */
+  async function attempt(action: () => Promise<null>) {
+    actionError = null;
+
+    try {
+      await action();
+    } catch (error) {
+      actionError = error instanceof BackendError ? error.message : UNEXPECTED;
+    }
+  }
+
+  function playFile(file: DroppedFile) {
+    void attempt(() => api.play(file.path, selectedDevice));
+  }
+
+  function toggle() {
+    void attempt(() =>
+      status.state === 'playing' ? api.pause() : api.resume(),
+    );
+  }
+
   onMount(() => {
     void checkBackend();
+
+    if (!isTauri()) return;
+
+    void loadDevices();
+    void api.status().then((current) => (status = current));
+
+    const unlisten = [
+      onStatus((next) => {
+        status = next;
+      }),
+      onFilesDropped((dropped) => {
+        dropNotice =
+          dropped.length === 0
+            ? 'Only FLAC and WAV files can be played.'
+            : null;
+        const known = new Set(files.map((f) => f.path));
+
+        files = [...files, ...dropped.filter((f) => !known.has(f.path))];
+      }),
+    ];
+
+    return () => {
+      for (const pending of unlisten) {
+        void pending.then((stop) => {
+          stop();
+        });
+      }
+    };
+  });
+
+  // Poll the position only while audio moves.
+  $effect(() => {
+    if (status.state !== 'playing') return;
+
+    const timer = setInterval(() => {
+      void api.position().then((seconds) => (position = seconds));
+    }, 250);
+
+    return () => {
+      clearInterval(timer);
+    };
   });
 </script>
 
@@ -58,7 +142,7 @@
     <aside aria-label="Application">
       <h1><span aria-hidden="true">♮</span> Lyra</h1>
       <nav aria-label="Main navigation">
-        <button type="button" aria-current="page">Library</button>
+        <button type="button" aria-current="page">Now playing</button>
         {#each laterViews as view (view)}
           <button type="button" disabled title="Not available yet"
             >{view}</button
@@ -70,11 +154,13 @@
     <main>
       <header>
         <div>
-          <p class="eyebrow">YOUR LIBRARY</p>
+          <p class="eyebrow">DIRECT TO YOUR DAC</p>
           <h2>A little room for listening.</h2>
-          <p class="muted">Your music, close at hand.</p>
+          <p class="muted">
+            Exact samples, exact rate, straight to the hardware.
+          </p>
         </div>
-        <span class="badge">M0 · Preview</span>
+        <span class="badge">M1 · Preview</span>
       </header>
       <section class="backend" aria-label="Backend connection">
         <div>
@@ -84,56 +170,81 @@
             data-testid="backend-status"
             data-connected={connected}
           >
-            {status}
+            {connection}
           </p>
         </div>
         <button onclick={checkBackend} disabled={checking}
           >{checking ? 'Checking…' : 'Check backend'}</button
         >
       </section>
-      <section aria-labelledby="albums-title">
+      {#if shownError}
+        <p class="alert" role="alert">{shownError}</p>
+      {/if}
+      <section aria-labelledby="device-title">
         <div class="section-heading">
-          <h3 id="albums-title">Sample library</h3>
-          <span class="muted">3 mock albums</span>
+          <h3 id="device-title">Output device</h3>
+          <button type="button" onclick={loadDevices}>Refresh</button>
         </div>
-        <div class="albums">
-          {#each albums as album (album.title)}
-            <article>
-              <div class="cover {album.color}" aria-hidden="true">
-                <div></div>
-                <span>Lyra Sessions</span>
-              </div>
-              <h4>{album.title}</h4>
-              <p>{album.artist}</p>
-              <small>{album.format}</small>
-            </article>
-          {/each}
+        <div class="device" data-testid="devices" data-loaded={devicesLoaded}>
+          {#if devices.length > 0}
+            <select bind:value={selectedDevice} aria-label="Output device">
+              {#each devices as option (option.name)}
+                <option value={option.name}
+                  >{option.cardName} · {option.pcmName}</option
+                >
+              {/each}
+            </select>
+            <small class="muted">{selectedDevice}</small>
+          {:else}
+            <p class="muted">
+              {devicesLoaded
+                ? 'No audio devices found.'
+                : 'Looking for devices…'}
+            </p>
+          {/if}
         </div>
-        <p class="note">
-          Sample artwork and metadata. Library import and audio playback arrive
-          in later milestones.
+      </section>
+      <section aria-labelledby="files-title">
+        <div class="section-heading">
+          <h3 id="files-title">Files</h3>
+          <span class="muted">{files.length} dropped</span>
+        </div>
+        {#if files.length > 0}
+          <ul class="files">
+            {#each files as file (file.path)}
+              <li>
+                <button
+                  type="button"
+                  aria-current={status.track?.fileName === file.name}
+                  disabled={selectedDevice === ''}
+                  onclick={() => {
+                    playFile(file);
+                  }}><span>{file.name}</span><small>{file.path}</small></button
+                >
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <p class="drop">
+          {dropNotice ??
+            'Drop FLAC or WAV files anywhere on this window, then choose one to play.'}
         </p>
       </section>
     </main>
   </div>
-  <footer aria-label="Mock player">
-    <div class="art" aria-hidden="true">♪</div>
-    <div class="track">
-      <strong>Nothing playing</strong><small>Audio engine not implemented</small
-      >
-    </div>
-    <div class="controls">
-      <button disabled aria-label="Previous track">⏮</button><button
-        disabled
-        aria-label="Play">▶</button
-      ><button disabled aria-label="Next track">⏭</button>
-    </div>
-    <div class="output">
-      <strong>No DAC selected</strong><small
-        >Output inactive · Bit-perfect unverified</small
-      >
-    </div>
-  </footer>
+  <PlayerBar
+    {status}
+    {position}
+    {device}
+    onToggle={toggle}
+    onStop={() => {
+      void attempt(api.stop);
+    }}
+    onSeek={(seconds: number) => {
+      position = seconds;
+      void attempt(() => api.seek(seconds));
+    }}
+  />
 </div>
 
 <style>
@@ -236,118 +347,73 @@
   .section-heading {
     margin-bottom: 20px;
   }
-  .albums {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 24px;
-  }
-  .cover {
-    aspect-ratio: 1;
-    border-radius: 8px;
-    position: relative;
-    display: grid;
-    place-items: center;
-    overflow: hidden;
-  }
-  .water {
-    background: linear-gradient(155deg, #8cab9c, #324b4d 60%, #172a36);
-  }
-  .night {
-    background: linear-gradient(30deg, #1c2340, #71617a);
-  }
-  .space {
-    background: linear-gradient(155deg, #d2b98d, #7d8770 55%, #364e44);
-  }
-  .cover div {
-    width: 62%;
-    height: 62%;
-    border: 1px solid #ffffff50;
-    border-radius: 50%;
-    box-shadow:
-      0 0 0 20px #ffffff09,
-      0 0 0 40px #ffffff09;
-  }
-  .cover span {
-    position: absolute;
-    bottom: 17px;
-    font-size: 9px;
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    color: #fff;
-  }
-  h4 {
-    font-size: 16px;
-    font-weight: 500;
-    margin: 16px 0 5px;
-  }
-  article p {
-    font-size: 13px;
-    margin: 0 0 8px;
-    color: #b1bbc4;
-  }
-  article small {
-    font-size: 11px;
-    color: #b4d9cb;
-  }
-  .note {
-    color: #a2adb7;
-    font-size: 12px;
-    line-height: 1.6;
-    margin-top: 24px;
-  }
   .backend {
     border-block: 1px solid #29343d;
     padding-block: 16px;
+  }
+  .files {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 8px;
+  }
+  .files button {
+    width: 100%;
+    text-align: left;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    background: #182129;
+    border-color: #29343d;
+  }
+  .files button[aria-current='true'] {
+    border-color: #577369;
+    background: #1f2d2a;
+  }
+  .files small {
+    color: #a2adb7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .drop {
+    border: 1px dashed #38534a;
+    border-radius: 8px;
+    padding: 28px;
+    text-align: center;
+    color: #a2adb7;
+    font-size: 13px;
+  }
+  .device {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  select {
+    font: inherit;
+    color: inherit;
+    background: #182129;
+    border: 1px solid #577369;
+    border-radius: 8px;
+    padding: 10px 12px;
+    min-width: min(100%, 420px);
+  }
+  .alert {
+    border: 1px solid #8a5a3c;
+    background: #2a1f1a;
+    color: #f0d2bf;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    line-height: 1.5;
   }
   .backend p {
     font-size: 12px;
     color: #b4d9cb;
     line-height: 1.5;
     margin-bottom: 0;
-  }
-  footer {
-    min-height: 100px;
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    padding: 18px 26px;
-    background: #1a232b;
-    border-top: 1px solid #303c46;
-  }
-  .art {
-    background: #31463f;
-    color: #b4d9cb;
-    border-radius: 8px;
-    width: 54px;
-    height: 54px;
-    display: grid;
-    place-items: center;
-    font-size: 24px;
-  }
-  .track,
-  .output {
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-    font-size: 13px;
-  }
-  .track small,
-  .output small {
-    color: #a2adb7;
-    font-size: 11px;
-  }
-  .controls {
-    flex: 1;
-    display: flex;
-    gap: 10px;
-    justify-content: center;
-  }
-  .controls button {
-    border: 0;
-    background: transparent;
-  }
-  .output {
-    text-align: right;
   }
   @media (max-width: 950px) {
     main {
@@ -356,9 +422,6 @@
     aside {
       width: 170px;
       padding: 25px 15px;
-    }
-    .albums {
-      gap: 16px;
     }
   }
   @media (max-width: 650px) {
@@ -371,24 +434,8 @@
     .badge {
       display: none;
     }
-    .output {
-      display: none;
-    }
-    footer {
-      gap: 10px;
-      padding: 15px;
-    }
-    .art {
-      display: none;
-    }
-    .controls {
-      gap: 0;
-    }
     .backend {
       align-items: flex-start;
-    }
-    .cover span {
-      display: none;
     }
   }
 </style>

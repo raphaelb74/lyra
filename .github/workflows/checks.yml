@@ -10,15 +10,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Linux prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf desktop-file-utils xvfb xdotool webkit2gtk-driver
+          sudo apt-get install -y build-essential pkg-config libssl-dev libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf desktop-file-utils xvfb xdotool webkit2gtk-driver shellcheck
       - name: Rust toolchain from rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: apps/desktop/.nvmrc
           cache: npm
@@ -41,7 +41,7 @@ jobs:
       - name: Development desktop launch
         working-directory: apps/desktop
         run: xvfb-run -a npm run test:dev
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: lyra-linux

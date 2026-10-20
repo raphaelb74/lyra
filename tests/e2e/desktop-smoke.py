@@ -86,18 +86,20 @@ def main():
                 return request('POST', prefix + '/execute/sync', {'script': script, 'args': []})
 
             wait_for(lambda: execute("return document.querySelector('[data-connected=true]') !== null"))
+            # list_devices crossed IPC (CI runners have no sound card: an empty list is fine).
+            wait_for(lambda: execute("return document.querySelector('[data-testid=devices][data-loaded=true]') !== null"))
             state = execute("""
                 return {
                     title: document.title,
-                    albums: document.querySelectorAll('article').length,
+                    devicesLoaded: document.querySelector('[data-testid=devices]').dataset.loaded,
                     player: document.querySelector('footer').textContent,
                     status: document.querySelector('[data-testid=backend-status]').textContent,
                     playDisabled: document.querySelector('button[aria-label=Play]').disabled
                 };
             """)
             assert state['title'] == 'Lyra — Music player', state
-            assert state['albums'] == 3, state
-            assert 'Audio engine not implemented' in state['player'], state
+            assert state['devicesLoaded'] == 'true', state
+            assert 'Nothing playing' in state['player'], state
             assert state['playDisabled'], state
             assert 'Lyra 0.1.0 · Rust connected · linux' in state['status'], state
             # Retry the connection from the visible UI as well as on initial mount.
@@ -106,7 +108,7 @@ def main():
             png = request('GET', prefix + '/screenshot')
             (ARTIFACTS / 'desktop.png').write_bytes(base64.b64decode(png))
             (ARTIFACTS / 'desktop-smoke.json').write_text(json.dumps(state, indent=2) + '\n')
-            print('PASS: native window, 3 mock albums, inactive player, initial and retried Rust IPC')
+            print('PASS: native window, device list over IPC, idle player, initial and retried Rust IPC')
             print(json.dumps(state, indent=2))
         finally:
             try:

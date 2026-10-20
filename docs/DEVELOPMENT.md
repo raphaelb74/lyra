@@ -10,7 +10,7 @@ System packages (Tauri 2 prerequisites, ALSA headers for later milestones, deskt
 sudo apt-get update
 sudo apt-get install -y build-essential curl pkg-config libssl-dev libasound2-dev \
   libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
-  desktop-file-utils xvfb xdotool webkit2gtk-driver
+  desktop-file-utils xvfb xdotool webkit2gtk-driver shellcheck
 ```
 
 Toolchains:
@@ -34,7 +34,7 @@ npm run dev           # browser-only preview; reports that Rust is unavailable
 scripts/check.sh
 ```
 
-Runs Rust formatting, Clippy (warnings denied), workspace tests, `cargo deny` (licenses, RustSec advisories, crate sources; policy in `deny.toml`), Prettier, svelte-check, ESLint, Vitest, the production frontend build, a native debug `.deb` build, and `.desktop` validation. CI runs the same script on Ubuntu 24.04. No DAC is required.
+Runs ShellCheck on `scripts/`, Rust formatting, Clippy (warnings denied), workspace tests, `cargo deny` (licenses, RustSec advisories, crate sources; policy in `deny.toml`), Prettier, svelte-check, ESLint, Vitest, the production frontend build, a native debug `.deb` build, and `.desktop` validation. CI runs the same script on Ubuntu 24.04. No DAC is required.
 
 Real-window smoke tests (after the native build; needs `tauri-driver`):
 
@@ -69,6 +69,10 @@ Builds target generic x86-64 so the `.deb` runs on any machine. For a local-only
 - `npm run icons` regenerates `src-tauri/icons/` from `apps/desktop/assets/lyra.svg`.
 - `apps/desktop/src-tauri/lyra.desktop` is the Linux desktop entry template; Tauri fills in the executable and icon at packaging time.
 - `scripts/record-licenses.py` refreshes `docs/licenses/` from the lockfiles. Run `cargo fetch --locked` first.
+
+## Hardware reports
+
+Run `scripts/probe-dac.sh > report.txt` with a USB DAC connected. It reads ALSA and USB descriptors only (never opens the device) and covers every connected USB DAC. Summaries live in [docs/hardware/](hardware/), one file per model; [iFi ZEN ONE](hardware/ifi-zen-one.md) is the first.
 
 ## Rules
 

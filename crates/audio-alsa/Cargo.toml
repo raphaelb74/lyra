@@ -9,5 +9,10 @@ authors.workspace = true
 repository.workspace = true
 publish = false
 
+[dependencies]
+alsa.workspace = true
+format-pcm.workspace = true
+player-core.workspace = true
+
 [lints]
 workspace = true

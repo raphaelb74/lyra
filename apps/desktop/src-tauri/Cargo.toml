@@ -20,6 +20,9 @@ custom-protocol = ["tauri/custom-protocol"]
 tauri-build = { workspace = true }
 
 [dependencies]
+audio-alsa = { workspace = true }
+format-pcm = { workspace = true }
+player-core = { workspace = true }
 serde = { workspace = true }
 tauri = { workspace = true }
 
