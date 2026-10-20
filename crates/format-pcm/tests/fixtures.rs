@@ -1,7 +1,7 @@
 //! Bit-exactness against committed fixtures (`scripts/make-pcm-fixtures.py`).
 //! The WAV data chunk is the reference: decoding WAV or FLAC and packing in
 //! the source layout must reproduce it byte for byte.
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::panic,
     reason = "test helpers fail loudly"

@@ -210,7 +210,7 @@ function isIpcError(
   );
 }
 
-export function isStatus(value: JsonValue): value is JsonValue & PlayerStatus {
+function isStatus(value: JsonValue): value is JsonValue & PlayerStatus {
   return (
     isRecord(value) &&
     isText(value.state) &&
@@ -315,15 +315,6 @@ export function backend(
 }
 
 export type Backend = ReturnType<typeof backend>;
-
-export async function getAppInfo(
-  runCommand: RunCommand = invoke,
-  inTauri: boolean = isTauri(),
-): Promise<AppInfo> {
-  const info = await backend(runCommand, inTauri).appInfo();
-
-  return { name: info.name, version: info.version, platform: info.platform };
-}
 
 /** Status pushed by Rust after every playback state change. */
 export function onStatus(

@@ -32,13 +32,12 @@ impl AlsaError {
         error: alsa::Error,
     ) -> Self {
         let device = device.to_owned();
-        // alsa-rs reports errno positive or negative depending on the call.
-        match error.errno().abs() {
-            libc_errno::EBUSY => {
+        match errno::of(&error) {
+            errno::EBUSY => {
                 let holder = card.and_then(|card| find_holder(card, pcm_device));
                 Self::Busy { device, holder }
             }
-            libc_errno::ENOENT | libc_errno::ENODEV => Self::NotFound { device },
+            errno::ENOENT | errno::ENODEV => Self::NotFound { device },
             _ => Self::Alsa {
                 device,
                 source: error,
@@ -47,11 +46,20 @@ impl AlsaError {
     }
 }
 
-/// Errno values ALSA returns (negated in C, positive here).
-mod libc_errno {
+/// Linux errno values ALSA returns.
+pub(crate) mod errno {
     pub const ENOENT: i32 = 2;
+    pub const EAGAIN: i32 = 11;
     pub const EBUSY: i32 = 16;
     pub const ENODEV: i32 = 19;
+    pub const EPIPE: i32 = 32;
+    pub const ESTRPIPE: i32 = 86;
+
+    /// The error's errno, positive. alsa-rs reports it positive or negative
+    /// depending on the call.
+    pub fn of(error: &alsa::Error) -> i32 {
+        error.errno().abs()
+    }
 }
 
 impl fmt::Display for AlsaError {

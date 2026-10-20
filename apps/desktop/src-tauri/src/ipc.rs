@@ -205,7 +205,7 @@ pub fn file_name(path: &Path) -> String {
 }
 
 /// Display only: exact positions stay in frames inside the engine.
-#[allow(
+#[expect(
     clippy::cast_precision_loss,
     reason = "2^52 frames is far beyond any track"
 )]

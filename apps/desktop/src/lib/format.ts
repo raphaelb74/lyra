@@ -11,7 +11,7 @@ export function outputLabel(output: Output): string {
 }
 
 /** `44.1`, `96`, `352.8`. */
-export function kilohertz(rate: number): string {
+function kilohertz(rate: number): string {
   return String(rate / 1000);
 }
 

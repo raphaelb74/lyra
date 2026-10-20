@@ -1751,10 +1751,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "library"
-version = "0.1.0"
-
-[[package]]
 name = "libredox"
 version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"

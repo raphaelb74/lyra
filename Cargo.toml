@@ -5,7 +5,6 @@ members = [
   "crates/audio-alsa",
   "crates/format-dsd",
   "crates/format-pcm",
-  "crates/library",
   "crates/player-core",
 ]
 

@@ -42,6 +42,22 @@ pub(crate) struct Shared {
     status: Mutex<PlayerStatus>,
 }
 
+impl Shared {
+    /// Invalidates all queued audio; returns the new generation.
+    fn next_generation(&self) -> u64 {
+        self.generation.fetch_add(1, Ordering::AcqRel) + 1
+    }
+
+    /// State while waiting for audio to reach the device.
+    fn waiting_state(&self) -> PlaybackState {
+        if self.paused.load(Ordering::Acquire) {
+            PlaybackState::Paused
+        } else {
+            PlaybackState::Buffering
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum Inbox {
     Command(Command),
@@ -271,7 +287,11 @@ impl Controller {
                 if let Some(track) = &self.track
                     && self.shared.paused.swap(false, Ordering::AcqRel)
                 {
-                    let state = resumed_state(track);
+                    let state = if track.started {
+                        PlaybackState::Playing
+                    } else {
+                        PlaybackState::Buffering
+                    };
                     self.writer_thread.unpark();
                     self.update(|status| status.state = state);
                 }
@@ -302,7 +322,7 @@ impl Controller {
             Err(error) => return self.fail(error.into()),
         };
         let source = *decoder.info();
-        let generation = self.next_generation();
+        let generation = self.shared.next_generation();
         self.update(|status| {
             status.state = PlaybackState::Negotiating;
             status.track = Some(NowPlaying {
@@ -335,16 +355,11 @@ impl Controller {
         if let Err(error) = track.decoder.seek(frame) {
             return self.fail(error.into());
         }
-        let generation = self.shared.generation.fetch_add(1, Ordering::AcqRel) + 1;
-        track.generation = generation;
+        track.generation = self.shared.next_generation();
         track.next_frame = frame;
         track.decoding = true;
         track.started = false;
-        let state = if self.shared.paused.load(Ordering::Acquire) {
-            PlaybackState::Paused
-        } else {
-            PlaybackState::Buffering
-        };
+        let state = self.shared.waiting_state();
         self.shared.position.store(frame, Ordering::Release);
         self.update(|status| status.state = state);
     }
@@ -357,6 +372,7 @@ impl Controller {
             | WriterEvent::Failed { generation, .. } => *generation,
         };
         let paused = self.shared.paused.load(Ordering::Acquire);
+        let waiting = self.shared.waiting_state();
         let Some(track) = self
             .track
             .as_mut()
@@ -370,13 +386,8 @@ impl Controller {
             } => {
                 track.output = Some(output);
                 track.decoding = true;
-                let state = if paused {
-                    PlaybackState::Paused
-                } else {
-                    PlaybackState::Buffering
-                };
                 self.update(|status| {
-                    status.state = state;
+                    status.state = waiting;
                     if let Some(now) = &mut status.track {
                         now.output = Some(output);
                     }
@@ -442,7 +453,7 @@ impl Controller {
     /// Invalidates queued audio and releases the device.
     fn close_track(&mut self) {
         if self.track.take().is_some() {
-            self.next_generation();
+            self.shared.next_generation();
             self.to_writer(ToWriter::Close);
             self.writer_thread.unpark();
         }
@@ -456,22 +467,15 @@ impl Controller {
         });
     }
 
-    fn next_generation(&self) -> u64 {
-        self.shared.generation.fetch_add(1, Ordering::AcqRel) + 1
-    }
-
     fn to_writer(&self, message: ToWriter) {
         if self.writer.send(message).is_err() {
-            // Only after the writer thread died; surface it on the next status read.
-            let mut status = self
-                .shared
-                .status
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            status.state = PlaybackState::Error;
-            status.error = Some(PlayerError {
-                kind: ErrorKind::Internal,
-                message: "the audio output thread stopped".into(),
+            // Only after the writer thread died.
+            self.update(|status| {
+                status.state = PlaybackState::Error;
+                status.error = Some(PlayerError {
+                    kind: ErrorKind::Internal,
+                    message: "the audio output thread stopped".into(),
+                });
             });
         }
     }
@@ -487,13 +491,5 @@ impl Controller {
             status.clone()
         };
         (self.on_change)(&snapshot);
-    }
-}
-
-fn resumed_state(track: &Track) -> PlaybackState {
-    if track.started {
-        PlaybackState::Playing
-    } else {
-        PlaybackState::Buffering
     }
 }

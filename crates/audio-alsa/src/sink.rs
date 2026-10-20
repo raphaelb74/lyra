@@ -9,7 +9,7 @@ use format_pcm::StreamInfo;
 use player_core::{AudioSink, OutputFormat, SinkError, SinkErrorKind};
 
 use crate::device::{alsa_format, open};
-use crate::error::AlsaError;
+use crate::error::{AlsaError, errno};
 use crate::volume::{self, SavedVolume};
 
 /// Device buffer. Long enough to ride out scheduling hiccups on a busy
@@ -18,13 +18,6 @@ const BUFFER_US: u32 = 250_000;
 const PERIOD_US: u32 = BUFFER_US / 4;
 /// Longest single wait for buffer space before re-checking the device.
 const WAIT_MS: u32 = 100;
-
-mod errno {
-    pub const EAGAIN: i32 = 11;
-    pub const EPIPE: i32 = 32;
-    pub const ENODEV: i32 = 19;
-    pub const ESTRPIPE: i32 = 86;
-}
 
 /// Plays to one ALSA `hw:` device, unchanged.
 ///
@@ -174,7 +167,7 @@ impl AudioSink for AlsaSink {
         while offset < bytes.len() {
             match io.writei(&bytes[offset..]) {
                 Ok(frames) => offset += frames * stream.frame_bytes,
-                Err(error) => match error.errno().abs() {
+                Err(error) => match errno::of(&error) {
                     errno::EAGAIN => {
                         stream
                             .pcm
@@ -234,7 +227,7 @@ impl AudioSink for AlsaSink {
         match stream.pcm.drain() {
             Ok(()) => Ok(()),
             // Non-blocking handle: the drain runs on; wait for it to finish.
-            Err(error) if error.errno().abs() == errno::EAGAIN => {
+            Err(error) if errno::of(&error) == errno::EAGAIN => {
                 while stream.pcm.state() == State::Draining {
                     std::thread::sleep(Duration::from_millis(10));
                 }
@@ -252,7 +245,7 @@ impl AudioSink for AlsaSink {
 
 impl Stream {
     fn failed(&self, error: alsa::Error) -> SinkError {
-        if error.errno().abs() == errno::ENODEV || self.pcm.state() == State::Disconnected {
+        if errno::of(&error) == errno::ENODEV || self.pcm.state() == State::Disconnected {
             return SinkError::new(
                 SinkErrorKind::NotFound,
                 format!("{} was disconnected", self.device),

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { backend, getAppInfo } from './ipc';
+import { backend } from './ipc';
 
 const info = { name: 'Lyra', version: '0.1.0', platform: 'linux' };
 
@@ -8,14 +8,14 @@ describe('desktop IPC boundary', () => {
   it('requests the registered command and accepts the Rust response shape', async () => {
     const runCommand = vi.fn(() => Promise.resolve(info));
 
-    await expect(getAppInfo(runCommand, true)).resolves.toEqual(info);
+    await expect(backend(runCommand, true).appInfo()).resolves.toEqual(info);
     expect(runCommand).toHaveBeenCalledExactlyOnceWith('get_app_info');
   });
 
   it('identifies browser preview without attempting IPC', async () => {
     const runCommand = vi.fn(() => Promise.resolve(info));
 
-    await expect(getAppInfo(runCommand, false)).rejects.toMatchObject({
+    await expect(backend(runCommand, false).appInfo()).rejects.toMatchObject({
       code: 'browser_preview',
     });
     expect(runCommand).not.toHaveBeenCalled();
@@ -25,7 +25,7 @@ describe('desktop IPC boundary', () => {
     'rejects malformed backend data: %j',
     async (value) => {
       await expect(
-        getAppInfo(() => Promise.resolve(value), true),
+        backend(() => Promise.resolve(value), true).appInfo(),
       ).rejects.toMatchObject({ code: 'invalid_response' });
     },
   );
@@ -38,7 +38,7 @@ describe('desktop IPC boundary', () => {
     'turns a rejection with %s into a readable error',
     async (_, cause, message) => {
       // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- Tauri rejects with plain strings and objects; reproduce that.
-      const result = getAppInfo(() => Promise.reject(cause), true);
+      const result = backend(() => Promise.reject(cause), true).appInfo();
 
       await expect(result).rejects.toThrow(message);
       await expect(result).rejects.toMatchObject({ code: 'command_failed' });

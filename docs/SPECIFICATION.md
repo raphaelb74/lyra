@@ -31,7 +31,7 @@ crates/player-core     Playback state machine, queue, transport policy
 crates/audio-alsa      Device enumeration, negotiation, ALSA streaming
 crates/format-dsd      DSF/DFF parsers and DoP packer
 crates/format-pcm      PCM decode interface (Symphonia integration)
-crates/library         SQLite schema, scanner, metadata/artwork
+crates/library         SQLite schema, scanner, metadata/artwork (created in M4)
 ```
 
 The engine should expose control messages (play/pause/stop/seek/select device) over channels and publish immutable state snapshots/events. Use plain threads and channels; the engine does not need an async runtime, and the Tauri adapter bridges to Tauri's own async layer. Use an audio writer thread isolated from the UI and database. A bounded decoded-frame ring buffer feeds the writer; define backpressure, cancellation, underrun, and shutdown semantics. Keep format parsing and transport encoding testable without a DAC.

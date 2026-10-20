@@ -2,7 +2,7 @@
 //! lives here.
 
 // Tauri injects `State` and arguments by value.
-#![allow(clippy::needless_pass_by_value, reason = "Tauri command signature")]
+#![expect(clippy::needless_pass_by_value, reason = "Tauri command signature")]
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -140,7 +140,7 @@ pub fn get_position(state: State<'_, AppState>) -> f64 {
     }
 }
 
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "seconds is finite and non-negative; the cast saturates past u64::MAX"

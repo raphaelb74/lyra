@@ -5,7 +5,6 @@
   import {
     BackendError,
     backend,
-    getAppInfo,
     onFilesDropped,
     onStatus,
     type DeviceInfo,
@@ -43,7 +42,7 @@
     connected = false;
 
     try {
-      const info = await getAppInfo();
+      const info = await api.appInfo();
 
       connection = `${info.name} ${info.version} · Rust connected · ${info.platform}`;
       connected = true;
