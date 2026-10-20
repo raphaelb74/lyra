@@ -1,0 +1,73 @@
+[workspace]
+resolver = "3"
+members = [
+  "apps/desktop/src-tauri",
+  "crates/audio-alsa",
+  "crates/format-dsd",
+  "crates/format-pcm",
+  "crates/library",
+  "crates/player-core",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.99"
+version = "0.1.0"
+license = "MIT"
+authors = ["Lyra contributors"]
+repository = "https://github.com/raphaelb74/lyra"
+
+# Shared versions: crates write `name = { workspace = true }`.
+[workspace.dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tauri = "2.12.4"
+tauri-build = "2.7.3"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Pedantic lints that cost more than they give for this codebase.
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+# Recoverable errors return Result; panics are bugs. Tests may unwrap (clippy.toml).
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+# Every unsafe block states why it is sound.
+undocumented_unsafe_blocks = "deny"
+# The audio path must not hide allocations or lossy conversions.
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+lossy_float_literal = "warn"
+
+# Our code builds fast in debug; dependencies (Tauri, later decoders) are
+# optimized so the app is usable and audio decoding keeps up. No debug info
+# for dependencies: much less memory, disk, and link time.
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+# Keep unwinding: a panicking worker thread is reported as an error state
+# instead of aborting the whole player.
+panic = "unwind"
+
+# Release speed with symbols, for perf and flamegraphs.
+[profile.profiling]
+inherits = "release"
+debug = "full"
+strip = "none"

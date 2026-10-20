@@ -1,0 +1,13 @@
+[package]
+name = "audio-alsa"
+description = "ALSA device discovery, format negotiation, and hardware streaming"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true

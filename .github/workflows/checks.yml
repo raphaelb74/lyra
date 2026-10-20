@@ -1,0 +1,45 @@
+name: Checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf desktop-file-utils xvfb xdotool webkit2gtk-driver
+      - name: Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: apps/desktop/.nvmrc
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Install locked frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci
+      - name: Install cargo-deny and Tauri WebDriver bridge
+        run: cargo install --locked cargo-deny && cargo install --locked tauri-driver --version 2.0.5
+      - name: Rust, dependency policy, frontend, native build and desktop metadata
+        run: scripts/check.sh
+      - name: Desktop and real IPC smoke test
+        working-directory: apps/desktop
+        run: xvfb-run -a npm run test:desktop
+      - name: Development desktop launch
+        working-directory: apps/desktop
+        run: xvfb-run -a npm run test:dev
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lyra-linux
+          path: |
+            artifacts/
+            target/debug/bundle/deb/*.deb
