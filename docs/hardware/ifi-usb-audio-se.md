@@ -62,6 +62,19 @@ Lyra's answer, as in other players (Roon's "resync delay"):
 
 To confirm by ear on this DAC: PCM → native DSD → PCM in one session, and quitting during DSD, both without noise.
 
+## Open: hiss instead of DSD after a mode change (2026-10-21)
+
+Native DSD sometimes plays as loud hiss with no music, until playback is stopped and started again; the replay always works. Seen by the user on the first play after launch, after replugging the DAC, and when switching from PCM to DSD.
+
+Captured during the hiss: the host side is correct. The DAC was on the native DSD altset (4), `DSD_U32_BE` at 88200 Hz, and its feedback endpoint reported 88203 Hz. So the data on the wire was DSD; the DAC's firmware did not enter DSD mode and played it as PCM. In that case PipeWire had just been using the DAC, and Lyra opened it in DSD about 20 ms after PipeWire handed it over.
+
+Leads, not yet confirmed:
+- On a format change the kernel sets the sample rate first and then selects the altset, and skips the rate request when the clock already reports the rate. A DSD-to-DSD reopen (the replay that always works) involves no rate change.
+- The cases seen so far followed PipeWire's 48 kHz, which needs the DAC's other clock. CLI trials from 44.1 kHz PCM into DSD64 played music in 3 of 3 single runs; a batch of six back-to-back trials had several hisses but could not be mapped to trials.
+- Things to try: a warm-up open (open in DSD, close, reopen, like the manual replay), and the kernel's `quirk_flags` for this device (`IFACE_DELAY`, `CTL_MSG_DELAY`), as used for other XMOS-based DACs.
+
+The `play` example's `seconds=N` option plays N seconds of each track for such trials. Leave at least a second between runs: a run that starts while the previous one is still closing gets "device busy".
+
 ## To do
 
 - With the volume at 0 dB (100% in Lyra): DoP DSD64/128 and the bit-perfect verdict.

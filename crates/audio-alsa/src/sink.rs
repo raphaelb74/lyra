@@ -1,7 +1,7 @@
 use std::ffi::CString;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use alsa::pcm::{Access, HwParams, State};
 use alsa::{PCM, ValueOr};
@@ -9,6 +9,7 @@ use player_core::{AudioSink, OutputFormat, SinkError, SinkErrorKind, StreamForma
 
 use crate::device::{alsa_format, open};
 use crate::error::{AlsaError, errno};
+use crate::reserve::Reservation;
 use crate::volume::{self, SavedVolume};
 
 /// Device buffer. Long enough to ride out scheduling hiccups on a busy
@@ -17,15 +18,24 @@ const BUFFER_US: u32 = 250_000;
 const PERIOD_US: u32 = BUFFER_US / 4;
 /// Longest single wait for buffer space before re-checking the device.
 const WAIT_MS: u32 = 100;
+/// Longest wait for the sound server to close a card it handed over.
+const HANDOVER_WAIT: Duration = Duration::from_secs(2);
 
 /// Plays to one ALSA `hw:` device, unchanged.
 ///
 /// The device is opened with the stream's exact rate, channel count and a
 /// lossless sample layout (native DSD or DoP for DSD files). Opening fails
 /// instead of converting anything.
+///
+/// A card the sound server holds is requested from it (see [`Reservation`])
+/// and kept until [`AudioSink::close`], so PipeWire does not take it back
+/// between tracks.
 #[derive(Debug, Default)]
 pub struct AlsaSink {
+    /// Declared before `reservation`: the device closes before the card is
+    /// handed back.
     stream: Option<Stream>,
+    reservation: Option<Reservation>,
     underruns: Arc<AtomicU64>,
 }
 
@@ -67,11 +77,13 @@ impl AlsaSink {
             .as_ref()
             .ok_or_else(|| SinkError::new(SinkErrorKind::Failed, "no output device is open"))
     }
-}
 
-impl AudioSink for AlsaSink {
-    fn open(&mut self, device: &str, stream: &StreamFormat) -> Result<OutputFormat, SinkError> {
-        self.close();
+    fn open_stream(
+        &mut self,
+        device: &str,
+        stream: &StreamFormat,
+    ) -> Result<OutputFormat, SinkError> {
+        self.stream = None;
         let fail = |error| {
             sink_error(&AlsaError::from_alsa(
                 device,
@@ -87,7 +99,7 @@ impl AudioSink for AlsaSink {
             })
         };
 
-        let pcm = open(device).map_err(fail)?;
+        let pcm = self.open_pcm(device).map_err(fail)?;
         let channels = u32::try_from(stream.channels())
             .map_err(|_| unsupported(format!("{} channels", stream.channels())))?;
         // Parameters with access and channels fixed; each candidate starts
@@ -161,6 +173,45 @@ impl AudioSink for AlsaSink {
             buffer,
         });
         Ok(output)
+    }
+
+    /// Opens the PCM, asking the sound server for the card if it is busy.
+    fn open_pcm(&mut self, device: &str) -> Result<PCM, alsa::Error> {
+        let card = card_index(device);
+        if self.reservation.as_ref().map(Reservation::card) != card {
+            self.reservation = None;
+        }
+        let error = match open(device) {
+            Err(error) if errno::of(&error) == errno::EBUSY && self.reservation.is_none() => error,
+            result => return result,
+        };
+        self.reservation = card.and_then(Reservation::acquire);
+        if self.reservation.is_none() {
+            return Err(error);
+        }
+        // The server answers before its device is closed: retry briefly.
+        let start = Instant::now();
+        loop {
+            match open(device) {
+                Err(error)
+                    if errno::of(&error) == errno::EBUSY && start.elapsed() < HANDOVER_WAIT =>
+                {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                result => return result,
+            }
+        }
+    }
+}
+
+impl AudioSink for AlsaSink {
+    fn open(&mut self, device: &str, stream: &StreamFormat) -> Result<OutputFormat, SinkError> {
+        let result = self.open_stream(device, stream);
+        if result.is_err() {
+            // Nothing is playing: the sound server may have the card back.
+            self.reservation = None;
+        }
+        result
     }
 
     fn write(&mut self, bytes: &[u8]) -> Result<(), SinkError> {
@@ -243,6 +294,7 @@ impl AudioSink for AlsaSink {
     fn close(&mut self) {
         // Dropping the handle closes the device; queued audio is discarded.
         self.stream = None;
+        self.reservation = None;
     }
 }
 

@@ -5,6 +5,7 @@
 
 mod device;
 mod error;
+mod reserve;
 mod sink;
 mod volume;
 
