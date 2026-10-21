@@ -8,6 +8,8 @@
     type VolumeInfo,
   } from './ipc';
   import { onDeviceVolume } from './events';
+  import Icon from './Icon.svelte';
+  import Slider from './Slider.svelte';
 
   interface Props {
     api: Backend;
@@ -24,7 +26,6 @@
   const STEP = 5;
 
   let volume = $state<VolumeInfo | null>(null);
-  let loaded = $state(false);
   /** Latest value asked for while a change is on its way. */
   let pending: number | null = null;
   let sending = false;
@@ -48,7 +49,6 @@
     if (forDevice !== device || forPlayback !== playback) return;
 
     volume = level ?? null;
-    loaded = true;
   }
 
   /** Sends `percent`, keeping one change in flight and only the latest queued. */
@@ -72,12 +72,6 @@
     sending = false;
   }
 
-  function onInput(event: Event) {
-    if (event.target instanceof HTMLInputElement) {
-      void change(Number(event.target.value));
-    }
-  }
-
   function onKey(event: KeyboardEvent) {
     if (!event.ctrlKey || volume?.locked !== null) return;
 
@@ -90,12 +84,21 @@
     void change(volume.percent + step);
   }
 
-  function decibelText(level: VolumeInfo): string {
-    if (level.decibels === null) return '';
+  /** `−12.5 dB` where the card reports decibels, else `64 %`. */
+  function valueText(level: VolumeInfo): string {
+    if (level.decibels === null) return `${String(level.percent)} %`;
 
-    const value = level.decibels.toFixed(1).replace('-', '−');
+    return `${level.decibels.toFixed(1).replace('-', '−')} dB`;
+  }
 
-    return ` · ${value} dB`;
+  function hint(level: VolumeInfo): string {
+    if (level.locked !== null) return level.locked;
+
+    if (notBitPerfect) {
+      return 'Below 0 dB, most USB DACs change the samples: not bit-perfect.';
+    }
+
+    return 'Volume of the device itself · Ctrl+↑ / Ctrl+↓';
   }
 
   /** Follows changes made outside Lyra; ignored while a change is sent. */
@@ -103,7 +106,6 @@
     if (changed !== device || sending) return;
 
     volume = level;
-    loaded = true;
   }
 
   onMount(() => {
@@ -117,59 +119,63 @@
   });
 
   $effect(() => {
-    loaded = false;
     void load(device, playback);
   });
 </script>
 
 <svelte:window onkeydown={onKey} />
 
-<div class="volume">
-  {#if volume}
-    <label for="volume">
-      Volume <span class="muted">{volume.percent}%{decibelText(volume)}</span>
-    </label>
-    <input
-      id="volume"
-      type="range"
-      min="0"
-      max="100"
-      step="1"
-      value={volume.percent}
-      disabled={volume.locked !== null}
-      aria-describedby="volume-note"
-      oninput={onInput}
+{#if volume}
+  <div class="volume" title={hint(volume)}>
+    <Icon
+      name={volume.locked !== null
+        ? 'lock'
+        : volume.percent === 0
+          ? 'volume-x'
+          : 'volume-2'}
+      size={16}
     />
-    <small id="volume-note" class="muted">
-      {#if volume.locked}
-        {volume.locked}
-      {:else if notBitPerfect}
-        Below 0 dB, most USB DACs change the samples: not bit-perfect.
-      {:else}
-        The device's own volume, shared with the desktop's volume keys; Lyra
-        never scales the samples. Ctrl+↑/↓.
-      {/if}
-    </small>
-  {:else if loaded}
-    <small class="muted">This device has no volume control.</small>
-  {/if}
-</div>
+    <Slider
+      label="Volume"
+      value={volume.percent}
+      max={100}
+      valueText={valueText(volume)}
+      disabled={volume.locked !== null}
+      onInput={(percent: number) => void change(percent)}
+    />
+    <span class="value num" class:warn={notBitPerfect}>{valueText(volume)}</span
+    >
+  </div>
+{/if}
 
 <style>
   .volume {
-    display: grid;
-    gap: 4px;
-    margin-top: 10px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 0 1 168px;
+    min-width: 80px;
+    color: var(--text-secondary);
   }
-  label {
-    font-size: 13px;
-  }
-  input {
-    width: 100%;
-    accent-color: var(--accent-line);
-  }
-  .muted {
+  /* Floats above the slider's end; takes no room in the bar. */
+  .value {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% - var(--space-1));
+    font-size: var(--type-caption);
+    line-height: var(--leading-caption);
+    text-align: right;
     color: var(--text-muted);
-    font-size: 12px;
+    opacity: 0;
+    transition: opacity var(--dur-fast) var(--ease);
+  }
+  .volume:hover .value,
+  .volume:focus-within .value,
+  .value.warn {
+    opacity: 1;
+  }
+  .value.warn {
+    color: var(--warning);
   }
 </style>

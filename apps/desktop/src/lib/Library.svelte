@@ -6,13 +6,8 @@
   import ArtistList from './ArtistList.svelte';
   import TrackList from './TrackList.svelte';
   import { onLibraryChanged, onLibraryNotice, onScanStatus } from './events';
-  import {
-    attempt,
-    type Album,
-    type Backend,
-    type Folder,
-    type ScanStatus,
-  } from './ipc';
+  import { scanText } from './format';
+  import { attempt, type Album, type Backend, type ScanStatus } from './ipc';
 
   interface Props {
     api: Backend;
@@ -25,10 +20,11 @@
 
   const { api, device, playingId, onError }: Props = $props();
 
-  let folders = $state<Folder[]>([]);
   let albums = $state<Album[]>([]);
+  let hasFolders = $state(false);
   let loaded = $state(false);
   let scan = $state<ScanStatus | null>(null);
+  /** A sentence about the last drop, e.g. a file instead of a folder. */
   let notice = $state<string | null>(null);
   let openAlbum = $state<Album | null>(null);
   type Tab = 'albums' | 'artists' | 'tracks';
@@ -42,29 +38,6 @@
   let tab = $state<Tab>('albums');
   /** Bumped whenever the library changes, so every tab reloads. */
   let version = $state(0);
-  /** Folder awaiting a second click to confirm removal. */
-  let confirming = $state<number | null>(null);
-
-  const scanText = $derived.by(() => {
-    if (scan === null) return '';
-
-    if (scan.running) {
-      return scan.total === 0
-        ? 'Looking for music…'
-        : `Scanning ${String(scan.done)} of ${String(scan.total)} files…`;
-    }
-
-    if (scan.error !== null) return scan.error;
-
-    const last = scan.last;
-
-    if (last === null) return '';
-
-    const failed =
-      last.failed === 0 ? '' : ` · ${String(last.failed)} could not be read`;
-
-    return `Up to date · ${String(last.added)} added, ${String(last.updated)} updated, ${String(last.removed)} removed${failed}`;
-  });
 
   async function reload() {
     const both = await attempt(
@@ -72,7 +45,10 @@
       onError,
     );
 
-    if (both) [folders, albums] = both;
+    if (both) {
+      hasFolders = both[0].length > 0;
+      albums = both[1];
+    }
 
     // An open album may be gone or changed: keep it only if still there.
     openAlbum = albums.find((a) => a.id === openAlbum?.id) ?? null;
@@ -84,17 +60,6 @@
     openAlbum = album;
   }
 
-  function remove(folder: Folder) {
-    if (confirming !== folder.id) {
-      confirming = folder.id;
-
-      return;
-    }
-
-    confirming = null;
-    void attempt(() => api.removeFolder(folder.id), onError);
-  }
-
   onMount(() => {
     void reload();
     void attempt(api.scanStatus, onError).then((status) => {
@@ -103,13 +68,14 @@
 
     const unlisten = [
       onLibraryChanged(() => {
+        notice = null;
         void reload();
-      }),
-      onScanStatus((status) => {
-        scan = status;
       }),
       onLibraryNotice((message) => {
         notice = message;
+      }),
+      onScanStatus((status) => {
+        scan = status;
       }),
     ];
 
@@ -133,56 +99,6 @@
     onBack={() => (openAlbum = null)}
   />
 {:else}
-  <section aria-labelledby="folders-title">
-    <div class="heading">
-      <h3 id="folders-title">Music folders</h3>
-      <div class="actions">
-        <button
-          type="button"
-          onclick={() => {
-            notice = null;
-            void attempt(api.pickFolder, onError);
-          }}>Add folder…</button
-        >
-        <button
-          type="button"
-          disabled={folders.length === 0 || scan?.running === true}
-          onclick={() => {
-            void attempt(api.rescan, onError);
-          }}>Rescan</button
-        >
-      </div>
-    </div>
-    {#if folders.length > 0}
-      <ul class="folders">
-        {#each folders as folder (folder.id)}
-          <li>
-            <span>{folder.path}</span>
-            <button
-              type="button"
-              class:danger={confirming === folder.id}
-              aria-label={confirming === folder.id
-                ? `Confirm removing ${folder.path} from the library`
-                : `Remove ${folder.path} from the library`}
-              onclick={() => {
-                remove(folder);
-              }}
-              onblur={() => {
-                if (confirming === folder.id) confirming = null;
-              }}
-              >{confirming === folder.id
-                ? 'Remove? Files stay'
-                : 'Remove'}</button
-            >
-          </li>
-        {/each}
-      </ul>
-    {/if}
-    <p class="muted" role="status" data-testid="scan-status">
-      {notice ?? scanText}
-    </p>
-  </section>
-
   <section aria-label="Library">
     <div class="tabs" role="tablist" aria-label="Browse by">
       {#each tabs as item (item.id)}
@@ -193,15 +109,28 @@
           onclick={() => (tab = item.id)}>{item.label}</button
         >
       {/each}
-      <span class="muted">{albums.length} albums</span>
+      <span class="muted num">{albums.length} albums</span>
     </div>
+    {#if notice !== null || scan?.running}
+      <p class="muted scanning" role="status">
+        {notice ?? (scan === null ? '' : scanText(scan))}
+      </p>
+    {/if}
     {#if albums.length === 0}
       {#if loaded}
-        <p class="drop">
-          {folders.length === 0
-            ? 'Add a music folder, or drop one onto this window.'
-            : 'No FLAC, WAV, DSF or DFF files found yet.'}
-        </p>
+        <div class="drop">
+          {#if hasFolders}
+            <p>No FLAC, WAV, DSF or DFF files found yet.</p>
+          {:else}
+            <p>Add a music folder, or drop one onto this window.</p>
+            <button
+              type="button"
+              class="primary"
+              onclick={() => void attempt(api.pickFolder, onError)}
+              >Add music folder…</button
+            >
+          {/if}
+        </div>
       {/if}
     {:else if tab === 'albums'}
       <AlbumGrid {albums} onOpen={showAlbum} />
@@ -214,84 +143,37 @@
 {/if}
 
 <style>
-  section + section {
-    margin-top: 32px;
-  }
-  .heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 16px;
-  }
-  h3 {
-    font-size: 16px;
-    font-weight: 500;
-    margin: 0;
-  }
-  .actions {
-    display: flex;
-    gap: 8px;
-  }
-  .muted {
-    color: var(--text-muted);
-    font-size: 13px;
-  }
-  .folders {
-    list-style: none;
-    padding: 0;
-    margin: 0 0 8px;
-    display: grid;
-    gap: 6px;
-  }
-  .folders li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    padding: 8px 12px;
-    background: var(--surface);
-    border-radius: 8px;
-    font-size: 13px;
-  }
-  .folders span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .folders button {
-    padding: 4px 10px;
-    font-size: 12px;
-    white-space: nowrap;
-  }
   .tabs {
     display: flex;
     align-items: center;
-    gap: 4px;
-    margin-bottom: 20px;
-    border-bottom: 1px solid var(--border);
+    gap: var(--space-1);
+    margin-bottom: var(--space-5);
+    border-bottom: 1px solid var(--line);
   }
   .tabs button {
     border: 0;
     border-bottom: 2px solid transparent;
     border-radius: 0;
+    padding: var(--space-2) var(--space-3);
+    color: var(--text-secondary);
+  }
+  .tabs button:hover:not(:disabled) {
     background: transparent;
-    padding: 10px 14px;
-    color: var(--text-muted);
+    color: var(--text);
   }
   .tabs [aria-selected='true'] {
-    color: var(--text-current);
+    color: var(--text);
     border-bottom-color: var(--accent);
   }
   .tabs .muted {
     margin-left: auto;
   }
+  .scanning {
+    margin: 0 0 var(--space-4);
+  }
   .drop {
-    border: 1px dashed var(--border-strong);
-    border-radius: 8px;
-    padding: 28px;
-    text-align: center;
-    color: var(--text-muted);
-    font-size: 13px;
+    display: grid;
+    justify-items: center;
+    gap: var(--space-4);
   }
 </style>

@@ -4,8 +4,27 @@
   "rust-analyzer.cargo.targetDir": true,
   // Fewer parallel compiler jobs for background checks: less memory pressure.
   "rust-analyzer.check.extraArgs": ["--jobs", "2"],
-  "rust-analyzer.numThreads": 2,
+  "rust-analyzer.numThreads": 1,
   "rust-analyzer.cachePriming.numThreads": 1,
+  // Lighter on a 7.7 GB machine:
+  // - no cargo check on every save: it recompiles Tauri's dependency tree a
+  //   second time (scripts/check.sh and clippy report the errors);
+  // - no indexing of the whole workspace at startup, only files as opened;
+  // - fewer syntax trees kept in memory (default 128);
+  // - never index build output or node_modules.
+  "rust-analyzer.checkOnSave": false,
+  "rust-analyzer.cachePriming.enable": false,
+  "rust-analyzer.lru.capacity": 64,
+  "rust-analyzer.files.exclude": [
+    "target",
+    "apps/desktop/node_modules",
+    "artifacts"
+  ],
+
+  // Memory: no Python language server (Pylance) and no built-in Copilot
+  // here; the project's Python is two small test scripts.
+  "python.languageServer": "None",
+  "chat.disableAIFeatures": true,
 
   // Huge generated folders: don't watch or search them.
   "files.watcherExclude": {

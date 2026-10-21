@@ -38,14 +38,12 @@ export interface AppInfo {
 export interface DeviceInfo {
   /** ALSA name, `hw:CARD=…,DEV=…`. */
   name: string;
+  /** Short name for people, e.g. `iFi USB Audio SE`, `HDMI 2`. */
+  label: string;
+  /** Long ALSA card name; for diagnostics. */
   cardName: string;
   pcmName: string;
   usb: boolean;
-}
-
-export interface DroppedFile {
-  path: string;
-  name: string;
 }
 
 export type PlaybackState =
@@ -378,8 +376,6 @@ export function backend(
   return {
     appInfo: () => run('get_app_info', isAppInfo),
     listDevices: () => run('list_devices', isDeviceList),
-    play: (path: string, device: string) =>
-      run('play', isNothing, { path, device }),
     pause: () => run('pause', isNothing),
     resume: () => run('resume', isNothing),
     stop: () => run('stop', isNothing),

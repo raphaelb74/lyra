@@ -60,6 +60,7 @@ describe('diagnostics', () => {
     const report = diagnosticsReport(
       {
         name: 'hw:CARD=SE,DEV=0',
+        label: 'iFi USB Audio SE',
         cardName: 'iFi USB Audio SE',
         pcmName: 'USB Audio',
         usb: true,

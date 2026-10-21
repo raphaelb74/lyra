@@ -1,5 +1,6 @@
 <script lang="ts">
   import AlbumGrid from './AlbumGrid.svelte';
+  import Icon from './Icon.svelte';
   import { attempt, type Album, type Artist, type Backend } from './ipc';
 
   interface Props {
@@ -35,7 +36,7 @@
 
 {#if selected}
   <button type="button" class="back" onclick={() => (selected = null)}
-    >← All artists</button
+    ><Icon name="chevron-left" size={16} />All artists</button
   >
   <h3 class="artist">{selected.name}</h3>
   <AlbumGrid {albums} onOpen={onOpenAlbum} />
@@ -51,8 +52,8 @@
             void open(artist);
           }}
         >
-          <span>{artist.name}</span>
-          <small
+          <span class="truncate">{artist.name}</span>
+          <small class="num"
             >{artist.albumCount}
             {artist.albumCount === 1 ? 'album' : 'albums'} · {artist.trackCount}
             {artist.trackCount === 1 ? 'track' : 'tracks'}</small
@@ -70,36 +71,27 @@
     margin: 0;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 6px 20px;
+    gap: var(--space-0) var(--space-5);
   }
   li button {
     width: 100%;
     display: flex;
     justify-content: space-between;
-    gap: 12px;
+    align-items: baseline;
+    gap: var(--space-3);
     text-align: left;
     border: 0;
-    background: transparent;
-    padding: 10px 12px;
+    font-weight: var(--weight-regular);
   }
-  li button:hover,
-  li button:focus-visible {
-    background: var(--surface);
-  }
-  li span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  small,
-  .muted {
-    color: var(--text-muted);
-    font-size: 12px;
+  small {
+    color: var(--text-secondary);
+    font-size: var(--type-caption);
     white-space: nowrap;
   }
   .artist {
-    font-size: 24px;
-    font-weight: 500;
-    margin: 12px 0 20px;
+    font-size: var(--type-heading);
+    line-height: var(--leading-heading);
+    font-weight: var(--weight-strong);
+    margin: var(--space-3) 0 var(--space-5);
   }
 </style>

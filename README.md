@@ -62,7 +62,7 @@ apps/desktop/tools/    vendored ESLint rules (anti-slop), run by `npm run lint`
 .claude/               Claude Code agents and vendored Rust review skills
 ```
 
-The audio engine and the library do not depend on Tauri. The UI talks to them only through Tauri commands, and plays only files you dropped or tracks inside your library folders.
+The audio engine and the library do not depend on Tauri. The UI talks to them only through Tauri commands, and plays only tracks inside your library folders.
 
 ## Documentation
 

@@ -1,0 +1,155 @@
+/* Element defaults and control variants (docs/DESIGN_SPEC.md §6). */
+
+@layer tokens, base, components;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: var(--type-body);
+    line-height: var(--leading-body);
+    font-weight: var(--weight-regular);
+    -webkit-font-smoothing: antialiased;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    margin: 0;
+    font-weight: var(--weight-medium);
+  }
+
+  p {
+    margin: 0;
+  }
+
+  ::selection {
+    background: var(--surface-selected);
+  }
+
+  /* Focus: one ring for every control, keyboard only. */
+  :focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Buttons: secondary by default; .primary once per view. */
+  button {
+    font: inherit;
+    font-weight: var(--weight-medium);
+    color: inherit;
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-m);
+    padding: var(--space-2) var(--space-4);
+    cursor: pointer;
+    transition:
+      background-color var(--dur-fast) var(--ease),
+      border-color var(--dur-fast) var(--ease),
+      color var(--dur-fast) var(--ease);
+  }
+
+  button:hover:not(:disabled) {
+    background: var(--surface-hover);
+  }
+
+  button:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+
+  button.primary {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+  }
+
+  button.primary:hover:not(:disabled) {
+    background: var(--text-secondary);
+    border-color: var(--text-secondary);
+  }
+
+  button.tertiary {
+    border-color: transparent;
+    color: var(--text-secondary);
+    padding-inline: var(--space-2);
+  }
+
+  button.tertiary:hover:not(:disabled) {
+    color: var(--text);
+  }
+
+  button.icon {
+    display: inline-grid;
+    place-items: center;
+    width: var(--hit);
+    height: var(--hit);
+    padding: 0;
+    border-color: transparent;
+    color: var(--text-secondary);
+  }
+
+  button.icon:hover:not(:disabled) {
+    color: var(--text);
+  }
+
+  button.small {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--type-caption);
+    line-height: var(--leading-body);
+  }
+
+  button.danger {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  /* Fields. */
+  input:not([type='radio'], [type='checkbox'], [type='range']),
+  select,
+  textarea {
+    font: inherit;
+    font-size: var(--type-small);
+    color: inherit;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-s);
+    padding: var(--space-2) var(--space-3);
+    transition: border-color var(--dur-fast) var(--ease);
+  }
+
+  input:not([type='radio'], [type='checkbox'], [type='range']):hover,
+  select:hover {
+    border-color: var(--text-muted);
+  }
+
+  input::placeholder {
+    color: var(--text-muted);
+  }
+
+  input[type='radio'],
+  input[type='checkbox'],
+  input[type='range'] {
+    accent-color: var(--accent);
+  }
+
+  pre,
+  code,
+  kbd {
+    font-family: var(--font-mono);
+  }
+}

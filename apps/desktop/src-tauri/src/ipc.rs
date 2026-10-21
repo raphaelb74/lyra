@@ -91,6 +91,8 @@ pub struct DeviceVolume {
 pub struct DeviceInfo {
     /// ALSA name to play to, `hw:CARD=…,DEV=…`.
     pub name: String,
+    /// Short name for people, e.g. `iFi USB Audio SE`, `HDMI 2`.
+    pub label: String,
     pub card_name: String,
     pub pcm_name: String,
     pub usb: bool,
@@ -101,18 +103,12 @@ impl From<Device> for DeviceInfo {
         let usb = device.is_usb();
         Self {
             name: device.name,
+            label: device.label,
             card_name: device.card_name,
             pcm_name: device.pcm_name,
             usb,
         }
     }
-}
-
-/// A dropped file Lyra may play.
-#[derive(Clone, Debug, Serialize)]
-pub struct DroppedFile {
-    pub path: String,
-    pub name: String,
 }
 
 #[derive(Clone, Debug, Serialize)]

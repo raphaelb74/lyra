@@ -11,7 +11,6 @@ import type {
   ConversionInfo,
   DiagnosticsInfo,
   DeviceInfo,
-  DroppedFile,
   Folder,
   JsonValue,
   LibraryTrack,
@@ -84,6 +83,7 @@ function isDevice(value: JsonValue): value is JsonValue & DeviceInfo {
   return (
     isRecord(value) &&
     isText(value.name) &&
+    isText(value.label) &&
     isText(value.cardName) &&
     isText(value.pcmName) &&
     isFlag(value.usb)
@@ -94,12 +94,6 @@ export function isDeviceList(
   value: JsonValue,
 ): value is JsonValue & DeviceInfo[] {
   return Array.isArray(value) && value.every(isDevice);
-}
-
-export function isDroppedFile(
-  value: JsonValue,
-): value is JsonValue & DroppedFile {
-  return isRecord(value) && isText(value.path) && isText(value.name);
 }
 
 function isVerdict(value: Field): value is JsonValue & Verdict {

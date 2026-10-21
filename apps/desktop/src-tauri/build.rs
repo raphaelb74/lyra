@@ -6,7 +6,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
             "get_app_info",
             "list_devices",
-            "play",
             "pause",
             "resume",
             "stop",

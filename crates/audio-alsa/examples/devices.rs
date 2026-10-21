@@ -16,8 +16,8 @@ fn main() -> ExitCode {
     };
     for device in &devices {
         println!(
-            "{}  {} — {}",
-            device.name, device.pcm_name, device.card_name
+            "{}  \"{}\"  {} — {}",
+            device.name, device.label, device.pcm_name, device.card_name
         );
         match probe(device) {
             Ok(caps) => {

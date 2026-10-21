@@ -56,20 +56,20 @@
   }
 </script>
 
-<div class="bar">
+<div class="heading">
   <input
     type="search"
     placeholder="Search title, artist or album"
     aria-label="Search tracks"
     bind:value={search}
   />
-  <span class="muted"
+  <span class="muted num"
     >{matches.length === tracks.length
       ? `${String(tracks.length)} tracks`
       : `${String(matches.length)} of ${String(tracks.length)}`}</span
   >
 </div>
-<ol>
+<ol class="rows">
   {#each shown as track, index (track.id)}
     <li>
       <button
@@ -82,10 +82,10 @@
         }}
       >
         <span class="title">{track.title}</span>
-        <span class="secondary">{track.artist}</span>
-        <span class="secondary">{track.album}</span>
-        <span class="secondary">{formatBadge(track)}</span>
-        <span class="secondary time"
+        <span class="meta">{track.artist}</span>
+        <span class="meta">{track.album}</span>
+        <span class="meta">{formatBadge(track)}</span>
+        <span class="meta end"
           >{track.durationSeconds === null
             ? ''
             : clock(track.durationSeconds)}</span
@@ -107,73 +107,18 @@
 {/if}
 
 <style>
-  .bar {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 16px;
-  }
   input {
-    font: inherit;
-    font-size: 13px;
-    color: inherit;
-    background: var(--surface);
-    border: 1px solid var(--border-strong);
-    border-radius: 8px;
-    padding: 8px 12px;
     width: min(100%, 360px);
   }
-  .muted {
-    color: var(--text-muted);
-    font-size: 13px;
+  .heading {
+    justify-content: flex-start;
   }
-  ol {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    gap: 2px;
-  }
-  li {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .row {
-    flex: 1;
-    min-width: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) 6em 4em;
-    gap: 16px;
-    text-align: left;
-    border: 0;
-    background: transparent;
-    padding: 9px 12px;
-  }
-  .row:hover:not(:disabled),
-  .row:focus-visible {
-    background: var(--surface);
-  }
-  .row[aria-current='true'] {
-    background: var(--surface-current);
-    color: var(--text-current);
-  }
-  .row span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .secondary {
-    color: var(--text-muted);
-    font-size: 13px;
-  }
-  .time {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
+  .rows {
+    --columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) 6em 4em;
   }
   @media (max-width: 950px) {
-    .row {
-      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 4em;
+    .rows {
+      --columns: minmax(0, 2fr) minmax(0, 1fr) 4em;
     }
     .row span:nth-child(3),
     .row span:nth-child(4) {

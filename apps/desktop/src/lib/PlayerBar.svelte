@@ -1,13 +1,18 @@
 <script lang="ts">
-  import { clock, outputLabel, sourceLabel, verdictLabel } from './format';
-  import type { DeviceInfo, PlayerStatus, TrackDetails } from './ipc';
+  import type { Snippet } from 'svelte';
+
+  import { clock, playbackLabel, verdictLabel } from './format';
+  import Icon from './Icon.svelte';
+  import type { PlayerStatus, TrackDetails } from './ipc';
+  import Slider from './Slider.svelte';
 
   interface Props {
     status: PlayerStatus;
     position: number;
-    device: DeviceInfo | undefined;
     /** Library data of the playing track, when it comes from the library. */
     details: TrackDetails | null;
+    /** Volume and output device, on the right of the transport. */
+    output: Snippet;
     onToggle: () => void;
     onPrevious: () => void;
     onNext: () => void;
@@ -18,8 +23,8 @@
   const {
     status,
     position,
-    device,
     details,
+    output,
     onToggle,
     onPrevious,
     onNext,
@@ -36,179 +41,249 @@
       status.state === 'paused' ||
       status.state === 'buffering',
   );
+  const title = $derived(details?.title ?? track?.fileName ?? null);
   const duration = $derived(track?.durationSeconds ?? 0);
   const shown = $derived(dragging ?? position);
   const verdict = $derived(track?.bitPerfect ?? null);
   const verdictText = $derived(verdictLabel(verdict));
+  const signal = $derived(track === null ? null : playbackLabel(track));
   const hasNext = $derived(
     track !== null && track.queueIndex + 1 < status.queueLength,
   );
+  /** Spoken on change only; position ticks are not announced. */
+  const announcement = $derived.by(() => {
+    if (status.error !== null) return status.error.message;
+
+    if (title === null) return '';
+
+    if (status.state === 'playing') return `Playing ${title}`;
+
+    if (status.state === 'paused') return `Paused, ${title}`;
+
+    return '';
+  });
 </script>
 
 <footer aria-label="Player">
-  {#if details?.art}
-    <img class="art" src={details.art} alt="" width="54" height="54" />
-  {:else}
-    <div class="art" aria-hidden="true">♪</div>
-  {/if}
-  <div class="track">
-    {#if track}
-      <strong>{details?.title ?? track.fileName}</strong>
-      <small
-        >{details ? `${details.artist} · ` : ''}{sourceLabel(track)} · {status.state}</small
-      >
+  <div class="now">
+    {#if details?.art}
+      <img class="art" src={details.art} alt="" width="48" height="48" />
     {:else}
-      <strong>Nothing playing</strong>
-      <small>Choose an album, or drop files onto the window</small>
+      <div class="art" aria-hidden="true"><Icon name="disc-3" /></div>
     {/if}
+    <div class="track">
+      {#if title !== null}
+        <strong class="truncate">{title}</strong>
+        {#if details}
+          <small class="truncate"
+            >{details.artist}{details.album ? ` — ${details.album}` : ''}</small
+          >
+        {/if}
+      {:else}
+        <strong>Nothing playing</strong>
+        <small class="truncate">Choose an album to start</small>
+      {/if}
+    </div>
   </div>
+
   <div class="transport">
     <div class="controls">
       <button
         type="button"
+        class="icon"
         aria-label="Previous"
+        title="Previous"
         disabled={!active}
-        onclick={onPrevious}>⏮</button
+        onclick={onPrevious}><Icon name="skip-back" /></button
       >
       <button
         type="button"
-        aria-label={status.state === 'paused' ? 'Resume' : 'Play'}
-        aria-pressed={status.state === 'playing'}
+        class="icon play"
+        aria-label={status.state === 'playing' ? 'Pause' : 'Play'}
+        title={status.state === 'playing' ? 'Pause' : 'Play'}
         disabled={!active}
-        onclick={onToggle}>{status.state === 'playing' ? '❚❚' : '▶'}</button
+        onclick={onToggle}
+        ><Icon name={status.state === 'playing' ? 'pause' : 'play'} /></button
       >
       <button
         type="button"
-        aria-label="Stop"
-        disabled={!active}
-        onclick={onStop}>■</button
-      >
-      <button
-        type="button"
+        class="icon"
         aria-label="Next"
+        title="Next"
         disabled={!active || !hasNext}
-        onclick={onNext}>⏭</button
+        onclick={onNext}><Icon name="skip-forward" /></button
+      >
+      <button
+        type="button"
+        class="icon stop"
+        aria-label="Stop"
+        title="Stop"
+        disabled={!active}
+        onclick={onStop}><Icon name="square" size={14} /></button
       >
     </div>
-    <div class="seek">
+    <div class="seek num">
       <span>{clock(shown)}</span>
-      <input
-        type="range"
-        aria-label="Seek"
-        min="0"
-        max={duration}
-        step="0.1"
+      <Slider
+        label="Seek"
         value={shown}
+        max={duration}
+        step={0.1}
+        valueText={`${clock(shown)} of ${clock(duration)}`}
         disabled={!active || duration === 0}
-        oninput={(event) => {
-          dragging = event.currentTarget.valueAsNumber;
+        onInput={(seconds: number) => {
+          dragging = seconds;
         }}
-        onchange={(event) => {
+        onChange={(seconds: number) => {
           dragging = null;
-          onSeek(event.currentTarget.valueAsNumber);
+          onSeek(seconds);
         }}
       />
       <span>{clock(duration)}</span>
     </div>
   </div>
+
   <div class="output">
-    <strong>{device?.cardName ?? 'No DAC selected'}</strong>
-    <small
-      >{track?.output ? outputLabel(track.output) : 'Output inactive'}</small
-    >
-    <small
-      class="verdict"
-      data-status={verdict?.status ?? 'none'}
-      title={verdictText}>{verdictText}</small
-    >
+    <div class="output-controls">{@render output()}</div>
+    {#if active}
+      <p class="signal" title={verdictText}>
+        <span
+          class="lamp"
+          data-status={verdict?.status ?? 'none'}
+          aria-hidden="true"
+        ></span>
+        <span class="num">{signal ?? 'Opening…'}</span>
+        <span class="visually-hidden">, {verdictText}</span>
+      </p>
+    {/if}
   </div>
+
+  <p class="visually-hidden" aria-live="polite">{announcement}</p>
 </footer>
 
 <style>
   footer {
-    min-height: 100px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 520px) minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-5);
+    padding: var(--space-3) var(--space-5);
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+  }
+  .now {
     display: flex;
     align-items: center;
-    gap: 18px;
-    padding: 18px 26px;
-    background: var(--surface-raised);
-    border-top: 1px solid var(--border-player);
+    gap: var(--space-3);
+    min-width: 0;
   }
   .art {
-    background: var(--art-placeholder);
-    color: var(--accent);
-    border-radius: 8px;
-    width: 54px;
-    height: 54px;
-    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+  }
+  .track {
     display: grid;
-    place-items: center;
-    font-size: 24px;
-    object-fit: cover;
-  }
-  .track,
-  .output {
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-    font-size: 13px;
+    gap: var(--space-0);
     min-width: 0;
-    width: 260px;
   }
-  .track strong,
-  .output strong {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  strong {
+    font-weight: var(--weight-medium);
   }
   small {
-    color: var(--text-muted);
-    font-size: 11px;
+    color: var(--text-secondary);
+    font-size: var(--type-caption);
+    line-height: var(--leading-caption);
   }
   .transport {
-    flex: 1;
     display: grid;
-    gap: 8px;
     justify-items: center;
   }
   .controls {
     display: flex;
-    gap: 10px;
+    align-items: center;
+    gap: var(--space-2);
   }
-  .controls button {
-    border: 0;
-    background: transparent;
-    min-width: 44px;
+  .play {
+    width: var(--hit-primary);
+    height: var(--hit-primary);
+    border-radius: var(--radius-round);
+    background: var(--text);
+    color: var(--bg);
+  }
+  .play:hover:not(:disabled) {
+    background: var(--text-secondary);
+    color: var(--bg);
+  }
+  .play:disabled {
+    opacity: 1;
+    background: var(--surface-hover);
+    color: var(--text-muted);
+  }
+  .stop {
+    color: var(--text-muted);
   }
   .seek {
     display: flex;
     align-items: center;
-    gap: 10px;
-    width: min(100%, 520px);
-    font-size: 11px;
+    gap: var(--space-3);
+    width: 100%;
+    font-size: var(--type-caption);
     color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
   }
-  .seek input {
-    flex: 1;
-    accent-color: var(--accent);
+  .seek span {
+    min-width: 3.5em;
   }
-  .output {
+  .seek span:first-child {
     text-align: right;
   }
-  .verdict[data-status='yes'] {
-    color: var(--accent);
+  .output {
+    display: grid;
+    justify-items: end;
+    gap: var(--space-0);
+    min-width: 0;
   }
-  .verdict[data-status='no'] {
-    color: var(--warning);
+  .output-controls {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    width: 100%;
+    min-width: 0;
   }
-  @media (max-width: 650px) {
+  .signal {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding-right: var(--space-2);
+    font-size: var(--type-caption);
+    line-height: var(--leading-caption);
+    color: var(--text-secondary);
+  }
+  /* The one lit element: bit-perfect verified by the engine. */
+  .lamp {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-round);
+    border: 1px solid var(--text-muted);
+  }
+  .lamp[data-status='yes'] {
+    border-color: var(--accent);
+    background: var(--accent);
+    box-shadow: 0 0 4px var(--accent);
+  }
+  .lamp[data-status='no'] {
+    border-color: var(--warning);
+    background: var(--warning);
+  }
+  @media (max-width: 1100px) {
     footer {
-      gap: 10px;
-      padding: 15px;
+      grid-template-columns:
+        minmax(0, 0.8fr)
+        minmax(200px, 320px)
+        minmax(0, 1.2fr);
+      gap: var(--space-4);
     }
-    .art,
-    .output {
+    small {
       display: none;
     }
   }

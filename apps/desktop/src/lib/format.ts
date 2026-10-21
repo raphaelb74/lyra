@@ -1,4 +1,4 @@
-import type { Output, SourceFormat, Track, Verdict } from './ipc';
+import type { Output, ScanStatus, SourceFormat, Track, Verdict } from './ipc';
 
 /** `FLAC 24/96`, `WAV 16/44.1`, `DSD64 · DSF`. */
 export function sourceLabel(track: Track): string {
@@ -35,6 +35,30 @@ export function outputLabel(output: Output): string {
   }
 }
 
+/**
+ * What reaches the DAC, for people: `PCM · 24-bit / 96 kHz`, `DSD128 · Native`,
+ * `DSD128 · DoP`, `DSD64 → PCM 88.2 kHz`. From the engine's output, never from
+ * file metadata alone; null until the device is open.
+ */
+export function playbackLabel(track: Track): string | null {
+  const output = track.output;
+
+  if (output === null) return null;
+
+  const dsd = `DSD${String(track.dsdMultiple ?? '')}`;
+
+  switch (output.transport) {
+    case 'pcm':
+      return `PCM · ${String(track.bitsPerSample)}-bit / ${kilohertz(output.sampleRate)} kHz`;
+    case 'native':
+      return `${dsd} · Native`;
+    case 'dop':
+      return `${dsd} · DoP`;
+    case 'converted':
+      return `${dsd} → PCM ${kilohertz(output.sampleRate)} kHz`;
+  }
+}
+
 /** `44.1`, `96`, `352.8`. */
 function kilohertz(rate: number): string {
   return String(rate / 1000);
@@ -65,4 +89,24 @@ export function verdictLabel(verdict: Verdict | null): string {
   return verdict.status === 'no'
     ? `Not bit-perfect: ${reason}`
     : `Bit-perfect unverified: ${reason}`;
+}
+
+/** `Scanning 12 of 340 files…`, `Up to date · 3 added, …`, or the error. */
+export function scanText(scan: ScanStatus): string {
+  if (scan.running) {
+    return scan.total === 0
+      ? 'Looking for music…'
+      : `Scanning ${String(scan.done)} of ${String(scan.total)} files…`;
+  }
+
+  if (scan.error !== null) return scan.error;
+
+  const last = scan.last;
+
+  if (last === null) return '';
+
+  const failed =
+    last.failed === 0 ? '' : ` · ${String(last.failed)} could not be read`;
+
+  return `Up to date · ${String(last.added)} added, ${String(last.updated)} updated, ${String(last.removed)} removed${failed}`;
 }

@@ -72,16 +72,6 @@ const status = {
 };
 
 describe('playback commands', () => {
-  it('sends play with the dropped path and device', async () => {
-    const runCommand = vi.fn(() => Promise.resolve(null));
-
-    await backend(runCommand, true).play('/m/a.flac', 'hw:CARD=ONE,DEV=0');
-    expect(runCommand).toHaveBeenCalledExactlyOnceWith('play', {
-      path: '/m/a.flac',
-      device: 'hw:CARD=ONE,DEV=0',
-    });
-  });
-
   it('keeps the code and message of a Rust IpcError', async () => {
     const busy = {
       code: 'device_busy',
@@ -89,7 +79,7 @@ describe('playback commands', () => {
     };
 
     // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- Tauri rejects with the serialized IpcError object.
-    const result = backend(() => Promise.reject(busy), true).play('a', 'b');
+    const result = backend(() => Promise.reject(busy), true).next();
 
     await expect(result).rejects.toMatchObject(busy);
   });
@@ -110,7 +100,8 @@ describe('playback commands', () => {
     const devices = [
       {
         name: 'hw:CARD=ONE,DEV=0',
-        cardName: 'ZEN ONE',
+        label: 'ZEN ONE',
+        cardName: 'iFi (by AMR) ZEN One at usb-0000:00:14.0-2, high speed',
         pcmName: 'USB Audio',
         usb: true,
       },

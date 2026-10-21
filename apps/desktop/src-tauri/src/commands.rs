@@ -4,7 +4,6 @@
 // Tauri injects `State` and arguments by value.
 #![expect(clippy::needless_pass_by_value, reason = "Tauri command signature")]
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -26,14 +25,12 @@ pub const LIBRARY_CHANGED_EVENT: &str = "library-changed";
 /// Event carrying a sentence for the user about a folder they added.
 pub const LIBRARY_NOTICE_EVENT: &str = "library-notice";
 
-/// Engine, library, and the files the user dropped. Only dropped files and
-/// tracks inside library folders can be played, so the webview cannot ask
-/// Rust to open arbitrary paths.
+/// Engine and library. Only tracks inside library folders can be played, by
+/// library id, so the webview cannot ask Rust to open arbitrary paths.
 pub struct AppState {
     pub player: Player,
     /// The engine's sink, read for diagnostics.
     sink_stats: Arc<SinkStats>,
-    dropped: Mutex<HashSet<PathBuf>>,
     /// The UI's connection; the scanner has its own.
     library: Mutex<Library>,
     pub scanner: Scanner,
@@ -59,7 +56,6 @@ impl AppState {
         let state = Self {
             player,
             sink_stats,
-            dropped: Mutex::new(HashSet::new()),
             library: Mutex::new(library),
             scanner,
             scan_status,
@@ -84,14 +80,6 @@ impl AppState {
     fn apply_settings(&self, settings: Settings) {
         self.player.set_resync_delay(settings.resync_delay());
         *locked(&self.settings) = settings;
-    }
-
-    pub fn allow(&self, paths: impl IntoIterator<Item = PathBuf>) {
-        locked(&self.dropped).extend(paths);
-    }
-
-    fn is_allowed(&self, path: &Path) -> bool {
-        locked(&self.dropped).contains(path)
     }
 
     fn library(&self) -> MutexGuard<'_, Library> {
@@ -145,21 +133,6 @@ pub fn list_devices() -> Result<Vec<DeviceInfo>, IpcError> {
             code: "device_list_failed",
             message: format!("Cannot list audio devices: {error}"),
         })
-}
-
-#[tauri::command]
-pub fn play(path: String, device: String, state: State<'_, AppState>) -> Result<(), IpcError> {
-    let path = PathBuf::from(path);
-    if !state.is_allowed(&path) {
-        return Err(IpcError::invalid_request(
-            "Drop the file onto the Lyra window to play it.",
-        ));
-    }
-    let device = hardware_device(device)?;
-    state
-        .player
-        .play(path, device, state.settings().dsd_policy())
-        .map_err(IpcError::from)
 }
 
 /// Runs one library call and converts its error for the UI.

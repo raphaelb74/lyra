@@ -1,5 +1,6 @@
 <script lang="ts">
   import { clock, formatBadge } from './format';
+  import Icon from './Icon.svelte';
   import {
     attempt,
     type Backend,
@@ -94,12 +95,12 @@
 {#if open}
   <section aria-labelledby="playlist-title">
     <button type="button" class="back" onclick={() => (openId = null)}
-      >← All playlists</button
+      ><Icon name="chevron-left" size={16} />All playlists</button
     >
-    <header>
+    <header class="heading">
       {#if renaming === null}
         <h3 id="playlist-title">{open.name}</h3>
-        <p class="muted">
+        <p class="muted num">
           {open.trackCount}
           {open.trackCount === 1 ? 'track' : 'tracks'} · {clock(
             open.durationSeconds,
@@ -124,6 +125,7 @@
       <div class="actions">
         <button
           type="button"
+          class="primary"
           disabled={entries.length === 0 || device === ''}
           onclick={() => {
             play(0);
@@ -147,7 +149,7 @@
         Empty. Add tracks with the + buttons in albums and the track list.
       </p>
     {:else}
-      <ol>
+      <ol class="rows">
         {#each entries as entry, index (entry.entryId)}
           <li>
             <button
@@ -159,13 +161,13 @@
                 play(index);
               }}
             >
-              <span class="number">{index + 1}</span>
+              <span class="meta end">{index + 1}</span>
               <span class="title"
                 >{entry.track.title}
                 <small>{entry.track.artist} · {entry.track.album}</small></span
               >
-              <span class="secondary">{formatBadge(entry.track)}</span>
-              <span class="secondary time"
+              <span class="meta">{formatBadge(entry.track)}</span>
+              <span class="meta end"
                 >{entry.track.durationSeconds === null
                   ? ''
                   : clock(entry.track.durationSeconds)}</span
@@ -173,29 +175,29 @@
             </button>
             <button
               type="button"
-              class="tool"
+              class="icon"
               aria-label={`Move ${entry.track.title} up`}
               disabled={index === 0}
               onclick={() => {
                 void change(() => api.moveInPlaylist(entry.entryId, index - 1));
-              }}>↑</button
+              }}><Icon name="arrow-up" size={16} /></button
             >
             <button
               type="button"
-              class="tool"
+              class="icon"
               aria-label={`Move ${entry.track.title} down`}
               disabled={index === entries.length - 1}
               onclick={() => {
                 void change(() => api.moveInPlaylist(entry.entryId, index + 1));
-              }}>↓</button
+              }}><Icon name="arrow-down" size={16} /></button
             >
             <button
               type="button"
-              class="tool"
+              class="icon"
               aria-label={`Remove ${entry.track.title} from the playlist`}
               onclick={() => {
                 void change(() => api.removeFromPlaylist(entry.entryId));
-              }}>✕</button
+              }}><Icon name="x" size={16} /></button
             >
           </li>
         {/each}
@@ -219,7 +221,7 @@
     {#if playlists.length === 0}
       <p class="muted">No playlists yet. Create one, then add tracks to it.</p>
     {:else}
-      <ul>
+      <ul class="list">
         {#each playlists as playlist (playlist.id)}
           <li>
             <button
@@ -229,7 +231,7 @@
               }}
             >
               <span>{playlist.name}</span>
-              <small
+              <small class="num"
                 >{playlist.trackCount}
                 {playlist.trackCount === 1 ? 'track' : 'tracks'} · {clock(
                   playlist.durationSeconds,
@@ -244,117 +246,37 @@
 {/if}
 
 <style>
-  .heading,
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-    margin-bottom: 16px;
-  }
-  h3 {
-    font-size: 16px;
-    font-weight: 500;
-    margin: 0;
-  }
   header h3 {
-    font-size: 24px;
+    font-size: var(--type-heading);
+    line-height: var(--leading-heading);
+    font-weight: var(--weight-strong);
   }
-  .muted,
-  small {
-    color: var(--text-muted);
-    font-size: 13px;
-  }
-  form,
-  .actions {
+  form {
     display: flex;
-    gap: 8px;
+    gap: var(--space-2);
     align-items: center;
   }
-  input {
-    font: inherit;
-    font-size: 13px;
-    color: inherit;
-    background: var(--surface);
-    border: 1px solid var(--border-strong);
-    border-radius: 8px;
-    padding: 7px 10px;
+  .rows {
+    --columns: 3em minmax(0, 1fr) 6em 4em;
   }
-  ul,
-  ol {
+  .list {
     list-style: none;
     padding: 0;
     margin: 0;
     display: grid;
-    gap: 2px;
+    gap: var(--space-0);
   }
-  ul button {
+  .list button {
     width: 100%;
     display: flex;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
     text-align: left;
     border: 0;
-    background: transparent;
-    padding: 10px 12px;
+    font-weight: var(--weight-regular);
   }
-  ul button:hover,
-  ul button:focus-visible {
-    background: var(--surface);
-  }
-  ol li {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-  }
-  .row {
-    flex: 1;
-    min-width: 0;
-    display: grid;
-    grid-template-columns: 3em minmax(0, 1fr) 6em 4em;
-    gap: 16px;
-    align-items: center;
-    text-align: left;
-    border: 0;
-    background: transparent;
-    padding: 9px 12px;
-  }
-  .row:hover:not(:disabled),
-  .row:focus-visible {
-    background: var(--surface);
-  }
-  .row[aria-current='true'] {
-    background: var(--surface-current);
-    color: var(--text-current);
-  }
-  .title {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .title small {
-    margin-left: 8px;
-    font-size: 12px;
-  }
-  .number,
-  .secondary {
-    color: var(--text-muted);
-    font-size: 13px;
-    font-variant-numeric: tabular-nums;
-  }
-  .time {
-    text-align: right;
-  }
-  .tool {
-    border: 0;
-    background: transparent;
-    padding: 6px 8px;
-    color: var(--text-muted);
-  }
-  .tool:hover:not(:disabled),
-  .tool:focus-visible {
-    color: var(--text-current);
-    background: var(--surface);
+  .list small {
+    color: var(--text-secondary);
+    font-size: var(--type-small);
   }
 </style>
