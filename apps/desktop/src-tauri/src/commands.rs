@@ -15,8 +15,8 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::ipc::{
     ART_URL, AlbumInfo, AppInfo, ArtistInfo, DeviceInfo, FolderInfo, IpcError, LibraryTrack,
-    PlaylistEntry, PlaylistInfo, QueueEntry, ScanStatus, Status, TrackDetails, file_name,
-    frames_to_seconds,
+    PlaylistEntry, PlaylistInfo, QueueEntry, ScanStatus, Status, TrackDetails, VolumeInfo,
+    file_name, frames_to_seconds,
 };
 use crate::settings::Settings;
 
@@ -527,4 +527,66 @@ pub fn set_settings(settings: Settings, state: State<'_, AppState>) -> Result<Se
         .lock()
         .unwrap_or_else(PoisonError::into_inner) = settings;
     Ok(settings)
+}
+
+/// The hardware volume of `device`'s card; `None` when it has no control.
+#[tauri::command]
+pub fn get_volume(
+    device: String,
+    state: State<'_, AppState>,
+) -> Result<Option<VolumeInfo>, IpcError> {
+    let device = hardware_device(device)?;
+    let level = audio_alsa::volume(&device).map_err(|error| volume_error(&error))?;
+    Ok(level.map(|level| volume_info(level, volume_lock(&state, &device))))
+}
+
+/// Moves `device`'s hardware volume; refused while DoP plays on it.
+#[tauri::command]
+pub fn set_volume(
+    device: String,
+    percent: u8,
+    state: State<'_, AppState>,
+) -> Result<Option<VolumeInfo>, IpcError> {
+    let device = hardware_device(device)?;
+    if let Some(reason) = volume_lock(&state, &device) {
+        return Err(IpcError::invalid_request(reason));
+    }
+    let level = audio_alsa::set_volume(&device, percent).map_err(|error| volume_error(&error))?;
+    Ok(level.map(|level| volume_info(level, None)))
+}
+
+fn hardware_device(device: String) -> Result<String, IpcError> {
+    if device.starts_with("hw:") {
+        Ok(device)
+    } else {
+        Err(IpcError::invalid_request(format!(
+            "{device} is not a hardware device"
+        )))
+    }
+}
+
+/// The lock applies to the device that is playing.
+fn volume_lock(state: &AppState, device: &str) -> Option<&'static str> {
+    let status = state.player.status();
+    let playing_here = status
+        .track
+        .as_ref()
+        .is_some_and(|track| track.device == device);
+    playing_here.then(|| status.volume_lock()).flatten()
+}
+
+fn volume_info(level: audio_alsa::VolumeLevel, locked: Option<&'static str>) -> VolumeInfo {
+    VolumeInfo {
+        percent: level.percent,
+        decibels: level.decibels,
+        usb: level.usb,
+        locked,
+    }
+}
+
+fn volume_error(error: &audio_alsa::AlsaError) -> IpcError {
+    IpcError {
+        code: "volume_failed",
+        message: format!("Cannot use the device volume: {error}"),
+    }
 }

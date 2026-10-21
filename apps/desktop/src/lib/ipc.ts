@@ -280,6 +280,27 @@ function isVerdict(value: Field): value is JsonValue & Verdict {
   );
 }
 
+/** Mirrors Rust's `VolumeInfo`: a card's hardware volume. */
+export interface VolumeInfo {
+  percent: number;
+  decibels: number | null;
+  /** USB DAC: below 0 dB the samples usually change. */
+  usb: boolean;
+  /** Why the volume cannot change now (DoP playing). */
+  locked: string | null;
+}
+
+function isVolume(value: Field): value is (JsonValue & VolumeInfo) | null {
+  return (
+    value === null ||
+    (isRecord(value) &&
+      isNumber(value.percent) &&
+      isNullableNumber(value.decibels) &&
+      isFlag(value.usb) &&
+      isNullableText(value.locked))
+  );
+}
+
 /** Mirrors Rust's `Settings`. */
 export interface Settings {
   dsdTransport: 'auto' | 'native' | 'dop';
@@ -648,6 +669,10 @@ export function backend(
       run('remove_from_playlist', isNothing, { entryId }),
     moveInPlaylist: (entryId: number, to: number) =>
       run('move_in_playlist', isNothing, { entryId, to }),
+    volume: (device: string) =>
+      run<VolumeInfo | null>('get_volume', isVolume, { device }),
+    setVolume: (device: string, percent: number) =>
+      run<VolumeInfo | null>('set_volume', isVolume, { device, percent }),
     settings: () => run('get_settings', isSettings),
     setSettings: (settings: Settings) =>
       run('set_settings', isSettings, { settings: { ...settings } }),

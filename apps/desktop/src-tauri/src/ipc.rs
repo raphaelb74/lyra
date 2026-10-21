@@ -65,6 +65,19 @@ impl From<PlayerError> for IpcError {
     }
 }
 
+/// A card's hardware volume, for the in-app control.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeInfo {
+    /// 0–100 along the control's steps.
+    pub percent: u8,
+    pub decibels: Option<f64>,
+    /// USB DAC: below 0 dB the samples usually change (not bit-perfect).
+    pub usb: bool,
+    /// Why the volume cannot change now (DoP playing), if it cannot.
+    pub locked: Option<&'static str>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {

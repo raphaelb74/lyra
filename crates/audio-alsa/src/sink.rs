@@ -282,7 +282,7 @@ fn card_index(device: &str) -> Option<i32> {
 }
 
 /// Control name for the card of a `hw:` PCM name (`hw:CARD=ONE` / `hw:2`).
-fn card_control(device: &str) -> String {
+pub(crate) fn card_control(device: &str) -> String {
     match hw_part(device, "CARD", 0) {
         Some(card) if card.parse::<u32>().is_ok() => format!("hw:{card}"),
         Some(card) => format!("hw:CARD={card}"),

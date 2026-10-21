@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { backend } from './ipc';
+import { backend, type JsonValue } from './ipc';
 
 const info = { name: 'Lyra', version: '0.1.0', platform: 'linux' };
 
@@ -210,5 +210,18 @@ describe('playback commands', () => {
         true,
       ).settings(),
     ).rejects.toMatchObject({ code: 'invalid_response' });
+  });
+
+  it('accepts a card volume, or none, and nothing malformed', async () => {
+    const level = { percent: 63, decibels: -23.5, usb: false, locked: null };
+
+    const volume = (value: JsonValue) =>
+      backend(() => Promise.resolve(value), true).volume('hw:CARD=PCH,DEV=0');
+
+    await expect(volume(level)).resolves.toEqual(level);
+    await expect(volume(null)).resolves.toBeNull();
+    await expect(volume({ ...level, usb: 'no' })).rejects.toMatchObject({
+      code: 'invalid_response',
+    });
   });
 });

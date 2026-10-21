@@ -16,6 +16,9 @@ use alsa::mixer::{MilliBel, Selem, SelemChannelId, SelemId};
 use alsa::{Ctl, Mixer, Round};
 use player_core::HardwareVolume;
 
+use crate::error::AlsaError;
+use crate::sink::card_control;
+
 /// Largest attenuation corrected automatically: 0.5 dB.
 const AUTO_UNITY_CENTIBELS: i64 = -50;
 
@@ -89,6 +92,94 @@ impl Drop for SavedVolume {
             }
         }
     }
+}
+
+/// The card's main playback volume, as the in-app control shows it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VolumeLevel {
+    /// 0–100 along the control's own steps.
+    pub percent: u8,
+    /// Current level, when the control reports dB.
+    pub decibels: Option<f64>,
+    /// USB DACs often apply their volume digitally: below 0 dB the samples
+    /// change. Built-in cards are not checked.
+    pub usb: bool,
+}
+
+/// Preferred controls, most global first; otherwise the first one with a
+/// playback volume.
+const MAIN_CONTROLS: [&str; 2] = ["Master", "PCM"];
+
+/// The main playback volume of the card behind the `hw:` device `device`;
+/// `None` when it has none.
+pub fn volume(device: &str) -> Result<Option<VolumeLevel>, AlsaError> {
+    let card = card_control(device);
+    let mixer = open_mixer(device, &card)?;
+    Ok(main_control(&mixer).and_then(|selem| level(&selem, is_usb_audio(&card))))
+}
+
+/// Sets every channel of the card's main playback volume to `percent`
+/// (clamped to 100). The hardware applies it; Lyra never scales samples.
+pub fn set_volume(device: &str, percent: u8) -> Result<Option<VolumeLevel>, AlsaError> {
+    let card = card_control(device);
+    let mixer = open_mixer(device, &card)?;
+    let Some(selem) = main_control(&mixer) else {
+        return Ok(None);
+    };
+    let (min, max) = selem.get_playback_volume_range();
+    let raw = min + ((max - min) * i64::from(percent.min(100)) + 50) / 100;
+    selem
+        .set_playback_volume_all(raw)
+        .map_err(|source| AlsaError::Alsa {
+            device: device.to_owned(),
+            source,
+        })?;
+    Ok(level(&selem, is_usb_audio(&card)))
+}
+
+fn open_mixer(device: &str, card: &str) -> Result<Mixer, AlsaError> {
+    Mixer::new(card, false).map_err(|source| AlsaError::Alsa {
+        device: device.to_owned(),
+        source,
+    })
+}
+
+fn main_control(mixer: &Mixer) -> Option<Selem<'_>> {
+    let with_volume = || {
+        mixer
+            .iter()
+            .filter_map(Selem::new)
+            .filter(Selem::has_playback_volume)
+    };
+    MAIN_CONTROLS
+        .iter()
+        .find_map(|name| with_volume().find(|selem| selem.get_id().get_name().ok() == Some(*name)))
+        .or_else(|| with_volume().next())
+}
+
+/// Level of the first channel (the in-app control sets all of them alike).
+fn level(selem: &Selem<'_>, usb: bool) -> Option<VolumeLevel> {
+    let channel = SelemChannelId::all()
+        .iter()
+        .copied()
+        .find(|&channel| selem.has_playback_channel(channel))?;
+    let (min, max) = selem.get_playback_volume_range();
+    let raw = selem.get_playback_volume(channel).ok()?;
+    let percent = if max > min {
+        (((raw - min) * 100 + (max - min) / 2) / (max - min)).clamp(0, 100)
+    } else {
+        100
+    };
+    let (min_db, max_db) = selem.get_playback_db_range();
+    let decibels = (min_db != max_db)
+        .then(|| selem.get_playback_vol_db(channel).ok())
+        .flatten()
+        .map(|MilliBel(centibels)| f64::from(i32::try_from(centibels).unwrap_or(i32::MIN)) / 100.0);
+    Some(VolumeLevel {
+        percent: u8::try_from(percent).unwrap_or(100),
+        decibels,
+        usb,
+    })
 }
 
 struct Adjusted {

@@ -19,6 +19,7 @@
   import Playlists from './lib/Playlists.svelte';
   import QueueView from './lib/QueueView.svelte';
   import Settings from './lib/Settings.svelte';
+  import VolumeControl from './lib/VolumeControl.svelte';
 
   const api = backend();
 
@@ -203,6 +204,12 @@
               {/each}
             </select>
             <small class="muted">{selectedDevice}</small>
+            <VolumeControl
+              {api}
+              device={selectedDevice}
+              {status}
+              onError={showError}
+            />
           {:else}
             <p class="muted">
               {devicesLoaded

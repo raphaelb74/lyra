@@ -17,6 +17,8 @@ A Linux-first, bit-perfect music player for PCM and DSD, written in Rust with a 
 
 **DSD on built-in audio.** Built-in sound cards don't decode DSD, natively or as DoP. Sending them DoP would play loud noise, so by default Lyra refuses. In Settings you can turn on **Convert DSD to PCM**: DSD is then filtered and converted to 24-bit PCM at 88.2 kHz (44.1 kHz if that's all the device takes). It's only used when neither native DSD nor DoP can work, and it is never bit-perfect; the player always labels it "DSD converted to PCM".
 
+**Volume.** Lyra plays to the card directly, past PipeWire, so the desktop's volume slider and keys don't reach it. Use the volume control under Output (or Ctrl+↑/↓): it moves the card's own hardware volume and never scales the samples. On a USB DAC, anything below 0 dB usually changes the samples, and Lyra says so; during DoP the volume stays locked at 0 dB.
+
 **Hardware.** See the [hardware reports](docs/hardware/) for per-DAC evidence. Any ALSA device should work for PCM; DSD needs a DAC that exposes native DSD or decodes DoP.
 
 ## Principles

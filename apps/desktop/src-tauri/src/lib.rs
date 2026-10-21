@@ -101,6 +101,8 @@ pub fn run() -> tauri::Result<()> {
             commands::move_in_playlist,
             commands::get_settings,
             commands::set_settings,
+            commands::get_volume,
+            commands::set_volume,
         ])
         .build(tauri::generate_context!())?;
     app.run(|handle, event| {
