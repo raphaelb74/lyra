@@ -26,11 +26,11 @@ format-pcm = { workspace = true }
 library = { workspace = true }
 player-core = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
 
 [dev-dependencies]
-serde_json = { workspace = true }
 tauri = { workspace = true, features = ["test"] }
 
 [lints]

@@ -42,7 +42,8 @@ export interface Verdict {
 }
 
 export interface Output {
-  transport: 'pcm' | 'dop' | 'native';
+  /** `converted`: DSD converted to PCM, not bit-perfect. */
+  transport: 'pcm' | 'dop' | 'native' | 'converted';
   format: string;
   sampleRate: number;
   channels: number;
@@ -279,12 +280,33 @@ function isVerdict(value: Field): value is JsonValue & Verdict {
   );
 }
 
+/** Mirrors Rust's `Settings`. */
+export interface Settings {
+  dsdTransport: 'auto' | 'native' | 'dop';
+  /** DSD on devices without DSD support. */
+  dsdFallback: 'refuse' | 'convert';
+  /** Gain for converted DSD: 0, 3 or 6 dB. */
+  conversionGainDb: number;
+}
+
+export function isSettings(value: Field): value is JsonValue & Settings {
+  return (
+    isRecord(value) &&
+    (value.dsdTransport === 'auto' ||
+      value.dsdTransport === 'native' ||
+      value.dsdTransport === 'dop') &&
+    (value.dsdFallback === 'refuse' || value.dsdFallback === 'convert') &&
+    isNumber(value.conversionGainDb)
+  );
+}
+
 function isOutput(value: Field): value is JsonValue & Output {
   return (
     isRecord(value) &&
     (value.transport === 'pcm' ||
       value.transport === 'dop' ||
-      value.transport === 'native') &&
+      value.transport === 'native' ||
+      value.transport === 'converted') &&
     isText(value.format) &&
     isNumber(value.sampleRate) &&
     isNumber(value.channels)
@@ -626,6 +648,9 @@ export function backend(
       run('remove_from_playlist', isNothing, { entryId }),
     moveInPlaylist: (entryId: number, to: number) =>
       run('move_in_playlist', isNothing, { entryId, to }),
+    settings: () => run('get_settings', isSettings),
+    setSettings: (settings: Settings) =>
+      run('set_settings', isSettings, { settings: { ...settings } }),
   };
 }
 

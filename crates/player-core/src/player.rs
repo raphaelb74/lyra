@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 
 use crate::controller::Controller;
-use crate::sink::{AudioSink, DsdTransport};
+use crate::sink::{AudioSink, DsdPolicy};
 use crate::status::{ErrorKind, PlaybackState, PlayerError, PlayerStatus};
 use crate::writer::{Writer, WriterEvent};
 
@@ -81,7 +81,7 @@ pub(crate) enum Command {
         items: Vec<QueueItem>,
         start: usize,
         device: String,
-        dsd: DsdTransport,
+        dsd: DsdPolicy,
     },
     Next,
     Previous,
@@ -170,13 +170,8 @@ impl Player {
     }
 
     /// Plays one file on the ALSA device `device` (e.g. `hw:CARD=ONE,DEV=0`):
-    /// a queue of one. `dsd` chooses native DSD or DoP for DSD files.
-    pub fn play(
-        &self,
-        path: PathBuf,
-        device: String,
-        dsd: DsdTransport,
-    ) -> Result<(), PlayerError> {
+    /// a queue of one. `dsd` chooses how DSD files reach the device.
+    pub fn play(&self, path: PathBuf, device: String, dsd: DsdPolicy) -> Result<(), PlayerError> {
         self.play_queue(vec![QueueItem { path, id: None }], 0, device, dsd)
     }
 
@@ -187,7 +182,7 @@ impl Player {
         items: Vec<QueueItem>,
         start: usize,
         device: String,
-        dsd: DsdTransport,
+        dsd: DsdPolicy,
     ) -> Result<(), PlayerError> {
         if start >= items.len() {
             return Err(PlayerError {

@@ -75,7 +75,9 @@ impl Capabilities {
 
 pub(crate) fn alsa_format(encoding: Encoding) -> Format {
     match encoding {
-        Encoding::Pcm(layout) | Encoding::Dop(layout) => pcm_format(layout),
+        Encoding::Pcm(layout) | Encoding::Dop(layout) | Encoding::Converted(layout) => {
+            pcm_format(layout)
+        }
         Encoding::Dsd(layout) => dsd_format(layout),
     }
 }

@@ -37,6 +37,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "add_to_playlist",
             "remove_from_playlist",
             "move_in_playlist",
+            "get_settings",
+            "set_settings",
         ]));
     tauri_build::try_build(attributes)?;
     Ok(())

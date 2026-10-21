@@ -16,7 +16,10 @@ export function formatBadge(format: SourceFormat): string {
   return `${format.codec.toUpperCase()} ${kilohertz(format.sampleRate)}`;
 }
 
-/** `S24_3LE · 96 kHz`, `DoP · S24_3LE · 176.4 kHz`, `Native DSD · DSD_U32_BE · 88.2 kHz`. */
+/**
+ * `S24_3LE · 96 kHz`, `DoP · S24_3LE · 176.4 kHz`,
+ * `Native DSD · DSD_U32_BE · 88.2 kHz`, `DSD converted to PCM · S32_LE · 88.2 kHz`.
+ */
 export function outputLabel(output: Output): string {
   const wire = `${output.format} · ${kilohertz(output.sampleRate)} kHz`;
 
@@ -27,6 +30,8 @@ export function outputLabel(output: Output): string {
       return `DoP · ${wire}`;
     case 'native':
       return `Native DSD · ${wire}`;
+    case 'converted':
+      return `DSD converted to PCM · ${wire}`;
   }
 }
 

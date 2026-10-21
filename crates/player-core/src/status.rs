@@ -130,6 +130,14 @@ impl NowPlaying {
     /// is refused), so the remaining question is the device's own volume.
     pub fn bit_perfect(&self) -> Option<BitPerfect> {
         let output = self.output?;
+        if let Encoding::Converted(_) = output.encoding {
+            return Some(BitPerfect::No {
+                reason: format!(
+                    "DSD is converted to PCM at {} Hz (conversion is on in Settings)",
+                    output.sample_rate
+                ),
+            });
+        }
         let exact = output.channels == self.source.channels()
             && match (self.source, output.encoding) {
                 (SourceInfo::Pcm(info), Encoding::Pcm(layout)) => {

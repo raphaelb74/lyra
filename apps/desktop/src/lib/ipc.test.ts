@@ -187,4 +187,28 @@ describe('playback commands', () => {
       ).playlistEntries(1),
     ).rejects.toMatchObject({ code: 'invalid_response' });
   });
+
+  it('sends settings and accepts only known values back', async () => {
+    const settings = {
+      dsdTransport: 'auto',
+      dsdFallback: 'convert',
+      conversionGainDb: 3,
+    } as const;
+
+    const runCommand = vi.fn(() => Promise.resolve(settings));
+
+    await expect(
+      backend(runCommand, true).setSettings(settings),
+    ).resolves.toEqual(settings);
+    expect(runCommand).toHaveBeenCalledExactlyOnceWith('set_settings', {
+      settings,
+    });
+
+    await expect(
+      backend(
+        () => Promise.resolve({ ...settings, dsdFallback: 'resample' }),
+        true,
+      ).settings(),
+    ).rejects.toMatchObject({ code: 'invalid_response' });
+  });
 });

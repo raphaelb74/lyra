@@ -1,5 +1,6 @@
 mod commands;
 mod ipc;
+mod settings;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -44,6 +45,7 @@ pub fn run() -> tauri::Result<()> {
                 scanner.clone(),
                 scan_status,
                 art_dir,
+                app.path().app_config_dir()?.join("settings.json"),
             ));
             // Pick up changes made while Lyra was closed.
             if has_folders {
@@ -97,6 +99,8 @@ pub fn run() -> tauri::Result<()> {
             commands::add_to_playlist,
             commands::remove_from_playlist,
             commands::move_in_playlist,
+            commands::get_settings,
+            commands::set_settings,
         ])
         .build(tauri::generate_context!())?;
     app.run(|handle, event| {

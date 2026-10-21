@@ -31,6 +31,17 @@ describe('display formatting', () => {
     ).toBe('S24_3LE · 96 kHz');
   });
 
+  it('says when DSD was converted to PCM', () => {
+    expect(
+      outputLabel({
+        transport: 'converted',
+        format: 'S32_LE',
+        sampleRate: 88200,
+        channels: 2,
+      }),
+    ).toBe('DSD converted to PCM · S32_LE · 88.2 kHz');
+  });
+
   it('labels DSD sources and DoP output', () => {
     expect(
       sourceLabel({

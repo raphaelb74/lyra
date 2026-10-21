@@ -10,7 +10,7 @@
 
 Build a local-first, lightweight, attractive graphical music player with deterministic audio output. Support bit-perfect PCM and DSD to a compatible USB DAC, without implicit DSP, resampling, software gain, or browser audio processing.
 
-**Non-goals for v1:** streaming services, UPnP, multi-room, DSP/upsampling, remote access, network library, automatic DSD-to-PCM conversion, SACD ISO extraction, MQA decoding, audio recording. Windows and macOS follow v1 as their own milestone (plan M6); v1 is Linux.
+**Non-goals for v1:** streaming services, UPnP, multi-room, DSP/upsampling, remote access, network library, silent DSD-to-PCM conversion, SACD ISO extraction, MQA decoding, audio recording. Windows and macOS follow v1 as their own milestone (plan M6); v1 is Linux.
 
 ## 2. Core user stories
 
@@ -55,7 +55,7 @@ The engine should expose control messages (play/pause/stop/seek/select device) o
 - For **native DSD**, enumerate ALSA hardware formats (such as `DSD_U8`, `DSD_U16_LE`, `DSD_U32_LE` where supported), check driver capabilities, and convert packing/order only as required by the selected ALSA representation; never assume any particular format is exposed.
 - For **DoP 1.0**, package 16 DSD bits per channel into a 24-bit PCM frame, with marker bytes alternating `0x05` / `0xFA` per sample frame and matching markers across channels. Use a supported 24-in-32 or packed-24 ALSA format and verify byte ordering for the negotiated format.
 - DoP carrier sample rate = DSD bit rate / 16: DSD64 → 176.4 kHz; DSD128 → 352.8 kHz; DSD256 → 705.6 kHz. A DAC with a 384 kHz PCM interface cannot receive DSD256 via standard DoP; native DSD would be required.
-- Detect native DSD and DoP independently; make transport choice explicit: `Auto (native then DoP)`, `Native only`, `DoP only`. If unsupported, report why. No automatic DSD→PCM fallback in v1.
+- Detect native DSD and DoP independently; make transport choice explicit: `Auto (native then DoP)`, `Native only`, `DoP only`. If unsupported, report why. DSD→PCM conversion is opt-in (Settings, off by default), used only with `Auto` when neither native DSD nor DoP can be used, and always reported as not bit-perfect ([design](DSD_TO_PCM_DESIGN.md)).
 - Disable crossfade, replay gain, EQ, and software volume in bit-perfect mode.
 - Verify initial and final partial DSD blocks, silence pattern, and marker phase across gapless track boundaries. Do not insert PCM silence as a DSD substitute.
 
@@ -118,6 +118,9 @@ Enumerate ALSA cards, devices, hardware PCM rates/formats, and whether exclusive
 | A10 | UI requests unsupported output mode | Visible explanation; no silent conversion |
 | A11 | Tauri permissions audit | No unnecessary filesystem or shell permissions |
 | A12 | MPRIS media key controls | Correct state and metadata exposed |
+| C01 | DSD on built-in audio, conversion on | Plays as PCM at 88.2 kHz; labelled "DSD converted to PCM", verdict "not bit-perfect"; refused when conversion is off |
+
+C-series tests cover the opt-in converted path and are kept apart from the bit-perfect A-series.
 
 ## 11. Decisions pending hardware testing
 

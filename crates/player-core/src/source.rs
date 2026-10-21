@@ -3,11 +3,12 @@
 
 use std::path::Path;
 
+use dsd_pcm::Converter;
 use format_dsd::dop::DopPacker;
 use format_dsd::{DsdError, DsdInfo, DsdReader, NativePacker};
 use format_pcm::{Decoder, StreamInfo};
 
-use crate::sink::{DsdTransport, Encoding, StreamFormat};
+use crate::sink::{DsdFallback, DsdPolicy, DsdTransport, Encoding, OutputFormat, StreamFormat};
 use crate::status::{ErrorKind, PlayerError};
 
 /// The file being played, for display and policy.
@@ -41,9 +42,8 @@ impl SourceInfo {
         }
     }
 
-    /// The stream the device must accept, exactly. `transport` only applies
-    /// to DSD.
-    pub fn stream(&self, transport: DsdTransport) -> StreamFormat {
+    /// The stream the device must accept. `dsd` only applies to DSD.
+    pub fn stream(&self, dsd: DsdPolicy) -> StreamFormat {
         match self {
             Self::Pcm(info) => StreamFormat::Pcm {
                 sample_rate: info.sample_rate,
@@ -53,7 +53,9 @@ impl SourceInfo {
             Self::Dsd(info) => StreamFormat::Dsd {
                 dsd_rate: info.dsd_rate,
                 channels: info.channels,
-                transport,
+                transport: dsd.transport,
+                convert: dsd.transport == DsdTransport::Auto
+                    && matches!(dsd.fallback, DsdFallback::Convert { .. }),
             },
         }
     }
@@ -69,6 +71,8 @@ pub(crate) enum Source {
         reader: DsdReader,
         dop: DopPacker,
         native: NativePacker,
+        /// Made on first use, when the device was opened for conversion.
+        converter: Option<Box<Converter>>,
         /// Reused read buffer.
         bytes: Vec<u8>,
         /// Reused DoP sample buffer.
@@ -85,6 +89,7 @@ impl Source {
                 reader,
                 dop: DopPacker::new(),
                 native: NativePacker::new(),
+                converter: None,
                 bytes: Vec::new(),
                 samples: Vec::new(),
                 finished: false,
@@ -104,13 +109,16 @@ impl Source {
         }
     }
 
-    /// Replaces `out` with the next audio in `encoding`. Returns the source
-    /// frames read for it, or `None` at the end.
+    /// Replaces `out` with the next audio for `output`. Returns the source
+    /// frames read for it, or `None` at the end. Converted DSD keeps the
+    /// filters' tail back: see [`Self::tail`].
     pub fn next(
         &mut self,
-        encoding: Encoding,
+        output: &OutputFormat,
+        dsd: DsdPolicy,
         out: &mut Vec<u8>,
     ) -> Result<Option<u64>, PlayerError> {
+        let encoding = output.encoding;
         out.clear();
         match self {
             Self::Pcm { decoder, samples } => {
@@ -126,11 +134,13 @@ impl Source {
                 reader,
                 dop,
                 native,
+                converter,
                 bytes,
                 samples,
                 finished,
             } => {
-                let channels = reader.info().channels;
+                let info = *reader.info();
+                let channels = info.channels;
                 let mut frames = 0;
                 // A pack can hold back a partial word; read until bytes come out.
                 while out.is_empty() {
@@ -156,6 +166,33 @@ impl Source {
                                 native.pack(layout, bytes, channels, out);
                             }
                         }
+                        Encoding::Converted(layout) => {
+                            let converter = match converter {
+                                Some(converter)
+                                    if converter.continues(
+                                        info.dsd_rate,
+                                        output.sample_rate,
+                                        channels,
+                                    ) =>
+                                {
+                                    converter
+                                }
+                                // Designs the filters: once per track, on
+                                // the controller thread.
+                                _ => converter.insert(Box::new(
+                                    Converter::new(
+                                        info.dsd_rate,
+                                        output.sample_rate,
+                                        channels,
+                                        f64::from(gain_db(dsd)),
+                                    )
+                                    .ok_or_else(mismatch)?,
+                                )),
+                            };
+                            samples.clear();
+                            converter.push(bytes, samples);
+                            layout.pack(samples, out);
+                        }
                         Encoding::Pcm(_) => return Err(mismatch()),
                     }
                 }
@@ -165,10 +202,50 @@ impl Source {
     }
 
     /// Picks up where `previous` ended on the same device: DoP marker phase
-    /// carries over, so a gapless DSD boundary has no marker break.
-    pub fn continue_from(&mut self, previous: &Self) {
-        if let (Self::Dsd { dop, .. }, Self::Dsd { dop: before, .. }) = (self, previous) {
+    /// carries over, so a gapless DSD boundary has no marker break, and so
+    /// does the converter's filter state when it fits this track.
+    pub fn continue_from(&mut self, previous: &mut Self) {
+        if let (
+            Self::Dsd {
+                reader,
+                dop,
+                converter,
+                ..
+            },
+            Self::Dsd {
+                dop: before,
+                converter: running,
+                ..
+            },
+        ) = (self, previous)
+        {
             dop.continue_from(before);
+            let info = reader.info();
+            if running.as_ref().is_some_and(|running| {
+                running.continues(info.dsd_rate, running.output_rate(), info.channels)
+            }) {
+                *converter = running.take();
+            }
+        }
+    }
+
+    /// The end of converted audio still in the filters, for the track that
+    /// ended without a converted continuation. Empty otherwise.
+    pub fn tail(&mut self, encoding: Encoding, out: &mut Vec<u8>) {
+        out.clear();
+        if let (
+            Self::Dsd {
+                converter: Some(converter),
+                samples,
+                ..
+            },
+            Encoding::Converted(layout),
+        ) = (self, encoding)
+        {
+            samples.clear();
+            converter.finish(samples);
+            converter.reset();
+            layout.pack(samples, out);
         }
     }
 
@@ -179,16 +256,27 @@ impl Source {
                 reader,
                 dop,
                 native,
+                converter,
                 finished,
                 ..
             } => {
                 reader.seek(frame)?;
                 dop.reset();
                 native.reset();
+                if let Some(converter) = converter {
+                    converter.reset();
+                }
                 *finished = false;
                 Ok(())
             }
         }
+    }
+}
+
+fn gain_db(dsd: DsdPolicy) -> i8 {
+    match dsd.fallback {
+        DsdFallback::Convert { gain_db } => gain_db,
+        DsdFallback::Refuse => 0,
     }
 }
 

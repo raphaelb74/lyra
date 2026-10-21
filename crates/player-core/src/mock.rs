@@ -92,8 +92,13 @@ impl AudioSink for MockSink {
         if let Some(error) = &self.open_error {
             return Err(error.clone());
         }
-        let mut format = OutputFormat::negotiate(stream, |encoding, rate| {
-            self.encodings.contains(&encoding) && self.rates.contains(&rate)
+        let format = OutputFormat::negotiate(stream, self.hardware_volume, |encoding, rate| {
+            // Converted DSD is plain PCM to the device.
+            let as_sent = match encoding {
+                Encoding::Converted(layout) => Encoding::Pcm(layout),
+                other => other,
+            };
+            self.encodings.contains(&as_sent) && self.rates.contains(&rate)
         })
         .ok_or_else(|| {
             SinkError::new(
@@ -101,7 +106,6 @@ impl AudioSink for MockSink {
                 format!("{device} cannot play {stream}"),
             )
         })?;
-        format.hardware_volume = self.hardware_volume;
         self.recorder.record(SinkCall::Open(format), None);
         Ok(format)
     }

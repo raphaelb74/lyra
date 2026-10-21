@@ -2,7 +2,7 @@
 
 A Linux-first, bit-perfect music player for PCM and DSD, written in Rust with a Tauri 2 + Svelte 5 interface.
 
-> **Status: M4 in progress.** Plays FLAC and WAV bit-perfectly, and DSF/DFF as native DSD or DoP, to an ALSA `hw:` device. A music library scans your folders into albums with artwork. Queue, playlists, settings and packaging come next (see the [plan](docs/IMPLEMENTATION_PLAN.md)).
+> **Status: M4 in progress.** Plays FLAC and WAV bit-perfectly, and DSF/DFF as native DSD or DoP, to an ALSA `hw:` device. A music library scans your folders into albums with artwork; a gapless queue, playlists and Settings are in. Diagnostics, keyboard shortcuts and packaging come next (see the [plan](docs/IMPLEMENTATION_PLAN.md)).
 
 ## What works
 
@@ -15,14 +15,14 @@ A Linux-first, bit-perfect music player for PCM and DSD, written in Rust with a 
 - **Bit-perfect status** for every track: format, rate, transport, and the DAC's own volume (Lyra sets a USB DAC's near-0 dB volume to exactly 0 dB while playing, then restores it).
 - **Clear refusals** instead of conversions: a rate the DAC can't take, a busy device (and which program holds it), DSD on an output that can't decode it.
 
-**DSD on built-in audio.** Built-in sound cards don't decode DSD, natively or as DoP. Sending them DoP would play loud noise, so Lyra refuses. It doesn't convert DSD to PCM either; use a DAC with DSD support.
+**DSD on built-in audio.** Built-in sound cards don't decode DSD, natively or as DoP. Sending them DoP would play loud noise, so by default Lyra refuses. In Settings you can turn on **Convert DSD to PCM**: DSD is then filtered and converted to 24-bit PCM at 88.2 kHz (44.1 kHz if that's all the device takes). It's only used when neither native DSD nor DoP can work, and it is never bit-perfect; the player always labels it "DSD converted to PCM".
 
 **Hardware.** See the [hardware reports](docs/hardware/) for per-DAC evidence. Any ALSA device should work for PCM; DSD needs a DAC that exposes native DSD or decodes DoP.
 
 ## Principles
 
 - **Direct to hardware.** Audio goes from Rust straight to an ALSA `hw:` device. No Web Audio, PulseAudio or PipeWire in the playback path.
-- **No hidden processing.** No resampling, software volume or DSD→PCM conversion. If the DAC can't take a format, Lyra says so.
+- **No hidden processing.** No resampling or software volume. DSD→PCM conversion happens only if you turn it on, only as the last resort, and is always labelled. If the DAC can't take a format, Lyra says so.
 - **Native DSD and DoP are separate.** Each is detected at runtime from ALSA, not assumed from a DAC's spec sheet.
 - **Claims need evidence.** Bit-perfect output is claimed only after fixture tests and hardware verification.
 
@@ -49,6 +49,7 @@ crates/player-core     playback engine: controller and writer threads, state, na
 crates/audio-alsa      ALSA device discovery, exact-format output, DAC volume
 crates/format-pcm      WAV/FLAC decoding to exact integer samples
 crates/format-dsd      DSF/DFF parsing, DoP and native DSD packing
+crates/dsd-pcm         opt-in DSD→PCM conversion (filters, decimation, dither)
 crates/library         SQLite library: folder scanner, tags, artwork cache
 scripts/               check.sh (all checks), DAC probe, test fixtures, license inventory
 tests/e2e/             real-window smoke tests (WebKitGTK + IPC)
