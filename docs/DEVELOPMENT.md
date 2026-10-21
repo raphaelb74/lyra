@@ -115,7 +115,7 @@ cargo run --release -p library --example scan -- /tmp/lib.db /tmp/art ~/Music
                                                            # scan into a throwaway library, with timing
 ```
 
-**DAC held by PipeWire.** If Lyra reports `in use by pipewire`, switch the card's PipeWire profile off while testing and back on afterwards (`pactl list cards short` lists card names):
+**DAC held by PipeWire.** When a card is busy, Lyra requests it through device reservation (`org.freedesktop.ReserveDevice1.Audio<card>` on the session bus): WirePlumber or PulseAudio closes it, and takes it back once Lyra stops. `busctl --user list | grep ReserveDevice1` shows who holds each card. WirePlumber 0.4 (Ubuntu 24.04, Mint 22) gives the card's nodes new names when it takes it back (`….analog-stereo.2`), so the desktop may switch its default output to another device; pick it again, or `systemctl --user restart wireplumber`. If Lyra still reports `in use by …` (a program outside the protocol, or no session bus), switch the card's PipeWire profile off while testing and back on afterwards (`pactl list cards short` lists card names):
 
 ```sh
 pactl set-card-profile <card> off

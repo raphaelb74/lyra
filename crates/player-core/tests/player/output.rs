@@ -168,3 +168,49 @@ fn stopping_dsd_ends_on_dsd_silence() {
         assert!(recording.bytes.iter().all(|&byte| byte == 0x69));
     });
 }
+
+#[test]
+fn switching_from_dsd_ends_on_dsd_silence_before_reopening() {
+    let mut sink = with_native(DsdLayout::U32Be);
+    sink.write_delay = Duration::from_millis(50);
+    let recorder = sink.recorder.clone();
+    let (player, updates) = start(sink);
+    player
+        .play(
+            dsd_fixture("dsd64_stereo.dsf"),
+            DEVICE.into(),
+            refuse(DsdTransport::Auto),
+        )
+        .unwrap();
+    wait_for(&updates, PlaybackState::Playing);
+    player
+        .play(
+            fixture("s16_44100.wav"),
+            DEVICE.into(),
+            refuse(DsdTransport::Auto),
+        )
+        .unwrap();
+    wait_for(&updates, PlaybackState::Playing);
+    player.stop().unwrap();
+    wait_for(&updates, PlaybackState::Stopped);
+    drop(player);
+    recorder.with(|recording| {
+        let opens: Vec<usize> = recording
+            .calls
+            .iter()
+            .enumerate()
+            .filter_map(|(index, call)| matches!(call, SinkCall::Open(_)).then_some(index))
+            .collect();
+        let [_, pcm] = opens.as_slice() else {
+            panic!("expected two opens: {:?}", recording.calls);
+        };
+        let before = &recording.calls[pcm - 3..*pcm];
+        assert!(
+            matches!(
+                before,
+                [SinkCall::Discard, SinkCall::Write { .. }, SinkCall::Drain]
+            ),
+            "{before:?}"
+        );
+    });
+}

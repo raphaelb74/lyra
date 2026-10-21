@@ -70,3 +70,9 @@ button:disabled {
   border-color: var(--danger-line);
   color: var(--danger-text);
 }
+
+/* Compact buttons beside headings and in panels. */
+.small {
+  padding: 4px 10px;
+  font-size: 12px;
+}

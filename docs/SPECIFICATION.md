@@ -111,7 +111,7 @@ Enumerate ALSA cards, devices, hardware PCM rates/formats, and whether exclusive
 | A03 | DFF DSD64 | Parser preserves bit order and channel ordering |
 | A04 | DSD256 on iFi | Native only if ALSA exposes and hardware accepts it; otherwise explicit unsupported message |
 | A05 | Device disconnected mid-track | Controlled stop/error, no crash or silent device switch |
-| A06 | Another process holds DAC | Clear busy error, no fallback to mixer |
+| A06 | Another process holds DAC | A sound server hands it over through device reservation and gets it back on stop; any other holder: clear busy error, no fallback to mixer |
 | A07 | Scan 10k tracks during playback | No blocking UI; no scan-caused playback stalls in target benchmark |
 | A08 | Consecutive same-format tracks | Gapless without spurious silence/clicks |
 | A09 | Seek DSF and FLAC | Correct frame position; buffers reset and output resumes cleanly |
@@ -125,7 +125,7 @@ C-series tests cover the opt-in converted path and are kept apart from the bit-p
 ## 11. Decisions pending hardware testing
 
 - ZEN ONE exposes `DSD_U32_BE` (native DSD up to DSD256 by descriptor). Does playback confirm it, and which USB quirks apply? Is its USB volume control digital (bit-perfect only at maximum)?
-- How to get exclusive access while PipeWire is running? When WirePlumber has the USB DAC as an active sink it usually holds the `hw:` device, so a direct open fails with `EBUSY`. Expect this as the common case on Mint, not an edge case: detect it, report it clearly (A06), and document how to release the device (done in M1: switch the card's PipeWire profile off). Planned for M5: request the device through `org.freedesktop.ReserveDevice1` so PipeWire releases it and gets it back automatically.
+- How to get exclusive access while PipeWire is running? When WirePlumber has the USB DAC as an active sink it usually holds the `hw:` device, so a direct open fails with `EBUSY`. Expect this as the common case on Mint, not an edge case: detect it, report it clearly (A06), and document how to release the device (done in M1: switch the card's PipeWire profile off). M4c-2: Lyra requests a busy card through `org.freedesktop.ReserveDevice1`, so PipeWire releases it and gets it back automatically.
 - What period/buffer sizes provide stable playback without excessive latency?
 - Which exact metadata parser supports required DSF/DFF tags? Verify crate capabilities before adoption.
 - How to manage PCM↔DSD and rate changes without audible transients?

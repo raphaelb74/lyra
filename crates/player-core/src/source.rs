@@ -8,6 +8,7 @@ use format_dsd::dop::DopPacker;
 use format_dsd::{DsdError, DsdInfo, DsdReader, NativePacker};
 use format_pcm::{Decoder, StreamInfo};
 
+use crate::player::ConversionStats;
 use crate::sink::{DsdFallback, DsdPolicy, DsdTransport, Encoding, OutputFormat, StreamFormat};
 use crate::status::{ErrorKind, PlayerError};
 
@@ -99,6 +100,20 @@ impl Source {
                 samples: Vec::new(),
             }),
             Err(error) => Err(error.into()),
+        }
+    }
+
+    /// What the converter has done so far, when this source is converted.
+    pub fn conversion(&self) -> Option<ConversionStats> {
+        match self {
+            Self::Dsd {
+                converter: Some(converter),
+                ..
+            } => Some(ConversionStats {
+                clipped: converter.clipped(),
+                peak: converter.peak(),
+            }),
+            _ => None,
         }
     }
 

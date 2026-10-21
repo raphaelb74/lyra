@@ -5,7 +5,8 @@
 //! Several files play as a queue, gaplessly where the format allows; each
 //! track change is printed. DSD files take an optional transport: `auto`
 //! (default: native DSD, else DoP), `native`, `dop`, or `convert` (auto, then
-//! conversion to PCM, not bit-perfect).
+//! conversion to PCM, not bit-perfect). `seconds=N` plays N seconds of each
+//! track, then skips to the next as the app does, and stops after the last.
 //!
 //! While playing, prints `/proc/asound/<card>/pcm<dev>p/sub0/hw_params`: the
 //! format and rate the device is running at, independent of Lyra's own report.
@@ -13,21 +14,32 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use audio_alsa::{AlsaSink, list_playback_devices};
 use player_core::{DsdFallback, DsdPolicy, DsdTransport, PlaybackState, Player, QueueItem};
 
-fn main() -> ExitCode {
+const USAGE: &str =
+    "usage: play <hw:CARD=…,DEV=…> <file.flac|wav|dsf|dff>… [auto|native|dop|convert] [seconds=N]";
+
+struct Args {
+    device: String,
+    items: Vec<QueueItem>,
+    dsd: DsdPolicy,
+    per_track: Option<Duration>,
+}
+
+fn parse_args() -> Option<Args> {
     let mut args = std::env::args().skip(1);
-    let usage = "usage: play <hw:CARD=…,DEV=…> <file.flac|wav|dsf|dff>… [auto|native|dop|convert]";
-    let Some(device) = args.next() else {
-        eprintln!("{usage}");
-        return ExitCode::FAILURE;
-    };
+    let device = args.next()?;
     let mut dsd = DsdPolicy::default();
     let mut items = Vec::new();
+    let mut per_track = None;
     for arg in args {
+        if let Some(seconds) = arg.strip_prefix("seconds=") {
+            per_track = Some(Duration::from_secs(seconds.parse().ok()?));
+            continue;
+        }
         match arg.as_str() {
             "auto" => dsd.transport = DsdTransport::Auto,
             "native" => dsd.transport = DsdTransport::Native,
@@ -39,13 +51,29 @@ fn main() -> ExitCode {
             }),
         }
     }
-    if items.is_empty() {
-        eprintln!("{usage}");
-        return ExitCode::FAILURE;
-    }
+    (!items.is_empty()).then_some(Args {
+        device,
+        items,
+        dsd,
+        per_track,
+    })
+}
 
+fn main() -> ExitCode {
+    let Some(Args {
+        device,
+        items,
+        dsd,
+        per_track,
+    }) = parse_args()
+    else {
+        eprintln!("{USAGE}");
+        return ExitCode::FAILURE;
+    };
+
+    let count = items.len();
     let sink = AlsaSink::new();
-    let underruns = sink.underruns();
+    let sink_stats = sink.stats();
     let (tx, updates) = mpsc::channel();
     let player = match Player::new(sink, move |status| {
         let _ = tx.send(status.clone());
@@ -63,8 +91,21 @@ fn main() -> ExitCode {
 
     let mut printed_params = false;
     let mut shown = None;
+    let mut track_started = Instant::now();
+    // Counted per open device; sampled while it is open.
+    let mut last_underruns = 0;
     loop {
-        let Ok(status) = updates.recv_timeout(Duration::from_millis(500)) else {
+        if let Some(report) = sink_stats.report() {
+            last_underruns = report.underruns;
+        }
+        if let Some(limit) = per_track
+            && track_started.elapsed() >= limit
+        {
+            track_started = Instant::now();
+            let last = shown.is_some_and(|index| index + 1 >= count);
+            let _ = if last { player.stop() } else { player.next() };
+        }
+        let Ok(status) = updates.recv_timeout(Duration::from_millis(100)) else {
             continue;
         };
         println!("{:?}", status.state);
@@ -72,6 +113,8 @@ fn main() -> ExitCode {
             && shown != Some(track.index)
         {
             shown = Some(track.index);
+            track_started = Instant::now();
+            printed_params = false;
             println!("track {}: {}", track.index + 1, track.path.display());
         }
         match status.state {
@@ -96,10 +139,7 @@ fn main() -> ExitCode {
             _ => {}
         }
     }
-    println!(
-        "underruns: {}",
-        underruns.load(std::sync::atomic::Ordering::Relaxed)
-    );
+    println!("underruns (last open): {last_underruns}");
     ExitCode::SUCCESS
 }
 

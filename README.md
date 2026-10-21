@@ -35,7 +35,7 @@ A Linux-first, bit-perfect music player for PCM and DSD, written in Rust with a 
 
 Requires Rust (rustup), Node 24 and the Tauri Linux packages. See [Development](docs/DEVELOPMENT.md).
 
-Lyra opens the DAC directly, so nothing else may use it while Lyra plays. If it reports the device is in use by PipeWire, switch the card's PipeWire profile off while listening (see [Development](docs/DEVELOPMENT.md#hardware-testing)).
+Lyra opens the DAC directly, so nothing else may use it while Lyra plays. If PipeWire is using the DAC, Lyra asks it to hand the DAC over and gives it back when playback stops; desktop sound on that DAC is silent meanwhile. Only a program that ignores this request (see [Development](docs/DEVELOPMENT.md#hardware-testing)) still makes Lyra report the device as busy.
 
 ```sh
 cd apps/desktop

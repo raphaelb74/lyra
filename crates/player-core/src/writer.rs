@@ -106,6 +106,10 @@ impl<S: AudioSink> Writer<S> {
                     device: name,
                     stream,
                 } => {
+                    // Another format: a DSD stream still ends cleanly.
+                    if device.open {
+                        self.end_dsd(&device);
+                    }
                     let result = self.sink.open(&name, &stream);
                     device = Device {
                         open: result.is_ok(),
@@ -178,7 +182,7 @@ impl<S: AudioSink> Writer<S> {
         self.sink.write(&bytes)
     }
 
-    /// Stopped in the middle of DSD: drop the rest, play a little DSD
+    /// Stopped, or switched to another format, in the middle of DSD: drop the rest, play a little DSD
     /// silence and let it finish, so the DAC sees the stream end cleanly
     /// instead of being cut off mid-stream (some DACs then mishandle what
     /// comes next). Errors are moot: the device is closing.

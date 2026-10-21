@@ -17,6 +17,8 @@ import {
   isStatus,
   isNothing,
   isSettings,
+  isDiagnostics,
+  isCapabilities,
   type Guard,
 } from './guards';
 
@@ -214,6 +216,43 @@ export interface Settings {
   resyncDelayMs: number;
 }
 
+/** Mirrors Rust's `DiagnosticsInfo`: one device, read now. */
+export interface DiagnosticsInfo {
+  device: string;
+  kernel: string | null;
+  alsa: string | null;
+  usbId: string | null;
+  /** The kernel's `hw_params` while anyone has the device open. */
+  hwParams: string | null;
+  /** USB stream state while playing, with the DAC's feedback rate. */
+  usbStream: string | null;
+  /** Present while Lyra plays on this device. */
+  playback: PlaybackDiagnostics | null;
+}
+
+export interface PlaybackDiagnostics {
+  /** Since the device was opened. */
+  underruns: number;
+  bufferFrames: number;
+  periodFrames: number;
+  /** Program that handed the device to Lyra, e.g. `pipewire`. */
+  takenFrom: string | null;
+  conversion: ConversionInfo | null;
+}
+
+export interface ConversionInfo {
+  clipped: number;
+  /** dBFS before clamping; null while only silence played. */
+  peakDb: number | null;
+}
+
+/** Mirrors Rust's `CapabilitiesInfo`: what the driver says it accepts. */
+export interface Capabilities {
+  channelsMin: number;
+  channelsMax: number;
+  formats: { format: string; rates: number[] }[];
+}
+
 export type BackendErrorCode =
   'browser_preview' | 'command_failed' | 'invalid_response' | (string & {});
 
@@ -386,6 +425,10 @@ export function backend(
     setVolume: (device: string, percent: number) =>
       run<VolumeInfo | null>('set_volume', isVolume, { device, percent }),
     settings: () => run('get_settings', isSettings),
+    diagnostics: (device: string) =>
+      run('get_diagnostics', isDiagnostics, { device }),
+    probeDevice: (device: string) =>
+      run('probe_device', isCapabilities, { device }),
     setSettings: (settings: Settings) =>
       run('set_settings', isSettings, { settings: { ...settings } }),
   };

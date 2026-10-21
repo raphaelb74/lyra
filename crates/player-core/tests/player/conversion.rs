@@ -87,3 +87,32 @@ fn conversion_is_never_chosen_over_a_bit_perfect_transport() {
     let error = wait_for(&updates, PlaybackState::Error).0.error.unwrap();
     assert_eq!(error.kind, ErrorKind::Unsupported);
 }
+
+#[test]
+fn conversion_reports_its_peak_while_it_plays() {
+    let mut sink = built_in();
+    sink.write_delay = std::time::Duration::from_millis(50);
+    let (player, updates) = start(sink);
+    assert_eq!(player.conversion(), None);
+    player
+        .play(dsd_fixture("dsd64_stereo.dsf"), DEVICE.into(), CONVERT)
+        .unwrap();
+    wait_for(&updates, PlaybackState::Playing);
+    let stats = player.conversion().unwrap();
+    assert_eq!(stats.clipped, 0);
+    assert!(stats.peak > 0.0 && stats.peak < 1.0, "{stats:?}");
+    wait_for(&updates, PlaybackState::Stopped);
+    assert_eq!(player.conversion(), None, "nothing converts once stopped");
+}
+
+#[test]
+fn native_dsd_reports_no_conversion() {
+    let mut sink = with_native(DsdLayout::U32Be);
+    sink.write_delay = std::time::Duration::from_millis(50);
+    let (player, updates) = start(sink);
+    player
+        .play(dsd_fixture("dsd64_stereo.dsf"), DEVICE.into(), CONVERT)
+        .unwrap();
+    wait_for(&updates, PlaybackState::Playing);
+    assert_eq!(player.conversion(), None);
+}

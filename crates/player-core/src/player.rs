@@ -54,6 +54,46 @@ pub(crate) struct Shared {
     pub queue: Mutex<Arc<[QueueItem]>>,
     /// Silence before playback when the device's format changes, in ms.
     pub resync_ms: AtomicU64,
+    pub conversion: ConversionMeter,
+}
+
+/// What DSD→PCM conversion has done since it started (it carries on across
+/// gapless tracks).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ConversionStats {
+    /// Samples clamped to full scale.
+    pub clipped: u64,
+    /// Highest absolute sample before clamping; 1.0 is full scale.
+    pub peak: f64,
+}
+
+/// [`ConversionStats`] as atomics: the controller publishes after every
+/// block, [`Player::conversion`] reads without waiting for it.
+#[derive(Debug, Default)]
+pub(crate) struct ConversionMeter {
+    active: AtomicBool,
+    clipped: AtomicU64,
+    peak_bits: AtomicU64,
+}
+
+impl ConversionMeter {
+    pub fn publish(&self, stats: Option<ConversionStats>) {
+        if let Some(stats) = stats {
+            self.clipped.store(stats.clipped, Ordering::Relaxed);
+            self.peak_bits
+                .store(stats.peak.to_bits(), Ordering::Relaxed);
+        }
+        self.active.store(stats.is_some(), Ordering::Release);
+    }
+
+    fn read(&self) -> Option<ConversionStats> {
+        self.active
+            .load(Ordering::Acquire)
+            .then(|| ConversionStats {
+                clipped: self.clipped.load(Ordering::Relaxed),
+                peak: f64::from_bits(self.peak_bits.load(Ordering::Relaxed)),
+            })
+    }
 }
 
 impl Shared {
@@ -134,6 +174,7 @@ impl Player {
             status: Mutex::new(PlayerStatus::STOPPED),
             queue: Mutex::new(Arc::from([])),
             resync_ms: AtomicU64::new(0),
+            conversion: ConversionMeter::default(),
         });
         let (inbox_tx, inbox_rx) = mpsc::channel();
         let (writer_tx, writer_rx) = mpsc::channel();
@@ -277,6 +318,12 @@ impl Player {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner),
         )
+    }
+
+    /// Clipping and peak of the DSD→PCM conversion playing now; `None` when
+    /// nothing is being converted.
+    pub fn conversion(&self) -> Option<ConversionStats> {
+        self.shared.conversion.read()
     }
 
     /// Frames of the current track handed to the device. Ahead of what is

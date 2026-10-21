@@ -26,7 +26,9 @@ pub fn run() -> tauri::Result<()> {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let handle = app.handle().clone();
-            let player = Player::new(AlsaSink::new(), move |status| {
+            let sink = AlsaSink::new();
+            let sink_stats = sink.stats();
+            let player = Player::new(sink, move |status| {
                 // A closed window has nobody to notify.
                 let _ = handle.emit(STATUS_EVENT, Status::from(status));
             })?;
@@ -42,6 +44,7 @@ pub fn run() -> tauri::Result<()> {
             });
             app.manage(AppState::new(
                 player,
+                sink_stats,
                 library,
                 scanner.clone(),
                 scan_status,
@@ -105,6 +108,8 @@ pub fn run() -> tauri::Result<()> {
             commands::set_settings,
             commands::get_volume,
             commands::set_volume,
+            commands::get_diagnostics,
+            commands::probe_device,
         ])
         .build(tauri::generate_context!())?;
     app.run(|handle, event| {

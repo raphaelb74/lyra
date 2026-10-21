@@ -13,7 +13,7 @@ mod source;
 mod status;
 mod writer;
 
-pub use player::{POOL_SIZE, Player, QueueItem};
+pub use player::{ConversionStats, POOL_SIZE, Player, QueueItem};
 pub use sink::{
     AudioSink, DsdFallback, DsdPolicy, DsdTransport, Encoding, HardwareVolume, OutputFormat,
     SinkError, SinkErrorKind, StreamFormat, Transport,
