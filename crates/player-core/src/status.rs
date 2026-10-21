@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use format_dsd::DsdError;
 use format_pcm::DecodeError;
 
-use crate::sink::{HardwareVolume, OutputFormat, SinkError, SinkErrorKind};
+use crate::sink::{Encoding, HardwareVolume, OutputFormat, SinkError, SinkErrorKind};
 use crate::source::SourceInfo;
 
 /// Playback states. Every change is published as a [`PlayerStatus`].
@@ -126,10 +126,19 @@ impl NowPlaying {
     /// is refused), so the remaining question is the device's own volume.
     pub fn bit_perfect(&self) -> Option<BitPerfect> {
         let output = self.output?;
-        let wanted = self.source.pcm_stream();
-        let exact = output.sample_rate == wanted.sample_rate
-            && output.channels == wanted.channels
-            && output.encoding.bits() >= wanted.bits_per_sample;
+        let exact = output.channels == self.source.channels()
+            && match (self.source, output.encoding) {
+                (SourceInfo::Pcm(info), Encoding::Pcm(layout)) => {
+                    output.sample_rate == info.sample_rate && layout.bits() >= info.bits_per_sample
+                }
+                (SourceInfo::Dsd(info), Encoding::Dop(layout)) => {
+                    output.sample_rate == info.dsd_rate / 16 && layout.bits() >= 24
+                }
+                (SourceInfo::Dsd(info), Encoding::Dsd(layout)) => {
+                    output.sample_rate == layout.frame_rate(info.dsd_rate)
+                }
+                _ => false,
+            };
         if !exact {
             return Some(BitPerfect::No {
                 reason: "output format differs from the source".into(),
@@ -177,7 +186,7 @@ mod tests {
     use format_pcm::{Codec, SampleEncoding, StreamInfo};
 
     use super::{BitPerfect, NowPlaying};
-    use crate::sink::{HardwareVolume, OutputFormat};
+    use crate::sink::{Encoding, HardwareVolume, OutputFormat};
     use crate::source::SourceInfo;
 
     fn playing(volume: HardwareVolume) -> NowPlaying {
@@ -189,7 +198,7 @@ mod tests {
             total_frames: None,
         };
         let output = OutputFormat {
-            encoding: SampleEncoding::S24In3Le,
+            encoding: Encoding::Pcm(SampleEncoding::S24In3Le),
             sample_rate: 96_000,
             channels: 2,
             hardware_volume: volume,

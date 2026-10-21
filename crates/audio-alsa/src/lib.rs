@@ -8,6 +8,6 @@ mod error;
 mod sink;
 mod volume;
 
-pub use device::{Capabilities, Device, DsdFormat, PcmSupport, list_playback_devices, probe};
+pub use device::{Capabilities, Device, PcmSupport, list_playback_devices, probe};
 pub use error::{AlsaError, Holder};
 pub use sink::{AlsaSink, BufferConfig};

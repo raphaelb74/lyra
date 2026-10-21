@@ -30,7 +30,7 @@ npm run tauri dev     # native window with Rust backend
 npm run dev           # browser-only preview; reports that Rust is unavailable
 ```
 
-To play: choose the output device, drop FLAC or WAV files onto the window, and click one. Lyra plays only files that were dropped. Click **Refresh** after plugging in a DAC (no hotplug detection yet).
+To play: choose the output device, drop FLAC, WAV, DSF or DFF files onto the window, and click one. DSD plays as native DSD when the DAC exposes it, otherwise as DoP. Lyra plays only files that were dropped. Click **Refresh** after plugging in a DAC (no hotplug detection yet).
 
 Release build (fat LTO, the slowest and most memory-hungry build):
 
@@ -90,9 +90,9 @@ Synthetic and small; committed, so tests need no tools. Never commit real music.
 | Script | Writes | Reference |
 | --- | --- | --- |
 | `scripts/make-pcm-fixtures.py` | `crates/format-pcm/tests/fixtures/`: WAV + FLAC, 16/44.1 and 24/96 (needs `flac`) | the WAV data chunk |
-| `scripts/make-dsd-fixtures.py` | `crates/format-dsd/tests/fixtures/`: DSF + DFF, DSD64 stereo, same bits | the DFF data chunk |
+| `scripts/make-dsd-fixtures.py` | `crates/format-dsd/tests/fixtures/`: DSF + DFF, DSD64 stereo, same bits (`--multiple 128\|256\|512` for higher rates) | the DFF data chunk |
 
-Both take `--seconds N --out artifacts/audio` for longer listening files; `artifacts/` is ignored by Git.
+Both take `--seconds N --out artifacts/audio` for longer listening files; `artifacts/` is ignored by Git. The DSD generator is pure Python: about 5 s per second of DSD256.
 
 ## Hardware testing
 
@@ -103,6 +103,8 @@ scripts/probe-dac.sh > report.txt                          # read-only ALSA/USB 
 cargo run -p audio-alsa --example devices                  # playback devices and what they accept
 cargo run -p audio-alsa --example play -- hw:CARD=ONE,DEV=0 track.flac
                                                            # plays, prints the kernel's hw_params and underruns
+cargo run -p audio-alsa --example play -- hw:CARD=ONE,DEV=0 track.dsf native
+                                                           # DSD transport: auto (default), native or dop
 cargo run --release -p format-pcm --example verify -- *.flac   # full decode, FLAC MD5 check
 cargo run --release -p format-dsd --example inspect -- *.dsf   # full DSD read, frame count, hash
 ```

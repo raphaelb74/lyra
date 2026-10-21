@@ -47,6 +47,14 @@ describe('display formatting', () => {
         channels: 2,
       }),
     ).toBe('DoP · S24_3LE · 176.4 kHz');
+    expect(
+      outputLabel({
+        transport: 'native',
+        format: 'DSD_U32_BE',
+        sampleRate: 88200,
+        channels: 2,
+      }),
+    ).toBe('Native DSD · DSD_U32_BE · 88.2 kHz');
   });
 
   it.each([

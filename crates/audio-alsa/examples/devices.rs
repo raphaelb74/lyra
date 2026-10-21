@@ -25,8 +25,8 @@ fn main() -> ExitCode {
                 for support in &caps.pcm {
                     println!("  {:?}: {}", support.encoding, khz(&support.rates));
                 }
-                for (format, rates) in &caps.dsd {
-                    println!("  native DSD {format:?}: {}", khz(rates));
+                for (layout, rates) in &caps.dsd {
+                    println!("  native DSD {}: {}", layout.name(), khz(rates));
                 }
             }
             Err(error @ AlsaError::Busy { .. }) => println!("  {error}"),

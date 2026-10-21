@@ -2,6 +2,9 @@
 //!
 //! `cargo run -p audio-alsa --example play -- hw:CARD=ONE,DEV=0 track.flac`
 //!
+//! DSD files take an optional transport: `auto` (default: native DSD, else
+//! DoP), `native` or `dop`.
+//!
 //! While playing, prints `/proc/asound/<card>/pcm<dev>p/sub0/hw_params`: the
 //! format and rate the device is running at, independent of Lyra's own report.
 
@@ -11,13 +14,23 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use audio_alsa::{AlsaSink, list_playback_devices};
-use player_core::{PlaybackState, Player};
+use player_core::{DsdTransport, PlaybackState, Player};
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
+    let usage = "usage: play <hw:CARD=…,DEV=…> <file.flac|wav|dsf|dff> [auto|native|dop]";
     let (Some(device), Some(path)) = (args.next(), args.next()) else {
-        eprintln!("usage: play <hw:CARD=…,DEV=…> <file.flac|file.wav>");
+        eprintln!("{usage}");
         return ExitCode::FAILURE;
+    };
+    let dsd = match args.next().as_deref() {
+        None | Some("auto") => DsdTransport::Auto,
+        Some("native") => DsdTransport::Native,
+        Some("dop") => DsdTransport::Dop,
+        Some(_) => {
+            eprintln!("{usage}");
+            return ExitCode::FAILURE;
+        }
     };
 
     let sink = AlsaSink::new();
@@ -32,7 +45,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    if let Err(error) = player.play(PathBuf::from(path), device.clone()) {
+    if let Err(error) = player.play(PathBuf::from(path), device.clone(), dsd) {
         eprintln!("{error}");
         return ExitCode::FAILURE;
     }

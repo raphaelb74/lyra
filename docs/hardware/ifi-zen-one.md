@@ -1,6 +1,6 @@
 # iFi ZEN ONE — hardware report
 
-Status: **PCM verified (M1); DoP DSD64 and DSD128 verified (M2)**, see [Playback results](#playback-results-m1) and [DoP](#dop-m2). Native DSD (M3) is descriptor evidence only.
+Status: **PCM verified (M1); DoP DSD64 and DSD128 verified (M2); native DSD64, DSD128 and DSD256 verified (M3)**, see [Playback results](#playback-results-m1), [DoP](#dop-m2) and [Native DSD](#native-dsd-m3).
 
 Collected 2026-10-20 with `scripts/probe-dac.sh` (read-only; the PCM device was never opened).
 
@@ -81,6 +81,21 @@ pactl set-card-profile alsa_card.usb-iFi__by_AMR__ZEN_ONE_0025-00 output:analog-
 
 The user confirmed playback on the DAC, and the ZEN ONE's format LED changes colour to its DSD indication: the DAC recognises the DoP markers (supporting evidence, not proof of bit-exactness). The engine tests prove the DoP stream carries every DSD bit of the file with alternating `0x05`/`0xFA` markers (DSF and DFF); DoP is refused unless the USB volume is at 0 dB or absent.
 
+## Native DSD (M3)
+
+2026-10-21, `audio-alsa` `play` example (release build), transport `auto` unless noted, PipeWire running with the card idle.
+
+| Source | Transport | Lyra output | Kernel `hw_params` (during playback) | Underruns | Device owner | USB volume |
+| --- | --- | --- | --- | --- | --- | --- |
+| DSF DSD64, 2 ch (library) | auto → native | `DSD_U32_BE`, 88200, 2 ch | `DSD_U32_BE`, 88200 (88200/1), 2 ch | 0 | `lyra-writer` | 0 dB (Unity) |
+| DSF DSD128, 2 ch (library) | auto → native | `DSD_U32_BE`, 176400, 2 ch | `DSD_U32_BE`, 176400 (176400/1), 2 ch | — (stopped early) | `lyra-writer` | 0 dB |
+| DSF DSD256, 2 ch (synthetic, 10 s) | auto → native | `DSD_U32_BE`, 352800, 2 ch | `DSD_U32_BE`, 352800 (352800/1), 2 ch | 0 (full file) | `lyra-writer` | 0 dB |
+| DFF DSD256, 2 ch (synthetic, 10 s) | auto → native | `DSD_U32_BE`, 352800, 2 ch | `DSD_U32_BE`, 352800 (352800/1), 2 ch | 0 (full file) | `lyra-writer` | 0 dB |
+| DSF DSD64, 2 ch (library) | `dop` | DoP, `S24_3LE`, 176400 | `S24_3LE`, 176400 (176400/1) | — | `lyra-writer` | 0 dB |
+| DSF DSD256 (synthetic) | `dop` | refused: `cannot play this: DSD256 as DoP at 705600 Hz` | not opened | — | — | — |
+
+With `auto`, Lyra picks native DSD on this DAC, since the driver exposes `DSD_U32_BE` (`DSD raw: DOP=0, bitrev=0`). DSD256 is native-only here, as predicted from the descriptors (spec A04): forcing DoP fails with an explicit message, never a PCM fallback. The engine tests prove the native stream carries every DSD bit of the file in `DSD_U32_BE` order (DSF and DFF), with the last word filled with DSD silence (`0x69`). The USB volume was restored to 32511 after the runs.
+
 ## Bit-perfect risks found
 
 1. **USB volume control.** The device exposes hardware volume (`'ZEN ONE ',0`, 0–32512). It was at 32511 = **−0.01 dB**, not 0 dB; PipeWire had set it. The ZEN ONE has no volume knob: this control is only visible to software. If the XMOS firmware applies it digitally, any setting below maximum alters samples. Set to 0 dB with `amixer -c ONE cset numid=4 32512,32512 && amixer -c ONE cset numid=5 32512`; it stayed at 0 dB after PipeWire used the device again, but **after unplugging and replugging it was back at 32511**, so setting it once is not enough. **Lyra now handles it** (`audio-alsa` `volume.rs`): on USB Audio cards, a control within 0.5 dB of 0 dB is set to exactly 0 dB while Lyra holds the device and restored on release (verified: 32511 → 32512 during playback → 32511 after). Lower settings are left alone and reported as attenuated (not bit-perfect), since on a headphone DAC they are the listening level.
@@ -94,5 +109,5 @@ The user confirmed playback on the DAC, and the ZEN ONE's format LED changes col
 - [ ] Behaviour of the hardware volume control (digital or analog).
 - [x] DoP DSD64 plays at the 176.4 kHz carrier; the DAC indicates DSD (M2).
 - [x] DoP DSD128 plays at the 352.8 kHz carrier; the DAC indicates DSD (M2).
-- [ ] Native DSD64/128/256 (M3).
+- [x] Native DSD64/128/256 play as `DSD_U32_BE` at 88.2/176.4/352.8 kHz (M3). In the desktop app, DSD128 shows `Native DSD · DSD_U32_BE · 176.4 kHz`; the user confirmed correct playback and the DSD indication.
 - [x] Unplug mid-track → controlled error (A05).

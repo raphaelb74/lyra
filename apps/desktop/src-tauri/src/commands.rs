@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-use player_core::Player;
+use player_core::{DsdTransport, Player};
 use tauri::State;
 
 use crate::ipc::{AppInfo, DeviceInfo, IpcError, Status, frames_to_seconds};
@@ -84,7 +84,11 @@ pub fn play(path: String, device: String, state: State<'_, AppState>) -> Result<
             "{device} is not a hardware device"
         )));
     }
-    state.player.play(path, device).map_err(IpcError::from)
+    // Native DSD when the DAC exposes it, else DoP (a setting from M4).
+    state
+        .player
+        .play(path, device, DsdTransport::Auto)
+        .map_err(IpcError::from)
 }
 
 #[tauri::command]

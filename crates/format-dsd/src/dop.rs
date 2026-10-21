@@ -9,12 +9,9 @@
 //! `format-pcm`, so any 24-bit-or-wider [`format_pcm::SampleEncoding`] packs
 //! them unchanged.
 
-use crate::{DsdInfo, MAX_CHANNELS};
+use crate::{DsdInfo, MAX_CHANNELS, SILENCE};
 
 pub const MARKERS: [u8; 2] = [0x05, 0xFA];
-
-/// DSD idle pattern: digital silence that keeps the DAC in DSD mode.
-pub const SILENCE: u8 = 0x69;
 
 /// PCM carrier rate for a DSD stream.
 pub fn carrier_rate(info: &DsdInfo) -> u32 {

@@ -42,7 +42,7 @@ export interface Verdict {
 }
 
 export interface Output {
-  transport: 'pcm' | 'dop';
+  transport: 'pcm' | 'dop' | 'native';
   format: string;
   sampleRate: number;
   channels: number;
@@ -181,7 +181,9 @@ function isVerdict(value: Field): value is JsonValue & Verdict {
 function isOutput(value: Field): value is JsonValue & Output {
   return (
     isRecord(value) &&
-    (value.transport === 'pcm' || value.transport === 'dop') &&
+    (value.transport === 'pcm' ||
+      value.transport === 'dop' ||
+      value.transport === 'native') &&
     isText(value.format) &&
     isNumber(value.sampleRate) &&
     isNumber(value.channels)

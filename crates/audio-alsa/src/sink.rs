@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use alsa::pcm::{Access, HwParams, State};
 use alsa::{PCM, ValueOr};
-use player_core::{AudioSink, OutputFormat, PcmStream, SinkError, SinkErrorKind};
+use player_core::{AudioSink, OutputFormat, SinkError, SinkErrorKind, StreamFormat};
 
 use crate::device::{alsa_format, open};
 use crate::error::{AlsaError, errno};
@@ -21,7 +21,8 @@ const WAIT_MS: u32 = 100;
 /// Plays to one ALSA `hw:` device, unchanged.
 ///
 /// The device is opened with the stream's exact rate, channel count and a
-/// lossless sample layout. Opening fails instead of converting anything.
+/// lossless sample layout (native DSD or DoP for DSD files). Opening fails
+/// instead of converting anything.
 #[derive(Debug, Default)]
 pub struct AlsaSink {
     stream: Option<Stream>,
@@ -69,7 +70,7 @@ impl AlsaSink {
 }
 
 impl AudioSink for AlsaSink {
-    fn open(&mut self, device: &str, stream: &PcmStream) -> Result<OutputFormat, SinkError> {
+    fn open(&mut self, device: &str, stream: &StreamFormat) -> Result<OutputFormat, SinkError> {
         self.close();
         let fail = |error| {
             sink_error(&AlsaError::from_alsa(
@@ -87,33 +88,37 @@ impl AudioSink for AlsaSink {
         };
 
         let pcm = open(device).map_err(fail)?;
-        let channels = u32::try_from(stream.channels)
-            .map_err(|_| unsupported(format!("{} channels", stream.channels)))?;
-        let output = {
-            let hw = HwParams::any(&pcm).map_err(fail)?;
-            hw.set_access(Access::RWInterleaved).map_err(fail)?;
-            hw.set_channels(channels)
-                .map_err(|_| unsupported(format!("{channels} channels")))?;
-            // Exact rate only: a refused rate is an error, never a resample.
-            hw.set_rate(stream.sample_rate, ValueOr::Nearest)
-                .map_err(|_| unsupported(format!("{} Hz", stream.sample_rate)))?;
-            let output = OutputFormat::negotiate(stream, |encoding| {
-                hw.test_format(alsa_format(encoding)).is_ok()
+        let channels = u32::try_from(stream.channels())
+            .map_err(|_| unsupported(format!("{} channels", stream.channels())))?;
+        // Parameters with access and channels fixed; each candidate starts
+        // from a fresh set, since formats differ in their rates.
+        let base = || -> Result<HwParams<'_>, alsa::Error> {
+            let hw = HwParams::any(&pcm)?;
+            hw.set_access(Access::RWInterleaved)?;
+            hw.set_channels(channels)?;
+            Ok(hw)
+        };
+        if base().is_err() {
+            return Err(unsupported(format!("{channels} channels")));
+        }
+        let output = OutputFormat::negotiate(stream, |encoding, rate| {
+            base().is_ok_and(|hw| {
+                hw.set_format(alsa_format(encoding)).is_ok() && hw.test_rate(rate).is_ok()
             })
-            .ok_or_else(|| {
-                unsupported(format!(
-                    "{}-bit samples at {} Hz",
-                    stream.bits_per_sample, stream.sample_rate
-                ))
-            })?;
+        })
+        .ok_or_else(|| unsupported(stream.to_string()))?;
+        {
+            let hw = base().map_err(fail)?;
             hw.set_format(alsa_format(output.encoding)).map_err(fail)?;
+            // Exact rate only: a refused rate is an error, never a resample.
+            hw.set_rate(output.sample_rate, ValueOr::Nearest)
+                .map_err(fail)?;
             hw.set_period_time_near(PERIOD_US, ValueOr::Nearest)
                 .map_err(fail)?;
             hw.set_buffer_time_near(BUFFER_US, ValueOr::Nearest)
                 .map_err(fail)?;
             pcm.hw_params(&hw).map_err(fail)?;
-            output
-        };
+        }
 
         let (can_pause, buffer) = {
             let current = pcm.hw_params_current().map_err(fail)?;
@@ -123,7 +128,7 @@ impl AudioSink for AlsaSink {
                 current.get_channels().map_err(fail)?,
                 current.get_format().map_err(fail)?,
             );
-            if granted != (stream.sample_rate, channels, alsa_format(output.encoding)) {
+            if granted != (output.sample_rate, channels, alsa_format(output.encoding)) {
                 return Err(unsupported(format!(
                     "driver changed the format to {granted:?}"
                 )));
@@ -152,7 +157,7 @@ impl AudioSink for AlsaSink {
             pcm,
             _volume: saved_volume,
             device: device.to_owned(),
-            frame_bytes: output.encoding.bytes() * output.channels,
+            frame_bytes: output.encoding.frame_bytes(output.channels),
             can_pause,
             buffer,
         });

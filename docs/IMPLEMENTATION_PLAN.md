@@ -42,10 +42,10 @@ Done 2026-10-20: fixtures and engine tests verify every DSD bit through DoP; res
 
 ## M3 — Native DSD
 
-- [ ] Probe ALSA native DSD hardware formats.
-- [ ] Implement format-specific packing with exact ordering tests.
-- [ ] Detect native/DoP availability and select according to explicit policy.
-- [ ] Test DSD64/128/256 subject to real hardware support; record evidence.
+- [x] Probe ALSA native DSD hardware formats.
+- [x] Implement format-specific packing with exact ordering tests (`DSD_U8`, `DSD_U16_LE/BE`, `DSD_U32_LE/BE`).
+- [x] Detect native/DoP availability and select according to explicit policy (`Auto`: native then DoP; `Native`; `DoP`; never PCM).
+- [x] Test DSD64/128/256 subject to real hardware support; record evidence ([ZEN ONE](hardware/ifi-zen-one.md#native-dsd-m3)).
 
 **Done when:** native mode is proven where supported; unsupported modes fail clearly.
 
