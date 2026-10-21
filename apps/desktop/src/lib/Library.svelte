@@ -5,11 +5,9 @@
   import AlbumView from './AlbumView.svelte';
   import ArtistList from './ArtistList.svelte';
   import TrackList from './TrackList.svelte';
+  import { onLibraryChanged, onLibraryNotice, onScanStatus } from './events';
   import {
     attempt,
-    onLibraryChanged,
-    onLibraryNotice,
-    onScanStatus,
     type Album,
     type Backend,
     type Folder,
@@ -236,7 +234,7 @@
     gap: 8px;
   }
   .muted {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 13px;
   }
   .folders {
@@ -252,7 +250,7 @@
     align-items: center;
     gap: 16px;
     padding: 8px 12px;
-    background: #182129;
+    background: var(--surface);
     border-radius: 8px;
     font-size: 13px;
   }
@@ -266,16 +264,12 @@
     font-size: 12px;
     white-space: nowrap;
   }
-  .danger {
-    border-color: #8a5a3c;
-    color: #f0d2bf;
-  }
   .tabs {
     display: flex;
     align-items: center;
     gap: 4px;
     margin-bottom: 20px;
-    border-bottom: 1px solid #29343d;
+    border-bottom: 1px solid var(--border);
   }
   .tabs button {
     border: 0;
@@ -283,21 +277,21 @@
     border-radius: 0;
     background: transparent;
     padding: 10px 14px;
-    color: #a2adb7;
+    color: var(--text-muted);
   }
   .tabs [aria-selected='true'] {
-    color: #d9eee4;
-    border-bottom-color: #b4d9cb;
+    color: var(--text-current);
+    border-bottom-color: var(--accent);
   }
   .tabs .muted {
     margin-left: auto;
   }
   .drop {
-    border: 1px dashed #38534a;
+    border: 1px dashed var(--border-strong);
     border-radius: 8px;
     padding: 28px;
     text-align: center;
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 13px;
   }
 </style>

@@ -90,14 +90,6 @@ impl Encoding {
         }
     }
 
-    /// The PCM layout the device sees, for anything sent as PCM.
-    pub fn pcm_layout(self) -> Option<SampleEncoding> {
-        match self {
-            Self::Pcm(layout) | Self::Dop(layout) | Self::Converted(layout) => Some(layout),
-            Self::Dsd(_) => None,
-        }
-    }
-
     /// Appends `frames` frames of silence in this layout: zeros for PCM,
     /// the DSD idle pattern for native DSD, and the idle pattern with DoP
     /// markers (starting at 0x05, as a track does) for DoP. Keep `frames`
@@ -394,8 +386,12 @@ mod tests {
 
     /// Built-in audio: 32-bit PCM at the usual rates, no DSD format.
     fn built_in(encoding: Encoding, rate: u32) -> bool {
-        encoding.pcm_layout() == Some(SampleEncoding::S32Le)
-            && [44_100, 48_000, 88_200, 96_000, 176_400, 192_000].contains(&rate)
+        matches!(
+            encoding,
+            Encoding::Pcm(SampleEncoding::S32Le)
+                | Encoding::Dop(SampleEncoding::S32Le)
+                | Encoding::Converted(SampleEncoding::S32Le)
+        ) && [44_100, 48_000, 88_200, 96_000, 176_400, 192_000].contains(&rate)
     }
 
     fn chosen(

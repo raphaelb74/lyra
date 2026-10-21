@@ -20,17 +20,20 @@
   let tracks = $state<LibraryTrack[]>([]);
   let search = $state('');
 
+  /** Lowercase search text per track, built once per load. */
+  const searchable = $derived(
+    tracks.map((track) =>
+      `${track.title} ${track.artist} ${track.album}`.toLowerCase(),
+    ),
+  );
   const matches = $derived.by(() => {
     const words = search.toLowerCase().split(/\s+/).filter(Boolean);
 
     if (words.length === 0) return tracks;
 
-    return tracks.filter((track) => {
-      const text =
-        `${track.title} ${track.artist} ${track.album}`.toLowerCase();
-
-      return words.every((word) => text.includes(word));
-    });
+    return tracks.filter((_, index) =>
+      words.every((word) => searchable[index]?.includes(word)),
+    );
   });
   const shown = $derived(matches.slice(0, SHOWN));
 
@@ -114,14 +117,14 @@
     font: inherit;
     font-size: 13px;
     color: inherit;
-    background: #182129;
-    border: 1px solid #38534a;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
     border-radius: 8px;
     padding: 8px 12px;
     width: min(100%, 360px);
   }
   .muted {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 13px;
   }
   ol {
@@ -149,11 +152,11 @@
   }
   .row:hover:not(:disabled),
   .row:focus-visible {
-    background: #182129;
+    background: var(--surface);
   }
   .row[aria-current='true'] {
-    background: #1f2d2a;
-    color: #d9eee4;
+    background: var(--surface-current);
+    color: var(--text-current);
   }
   .row span {
     overflow: hidden;
@@ -161,7 +164,7 @@
     white-space: nowrap;
   }
   .secondary {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 13px;
   }
   .time {

@@ -112,12 +112,12 @@
   .trigger {
     padding: 4px 10px;
     font-size: 13px;
-    border-color: #29343d;
+    border-color: var(--border);
     background: transparent;
     white-space: nowrap;
   }
   .added {
-    color: #b4d9cb;
+    color: var(--accent);
     font-size: 12px;
     white-space: nowrap;
   }
@@ -132,8 +132,8 @@
     display: grid;
     gap: 2px;
     padding: 6px;
-    background: #1a232b;
-    border: 1px solid #38534a;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
     border-radius: 8px;
     box-shadow: 0 8px 24px rgb(0 0 0 / 40%);
   }
@@ -146,13 +146,13 @@
   }
   .menu > button:hover,
   .menu > button:focus-visible {
-    background: #263831;
+    background: var(--surface-selected);
   }
   form {
     display: flex;
     gap: 6px;
     padding-top: 6px;
-    border-top: 1px solid #29343d;
+    border-top: 1px solid var(--border);
     margin-top: 4px;
   }
   input {
@@ -161,8 +161,8 @@
     font: inherit;
     font-size: 13px;
     color: inherit;
-    background: #182129;
-    border: 1px solid #38534a;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
     border-radius: 6px;
     padding: 6px 8px;
   }

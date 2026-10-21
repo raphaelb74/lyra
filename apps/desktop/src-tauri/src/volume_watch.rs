@@ -12,7 +12,7 @@ use std::time::Duration;
 use player_core::{HardwareVolume, PlaybackState};
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::commands::{AppState, volume_info, volume_lock};
+use crate::commands::{AppState, volume_info};
 use crate::ipc::DeviceVolume;
 
 /// Event carrying a [`DeviceVolume`].
@@ -51,7 +51,7 @@ fn watch(handle: &AppHandle) {
         };
 
         if let Ok(level) = audio_alsa::volume(&device) {
-            let lock = volume_lock(&state, &device);
+            let lock = status.volume_lock(&device);
             // Compare in whole hundredths of a dB: readings are exact steps.
             #[expect(clippy::cast_possible_truncation, reason = "dB values are small")]
             let key = (

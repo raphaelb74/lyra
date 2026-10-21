@@ -12,7 +12,7 @@ Implement in order. **Do not mark a milestone complete without its acceptance ch
 
 **Done when:** desktop opens, displays mock library/player, and IPC `get_app_info` responds.
 
-Validated on Linux Mint 22.3 on 20 October 2026. All acceptance checks pass; see [M0 validation report](M0_VALIDATION.md). CI is configured; a remote CI run is not claimed.
+Validated on Linux Mint 22.3 on 20 October 2026. All acceptance checks pass; see [M0 validation report](history/M0_VALIDATION.md). CI is configured; a remote CI run is not claimed.
 
 ## M1 — ALSA discovery and PCM playback
 

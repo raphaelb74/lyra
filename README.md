@@ -58,6 +58,8 @@ crates/dsd-pcm         opt-in DSD→PCM conversion (filters, decimation, dither)
 crates/library         SQLite library: folder scanner, tags, artwork cache
 scripts/               check.sh (all checks), DAC probe, test fixtures, license inventory
 tests/e2e/             real-window smoke tests (WebKitGTK + IPC)
+apps/desktop/tools/    vendored ESLint rules (anti-slop), run by `npm run lint`
+.claude/               Claude Code agents and vendored Rust review skills
 ```
 
 The audio engine and the library do not depend on Tauri. The UI talks to them only through Tauri commands, and plays only files you dropped or tracks inside your library folders.
@@ -67,7 +69,7 @@ The audio engine and the library do not depend on Tauri. The UI talks to them on
 - [Specification](docs/SPECIFICATION.md): what Lyra must do
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md): milestones M0–M5
 - [Development](docs/DEVELOPMENT.md): setup, checks, smoke tests
-- [Hardware reports](docs/hardware/): per-DAC evidence · [M0 validation](docs/M0_VALIDATION.md)
+- [Hardware reports](docs/hardware/): per-DAC evidence · [M0 validation](docs/history/M0_VALIDATION.md)
 - [Agent rules](AGENTS.md) · [Third-party licenses](docs/THIRD_PARTY.md)
 
 ## License

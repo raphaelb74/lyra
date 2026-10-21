@@ -337,14 +337,12 @@ impl Library {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// Cached statement: queues look tracks up one by one, hundreds at a time.
     pub fn track(&self, id: i64) -> Result<Option<Track>, LibraryError> {
         Ok(self
             .conn
-            .query_row(
-                &format!("{TRACK_COLUMNS} WHERE tracks.id = ?1"),
-                [id],
-                track_row,
-            )
+            .prepare_cached(&format!("{TRACK_COLUMNS} WHERE tracks.id = ?1"))?
+            .query_row([id], track_row)
             .optional()?)
     }
 

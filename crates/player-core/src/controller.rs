@@ -7,10 +7,11 @@ use std::sync::{Arc, PoisonError};
 use std::thread::Thread;
 use std::time::Duration;
 
+use crate::dop;
 use crate::player::{Command, Inbox, QueueItem, Shared};
 use crate::sink::{DsdPolicy, Encoding, HardwareVolume, OutputFormat};
 use crate::source::{Source, SourceInfo};
-use crate::status::{ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus, format_db};
+use crate::status::{ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus};
 use crate::writer::{Chunk, ToWriter, WriterEvent};
 
 /// Longest the controller waits for a free buffer before re-checking commands.
@@ -41,8 +42,8 @@ struct Session {
 }
 
 struct Feed {
-    seq: u64,
-    index: usize,
+    /// The track being decoded.
+    entry: Entry,
     source: Source,
     next_frame: u64,
     /// More audio to decode for the writer.
@@ -242,15 +243,10 @@ impl Controller {
         let Some(item) = items.get(index).cloned() else {
             return self.stop();
         };
-        let mut source = match Source::open(&item.path) {
+        let source = match open_at(&item, frame) {
             Ok(source) => source,
             Err(error) => return self.fail(error),
         };
-        if frame > 0
-            && let Err(error) = source.seek(frame)
-        {
-            return self.fail(error);
-        }
         let info = source.info();
         let stream = info.stream(dsd);
         let reuse = self
@@ -307,8 +303,7 @@ impl Controller {
             output: reuse,
             started: false,
             feed: Feed {
-                seq: entry.seq,
-                index,
+                entry,
                 source,
                 next_frame: frame,
                 decoding: true,
@@ -339,7 +334,7 @@ impl Controller {
             WriterEvent::Opened {
                 result: Ok(output), ..
             } => {
-                if let Err(error) = dop_allowed(output.encoding, output.hardware_volume) {
+                if let Err(error) = dop::check_open(&output) {
                     return self.fail(error);
                 }
                 session.output = Some(output);
@@ -418,7 +413,7 @@ impl Controller {
             Ok(Some(frames)) => {
                 let chunk = Chunk {
                     generation: session.generation,
-                    seq: feed.seq,
+                    seq: feed.entry.seq,
                     start_frame: feed.next_frame,
                     frames,
                     bytes: buffer,
@@ -428,7 +423,7 @@ impl Controller {
             }
             Ok(None) => self.track_ended(output, buffer),
             Err(error) => {
-                let _ = self.free_tx.send(buffer);
+                self.recycle(buffer);
                 self.fail(error);
             }
         }
@@ -439,59 +434,58 @@ impl Controller {
     /// is a free buffer, for the end of converted audio.
     fn track_ended(&mut self, output: OutputFormat, buffer: Vec<u8>) {
         let Some(session) = self.session.as_mut() else {
-            let _ = self.free_tx.send(buffer);
-            return;
+            return self.recycle(buffer);
         };
-        let next = session.feed.index + 1;
-        if let Some(item) = session.items.get(next) {
+        let next = session.feed.entry.index + 1;
+        let continuation = session
+            .items
+            .get(next)
             // A file that fails to open is reported when its turn comes.
-            if let Ok(mut source) = Source::open(&item.path) {
-                let info = source.info();
-                if output.carries(&info.stream(session.dsd)) {
-                    source.continue_from(&mut session.feed.source);
-                    self.send_tail(output, buffer);
-                    let Some(session) = self.session.as_mut() else {
-                        return;
-                    };
-                    self.seq += 1;
-                    session.upcoming.push_back(Entry {
-                        seq: self.seq,
-                        index: next,
-                        info,
-                    });
-                    session.feed = Feed {
-                        seq: self.seq,
-                        index: next,
-                        source,
-                        next_frame: 0,
-                        decoding: true,
-                    };
-                    return;
-                }
+            .and_then(|item| Source::open(&item.path).ok())
+            .filter(|source| output.carries(&source.info().stream(session.dsd)));
+
+        let Some(mut source) = continuation else {
+            if next < session.items.len() {
+                session.after_drain = Some(next);
             }
-            session.after_drain = Some(next);
-        }
-        session.feed.decoding = false;
-        let generation = session.generation;
+            session.feed.decoding = false;
+            let generation = session.generation;
+            self.send_tail(output, buffer);
+            return self.to_writer(ToWriter::Drain { generation });
+        };
+        source.continue_from(&mut session.feed.source);
+        // The previous track's converter tail, if it did not carry over.
         self.send_tail(output, buffer);
-        self.to_writer(ToWriter::Drain { generation });
+        self.seq += 1;
+        let entry = Entry {
+            seq: self.seq,
+            index: next,
+            info: source.info(),
+        };
+        if let Some(session) = self.session.as_mut() {
+            session.upcoming.push_back(entry);
+            session.feed = Feed {
+                entry,
+                source,
+                next_frame: 0,
+                decoding: true,
+            };
+        }
     }
 
     /// Queues what the converter still holds of the track that ended (its
     /// filters' tail); returns the buffer to the pool when there is none.
     fn send_tail(&mut self, output: OutputFormat, mut buffer: Vec<u8>) {
         let Some(session) = self.session.as_mut() else {
-            let _ = self.free_tx.send(buffer);
-            return;
+            return self.recycle(buffer);
         };
         session.feed.source.tail(output.encoding, &mut buffer);
         if buffer.is_empty() {
-            let _ = self.free_tx.send(buffer);
-            return;
+            return self.recycle(buffer);
         }
         let chunk = Chunk {
             generation: session.generation,
-            seq: session.feed.seq,
+            seq: session.feed.entry.seq,
             start_frame: session.feed.next_frame,
             frames: 0,
             bytes: buffer,
@@ -506,13 +500,8 @@ impl Controller {
         let Some(mut output) = session.output.filter(|o| o.hardware_volume != volume) else {
             return;
         };
-        if matches!(output.encoding, Encoding::Dop(_)) && !volume.passes_dop() {
-            return self.fail(PlayerError {
-                kind: ErrorKind::Unsupported,
-                message: "Playback stopped: the DAC's volume moved during DoP, which turns \
-                          the DSD into noise. Set it back to 100% and play again."
-                    .into(),
-            });
+        if let Err(error) = dop::check_change(&output, volume) {
+            return self.fail(error);
         }
         output.hardware_volume = volume;
         session.output = Some(output);
@@ -521,6 +510,12 @@ impl Controller {
                 shown.hardware_volume = volume;
             }
         });
+    }
+
+    /// Returns a buffer to the pool. It only fails at shutdown, when there is
+    /// nothing to recycle into.
+    fn recycle(&self, buffer: Vec<u8>) {
+        let _ = self.free_tx.send(buffer);
     }
 
     fn stop(&mut self) {
@@ -600,30 +595,11 @@ fn now_playing(
     }
 }
 
-/// DoP only reaches a DAC whose volume is known to be untouched. DoP is DSD
-/// dressed as PCM: a device that does not decode it (built-in audio, most
-/// non-USB outputs) plays it as loud noise, and attenuation breaks the
-/// markers. A USB DAC at 0 dB (or without volume control) is the safe case.
-///
-/// Native DSD has no such risk: the device was opened in a DSD format.
-fn dop_allowed(encoding: Encoding, volume: HardwareVolume) -> Result<(), PlayerError> {
-    let message = match (encoding, volume) {
-        (Encoding::Dop(_), HardwareVolume::Unknown) => {
-            "DSD over DoP is only sent to a USB DAC whose volume Lyra can check. \
-             This device is not one: if it does not decode DoP (built-in audio cannot), \
-             it would play loud noise. To play DSD here, turn on \
-             “Convert DSD to PCM” in Settings (not bit-perfect)."
-                .to_owned()
-        }
-        (Encoding::Dop(_), HardwareVolume::Attenuated { centibels }) => format!(
-            "DSD over DoP needs the DAC's volume at 0 dB; it is at {} dB. \
-             Raise it to 100% with Lyra's volume control under Output and play again.",
-            format_db(centibels)
-        ),
-        _ => return Ok(()),
-    };
-    Err(PlayerError {
-        kind: ErrorKind::Unsupported,
-        message,
-    })
+/// Opens `item`, at `frame` source frames from its start.
+fn open_at(item: &QueueItem, frame: u64) -> Result<Source, PlayerError> {
+    let mut source = Source::open(&item.path)?;
+    if frame > 0 {
+        source.seek(frame)?;
+    }
+    Ok(source)
 }

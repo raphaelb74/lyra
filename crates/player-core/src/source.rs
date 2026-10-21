@@ -186,7 +186,7 @@ impl Source {
                                         channels,
                                         f64::from(gain_db(dsd)),
                                     )
-                                    .ok_or_else(mismatch)?,
+                                    .ok_or_else(no_converter)?,
                                 )),
                             };
                             samples.clear();
@@ -277,6 +277,15 @@ fn gain_db(dsd: DsdPolicy) -> i8 {
     match dsd.fallback {
         DsdFallback::Convert { gain_db } => gain_db,
         DsdFallback::Refuse => 0,
+    }
+}
+
+/// Conversion was negotiated for a rate the converter does not take;
+/// negotiation only offers the rates it does.
+fn no_converter() -> PlayerError {
+    PlayerError {
+        kind: ErrorKind::Internal,
+        message: "DSD to PCM conversion does not support this DSD rate".into(),
     }
 }
 

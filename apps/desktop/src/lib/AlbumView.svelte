@@ -121,12 +121,6 @@
 </section>
 
 <style>
-  .back {
-    border: 0;
-    background: transparent;
-    padding: 6px 0;
-    color: #a2adb7;
-  }
   header {
     display: flex;
     gap: 24px;
@@ -140,13 +134,13 @@
     border-radius: 8px;
     object-fit: cover;
     flex-shrink: 0;
-    background: #182129;
+    background: var(--surface);
   }
   .placeholder {
     display: grid;
     place-items: center;
     font-size: 48px;
-    color: #577369;
+    color: var(--accent-line);
   }
   h3 {
     font-size: 28px;
@@ -157,7 +151,7 @@
     margin: 4px 0;
   }
   .muted {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 13px;
   }
   .actions {
@@ -192,17 +186,17 @@
     padding: 10px 12px;
   }
   ol button[aria-current='true'] {
-    background: #1f2d2a;
-    color: #d9eee4;
+    background: var(--surface-current);
+    color: var(--text-current);
   }
   ol button:hover:not(:disabled),
   ol button:focus-visible {
-    background: #182129;
+    background: var(--surface);
   }
   .number,
   .time,
   .format {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 13px;
     font-variant-numeric: tabular-nums;
   }
@@ -215,7 +209,7 @@
     white-space: nowrap;
   }
   .title small {
-    color: #a2adb7;
+    color: var(--text-muted);
     margin-left: 8px;
   }
   @media (max-width: 650px) {

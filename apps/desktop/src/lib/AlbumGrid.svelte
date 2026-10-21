@@ -57,20 +57,20 @@
     aspect-ratio: 1;
     object-fit: cover;
     border-radius: 8px;
-    background: #182129;
+    background: var(--surface);
     margin-bottom: 6px;
   }
   .placeholder {
     display: grid;
     place-items: center;
     font-size: 40px;
-    color: #577369;
+    color: var(--accent-line);
   }
   button:focus-visible img,
   button:focus-visible .placeholder,
   button:hover img,
   button:hover .placeholder {
-    outline: 2px solid #577369;
+    outline: 2px solid var(--accent-line);
     outline-offset: 2px;
   }
   strong {
@@ -81,13 +81,13 @@
     white-space: nowrap;
   }
   small {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 12px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .badge {
-    color: #b4d9cb;
+    color: var(--accent);
   }
 </style>

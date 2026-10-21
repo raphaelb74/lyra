@@ -1,3 +1,28 @@
+:root {
+  /* Colours: one name per role. */
+  --bg: #11161d;
+  --bg-sidebar: #151c24;
+  --text: #edf1ee;
+  --text-muted: #a2adb7;
+  --text-current: #d9eee4;
+  --accent: #b4d9cb;
+  --accent-line: #577369;
+  --border-strong: #38534a;
+  --border: #29343d;
+  --border-sidebar: #29323a;
+  --border-player: #303c46;
+  --surface: #182129;
+  --surface-raised: #1a232b;
+  --surface-current: #1f2d2a;
+  --surface-selected: #263831;
+  --button: #263a36;
+  --art-placeholder: #31463f;
+  --warning: #f0b48a;
+  --danger-text: #f0d2bf;
+  --danger-line: #8a5a3c;
+  --danger-surface: #2a1f1a;
+}
+
 *,
 *::before,
 *::after {
@@ -6,16 +31,16 @@
 
 body {
   margin: 0;
-  background: #11161d;
-  color: #edf1ee;
+  background: var(--bg);
+  color: var(--text);
   font-family: system-ui, sans-serif;
 }
 
 button {
   font: inherit;
   color: inherit;
-  background: #263a36;
-  border: 1px solid #577369;
+  background: var(--button);
+  border: 1px solid var(--accent-line);
   padding: 11px 17px;
   border-radius: 8px;
   cursor: pointer;
@@ -23,11 +48,25 @@ button {
 
 button:focus-visible,
 a:focus-visible {
-  outline: 2px solid #b4d9cb;
+  outline: 2px solid var(--accent);
   outline-offset: 4px;
 }
 
 button:disabled {
   cursor: default;
   opacity: 0.45;
+}
+
+/* Shared controls. */
+
+.back {
+  border: 0;
+  background: transparent;
+  padding: 6px 0;
+  color: var(--text-muted);
+}
+
+.danger {
+  border-color: var(--danger-line);
+  color: var(--danger-text);
 }

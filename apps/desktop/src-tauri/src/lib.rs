@@ -4,7 +4,7 @@ mod settings;
 mod volume_watch;
 
 use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use audio_alsa::AlsaSink;
 use commands::{AppState, LIBRARY_CHANGED_EVENT, LIBRARY_NOTICE_EVENT, is_playable};
@@ -157,7 +157,7 @@ fn on_drop(app: &AppHandle, paths: &[std::path::PathBuf]) {
 
 fn on_scan_event(app: &AppHandle, status: &Mutex<ScanStatus>, event: ScanEvent) {
     let (snapshot, changed) = {
-        let mut status = status.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut status = commands::locked(status);
         let changed = match event {
             ScanEvent::Progress(progress) => {
                 status.running = true;
