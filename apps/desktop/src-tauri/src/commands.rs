@@ -9,13 +9,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use library::{Library, LibraryError, Scanner};
-use player_core::{DsdTransport, Player};
+use player_core::{DsdTransport, Player, QueueItem};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::ipc::{
-    AlbumInfo, AppInfo, DeviceInfo, FolderInfo, IpcError, LibraryTrack, ScanStatus, Status,
-    frames_to_seconds,
+    ART_URL, AlbumInfo, AppInfo, DeviceInfo, FolderInfo, IpcError, LibraryTrack, QueueEntry,
+    ScanStatus, Status, TrackDetails, file_name, frames_to_seconds,
 };
 
 /// Event telling the UI to reload folders and albums.
@@ -133,9 +133,12 @@ pub fn play(path: String, device: String, state: State<'_, AppState>) -> Result<
         .map_err(IpcError::from)
 }
 
-#[tauri::command]
-pub fn play_track(
-    track_id: i64,
+/// Plays library tracks as the queue, from `start` (e.g. an album from the
+/// clicked track).
+#[tauri::command(async)]
+pub fn play_tracks(
+    track_ids: Vec<i64>,
+    start: usize,
     device: String,
     state: State<'_, AppState>,
 ) -> Result<(), IpcError> {
@@ -144,15 +147,100 @@ pub fn play_track(
             "{device} is not a hardware device"
         )));
     }
-    let track = state
-        .library()
-        .track(track_id)
-        .map_err(|error| library_error(&error))?
-        .ok_or_else(|| IpcError::invalid_request("That track is no longer in the library."))?;
+    let items = {
+        let library = state.library();
+        let mut items = Vec::with_capacity(track_ids.len());
+        for id in track_ids {
+            let track = library
+                .track(id)
+                .map_err(|error| library_error(&error))?
+                .ok_or_else(|| {
+                    IpcError::invalid_request("A track is no longer in the library. Rescan.")
+                })?;
+            items.push(QueueItem {
+                path: track.path,
+                id: Some(id),
+            });
+        }
+        items
+    };
     state
         .player
-        .play(track.path, device, DsdTransport::Auto)
+        .play_queue(items, start, device, DsdTransport::Auto)
         .map_err(IpcError::from)
+}
+
+#[tauri::command]
+pub fn next(state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.player.next().map_err(IpcError::from)
+}
+
+#[tauri::command]
+pub fn previous(state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.player.previous().map_err(IpcError::from)
+}
+
+#[tauri::command]
+pub fn skip_to(index: usize, state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.player.skip_to(index).map_err(IpcError::from)
+}
+
+/// The queue, described from the library where possible.
+#[tauri::command(async)]
+pub fn get_queue(state: State<'_, AppState>) -> Result<Vec<QueueEntry>, IpcError> {
+    let queue = state.player.queue();
+    let library = state.library();
+    let mut entries = Vec::with_capacity(queue.len());
+    for item in queue.iter() {
+        let track = match item.id {
+            Some(id) => library.track(id).map_err(|error| library_error(&error))?,
+            None => None,
+        };
+        entries.push(match track {
+            Some(track) => QueueEntry {
+                track_id: Some(track.id),
+                duration_seconds: LibraryTrack::from(track.clone()).duration_seconds,
+                title: track.title,
+                artist: Some(track.artist),
+            },
+            None => QueueEntry {
+                track_id: None,
+                title: file_name(&item.path),
+                artist: None,
+                duration_seconds: None,
+            },
+        });
+    }
+    Ok(entries)
+}
+
+/// Title, album and artwork of a library track, for Now Playing.
+#[tauri::command(async)]
+pub fn track_details(
+    track_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Option<TrackDetails>, IpcError> {
+    let library = state.library();
+    let Some(track) = library
+        .track(track_id)
+        .map_err(|error| library_error(&error))?
+    else {
+        return Ok(None);
+    };
+    let album = library
+        .album(track.album_id)
+        .map_err(|error| library_error(&error))?;
+    Ok(Some(TrackDetails {
+        title: track.title,
+        artist: track.artist,
+        album_id: track.album_id,
+        year: album.as_ref().and_then(|album| album.year),
+        art: album
+            .as_ref()
+            .and_then(|album| album.art.as_ref())
+            .map(|name| format!("{ART_URL}{name}")),
+        album: album.map(|album| album.title),
+    }))
 }
 
 #[tauri::command(async)]

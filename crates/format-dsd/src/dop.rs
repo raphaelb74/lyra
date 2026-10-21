@@ -72,6 +72,12 @@ impl DopPacker {
         }
     }
 
+    /// Continues the marker sequence of `previous`, so the DAC sees no
+    /// marker break between gapless tracks.
+    pub fn continue_from(&mut self, previous: &Self) {
+        self.marker = previous.marker;
+    }
+
     /// Drops a held frame (after a seek). Marker phase continues.
     pub fn reset(&mut self) {
         self.pending = None;
@@ -140,6 +146,19 @@ mod tests {
             markers,
             [0x05, 0xFA, 0x05, 0xFA, 0x05, 0xFA, 0x05, 0xFA, 0x05, 0xFA]
         );
+    }
+
+    #[test]
+    fn markers_continue_into_the_next_track() {
+        let mut first = DopPacker::new();
+        let mut samples = Vec::new();
+        first.pack(&[1, 2, 3], 1, &mut samples); // one DoP frame, one held
+        first.finish(1, &mut samples); // second frame, padded
+        let mut second = DopPacker::new();
+        second.continue_from(&first);
+        second.pack(&[4, 5], 1, &mut samples);
+        let markers: Vec<u32> = samples.iter().map(|&s| s.cast_unsigned() >> 24).collect();
+        assert_eq!(markers, [0x05, 0xFA, 0x05]);
     }
 
     #[test]

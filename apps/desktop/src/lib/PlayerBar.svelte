@@ -1,18 +1,31 @@
 <script lang="ts">
-  import { clock, outputLabel, sourceLabel } from './format';
-  import type { DeviceInfo, PlayerStatus } from './ipc';
+  import { clock, outputLabel, sourceLabel, verdictLabel } from './format';
+  import type { DeviceInfo, PlayerStatus, TrackDetails } from './ipc';
 
   interface Props {
     status: PlayerStatus;
     position: number;
     device: DeviceInfo | undefined;
+    /** Library data of the playing track, when it comes from the library. */
+    details: TrackDetails | null;
     onToggle: () => void;
+    onPrevious: () => void;
+    onNext: () => void;
     onStop: () => void;
     onSeek: (seconds: number) => void;
   }
 
-  const { status, position, device, onToggle, onStop, onSeek }: Props =
-    $props();
+  const {
+    status,
+    position,
+    device,
+    details,
+    onToggle,
+    onPrevious,
+    onNext,
+    onStop,
+    onSeek,
+  }: Props = $props();
 
   /** Position shown while the user drags the slider. */
   let dragging = $state<number | null>(null);
@@ -26,25 +39,24 @@
   const duration = $derived(track?.durationSeconds ?? 0);
   const shown = $derived(dragging ?? position);
   const verdict = $derived(track?.bitPerfect ?? null);
-  const verdictText = $derived.by(() => {
-    if (verdict === null) return 'Bit-perfect: not playing';
-
-    if (verdict.status === 'yes') return 'Bit-perfect';
-
-    const reason = verdict.reason ?? 'unknown';
-
-    return verdict.status === 'no'
-      ? `Not bit-perfect: ${reason}`
-      : `Bit-perfect unverified: ${reason}`;
-  });
+  const verdictText = $derived(verdictLabel(verdict));
+  const hasNext = $derived(
+    track !== null && track.queueIndex + 1 < status.queueLength,
+  );
 </script>
 
 <footer aria-label="Player">
-  <div class="art" aria-hidden="true">♪</div>
+  {#if details?.art}
+    <img class="art" src={details.art} alt="" width="54" height="54" />
+  {:else}
+    <div class="art" aria-hidden="true">♪</div>
+  {/if}
   <div class="track">
     {#if track}
-      <strong>{track.fileName}</strong>
-      <small>{sourceLabel(track)} · {status.state}</small>
+      <strong>{details?.title ?? track.fileName}</strong>
+      <small
+        >{details ? `${details.artist} · ` : ''}{sourceLabel(track)} · {status.state}</small
+      >
     {:else}
       <strong>Nothing playing</strong>
       <small>Choose an album, or drop files onto the window</small>
@@ -52,6 +64,12 @@
   </div>
   <div class="transport">
     <div class="controls">
+      <button
+        type="button"
+        aria-label="Previous"
+        disabled={!active}
+        onclick={onPrevious}>⏮</button
+      >
       <button
         type="button"
         aria-label={status.state === 'paused' ? 'Resume' : 'Play'}
@@ -64,6 +82,12 @@
         aria-label="Stop"
         disabled={!active}
         onclick={onStop}>■</button
+      >
+      <button
+        type="button"
+        aria-label="Next"
+        disabled={!active || !hasNext}
+        onclick={onNext}>⏭</button
       >
     </div>
     <div class="seek">
@@ -120,6 +144,7 @@
     display: grid;
     place-items: center;
     font-size: 24px;
+    object-fit: cover;
   }
   .track,
   .output {

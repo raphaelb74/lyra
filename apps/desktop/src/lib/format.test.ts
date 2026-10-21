@@ -4,6 +4,8 @@ import { clock, formatBadge, outputLabel, sourceLabel } from './format';
 import type { Track } from './ipc';
 
 const flac: Track = {
+  libraryId: null,
+  queueIndex: 0,
   fileName: 'a.flac',
   device: 'hw:CARD=ONE,DEV=0',
   codec: 'flac',

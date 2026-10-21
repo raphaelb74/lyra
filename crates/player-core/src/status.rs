@@ -100,6 +100,10 @@ impl From<DsdError> for PlayerError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NowPlaying {
     pub path: PathBuf,
+    /// The caller's id for this queue entry (e.g. a library track id).
+    pub id: Option<i64>,
+    /// Position in the queue.
+    pub index: usize,
     pub device: String,
     pub source: SourceInfo,
     /// Set once the device accepted the stream.
@@ -170,6 +174,8 @@ pub struct PlayerStatus {
     pub track: Option<NowPlaying>,
     /// Why the state is [`PlaybackState::Error`].
     pub error: Option<PlayerError>,
+    /// Entries in the queue ([`crate::Player::queue`] lists them).
+    pub queue_length: usize,
 }
 
 impl PlayerStatus {
@@ -177,6 +183,7 @@ impl PlayerStatus {
         state: PlaybackState::Stopped,
         track: None,
         error: None,
+        queue_length: 0,
     };
 }
 
@@ -206,6 +213,8 @@ mod tests {
         };
         NowPlaying {
             path: PathBuf::new(),
+            id: None,
+            index: 0,
             device: String::new(),
             source: SourceInfo::Pcm(source),
             output: Some(output),

@@ -7,11 +7,13 @@
     api: Backend;
     /** Selected output device; empty when none. */
     device: string;
+    /** Library id of the playing track, to mark it. */
+    playingId: number | null;
     onBack: () => void;
     onError: (message: string) => void;
   }
 
-  const { album, api, device, onBack, onError }: Props = $props();
+  const { album, api, device, playingId, onBack, onError }: Props = $props();
 
   let tracks = $state<LibraryTrack[]>([]);
   let loaded = $state(false);
@@ -28,8 +30,11 @@
     });
   });
 
-  function play(track: LibraryTrack) {
-    void attempt(() => api.playTrack(track.id, device), onError);
+  /** Plays the album from `index`, so it continues through the rest. */
+  function play(index: number) {
+    const ids = tracks.map((t) => t.id);
+
+    void attempt(() => api.playTracks(ids, index, device), onError);
   }
 
   function number(track: LibraryTrack): string {
@@ -62,14 +67,15 @@
     <p class="muted">This album has no tracks any more.</p>
   {/if}
   <ol>
-    {#each tracks as track (track.id)}
+    {#each tracks as track, index (track.id)}
       <li>
         <button
           type="button"
+          aria-current={track.id === playingId ? 'true' : undefined}
           disabled={device === ''}
           title={device === '' ? 'Choose an output device first' : undefined}
           onclick={() => {
-            play(track);
+            play(index);
           }}
         >
           <span class="number">{number(track)}</span>
@@ -148,6 +154,10 @@
     border: 0;
     background: transparent;
     padding: 10px 12px;
+  }
+  ol button[aria-current='true'] {
+    background: #1f2d2a;
+    color: #d9eee4;
   }
   ol button:hover:not(:disabled),
   ol button:focus-visible {

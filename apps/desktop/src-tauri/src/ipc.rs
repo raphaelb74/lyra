@@ -100,11 +100,15 @@ pub struct Status {
     pub state: &'static str,
     pub track: Option<Track>,
     pub error: Option<IpcError>,
+    pub queue_length: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {
+    /// Library track id; `None` for a dropped file.
+    pub library_id: Option<i64>,
+    pub queue_index: usize,
     pub file_name: String,
     pub device: String,
     /// `flac`, `wav`, `dsf` or `dff`.
@@ -145,6 +149,7 @@ impl From<&PlayerStatus> for Status {
             state: state_name(status.state),
             track: status.track.as_ref().map(Track::from),
             error: status.error.clone().map(IpcError::from),
+            queue_length: status.queue_length,
         }
     }
 }
@@ -173,6 +178,8 @@ impl From<&NowPlaying> for Track {
             ),
         };
         Self {
+            library_id: now.id,
+            queue_index: now.index,
             file_name: file_name(&now.path),
             device: now.device.clone(),
             codec,
@@ -326,6 +333,28 @@ impl From<library::Track> for LibraryTrack {
 
 fn dsd_multiple(codec: &str, rate: u32) -> Option<u32> {
     matches!(codec, "dsf" | "dff").then(|| format_dsd::multiple(rate))
+}
+
+/// One queue entry, described for the Queue view.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueEntry {
+    pub track_id: Option<i64>,
+    pub title: String,
+    pub artist: Option<String>,
+    pub duration_seconds: Option<f64>,
+}
+
+/// Library details of the playing track, for Now Playing.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackDetails {
+    pub title: String,
+    pub artist: String,
+    pub album: Option<String>,
+    pub album_id: i64,
+    pub year: Option<i32>,
+    pub art: Option<String>,
 }
 
 /// Pushed on the `scan-status` event and returned by `get_scan_status`.

@@ -49,6 +49,8 @@ describe('desktop IPC boundary', () => {
 const status = {
   state: 'playing',
   track: {
+    libraryId: 12,
+    queueIndex: 0,
     fileName: 'a.flac',
     device: 'hw:CARD=ONE,DEV=0',
     codec: 'flac',
@@ -66,6 +68,7 @@ const status = {
     bitPerfect: { status: 'yes', reason: null },
   },
   error: null,
+  queueLength: 3,
 };
 
 describe('playback commands', () => {
@@ -142,9 +145,10 @@ describe('playback commands', () => {
 
     await expect(api.albums()).resolves.toEqual([album]);
 
-    await api.playTrack(7, 'hw:CARD=ONE,DEV=0');
-    expect(runCommand).toHaveBeenLastCalledWith('play_track', {
-      trackId: 7,
+    await api.playTracks([7, 8, 9], 1, 'hw:CARD=ONE,DEV=0');
+    expect(runCommand).toHaveBeenLastCalledWith('play_tracks', {
+      trackIds: [7, 8, 9],
+      start: 1,
       device: 'hw:CARD=ONE,DEV=0',
     });
 

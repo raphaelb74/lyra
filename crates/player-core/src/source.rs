@@ -164,6 +164,14 @@ impl Source {
         }
     }
 
+    /// Picks up where `previous` ended on the same device: DoP marker phase
+    /// carries over, so a gapless DSD boundary has no marker break.
+    pub fn continue_from(&mut self, previous: &Self) {
+        if let (Self::Dsd { dop, .. }, Self::Dsd { dop: before, .. }) = (self, previous) {
+            dop.continue_from(before);
+        }
+    }
+
     pub fn seek(&mut self, frame: u64) -> Result<(), PlayerError> {
         match self {
             Self::Pcm { decoder, .. } => Ok(decoder.seek(frame)?),
