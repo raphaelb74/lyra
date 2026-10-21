@@ -64,6 +64,7 @@ Five PRs: **M4a** library and album browser, **M4b-1** queue, gapless and Now Pl
 ## M5 — Production hardening
 
 - [ ] Design overhaul before packaging: visual design, layout, interactions and a review of functions and features, once the M4 feature set is complete.
+- [ ] Name the audio engine **UNDA** (Unified Native Digital Audio): rename the `player-core` crate to `unda` and use the name in the docs and UI (e.g. the about screen). Other crates keep their descriptive names. Before M6, so the Windows and macOS output crates start under it.
 - [ ] Gapless and seek regression tests; unplug/replug tests; buffer underrun diagnostics.
 - [ ] MPRIS integration and icons.
 - [ ] Take the DAC from PipeWire cleanly: request it through the device-reservation D-Bus protocol (`org.freedesktop.ReserveDevice1`), which PipeWire/WirePlumber honor, and hand it back when Lyra releases it. One D-Bus client (`zbus`) serves this and MPRIS.
