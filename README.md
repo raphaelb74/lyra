@@ -19,7 +19,7 @@ A Linux-first, bit-perfect music player for PCM and DSD, written in Rust with a 
 
 **Volume.** Lyra plays to the card directly, past PipeWire, so the desktop's volume slider and keys don't reach it. Use the volume control under Output (or Ctrl+↑/↓): it moves the card's own hardware volume and never scales the samples. On a USB DAC, anything below 0 dB usually changes the samples, and Lyra says so; during DoP the volume stays locked at 0 dB.
 
-**Hardware.** See the [hardware reports](docs/hardware/) for per-DAC evidence. Any ALSA device should work for PCM; DSD needs a DAC that exposes native DSD or decodes DoP.
+**Hardware.** See the [hardware reports](docs/hardware/) for per-DAC evidence (iFi ZEN ONE, iFi USB Audio SE). Any ALSA device should work for PCM; DSD needs a DAC that exposes native DSD or decodes DoP.
 
 ## Principles
 

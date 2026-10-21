@@ -94,47 +94,49 @@ impl Drop for SavedVolume {
     }
 }
 
-/// The card's main playback volume, as the in-app control shows it.
+/// The card's playback volume, as the in-app control shows it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VolumeLevel {
-    /// 0–100 along the control's own steps.
+    /// 0–100 along the controls' own steps (the lowest, when several).
     pub percent: u8,
-    /// Current level, when the control reports dB.
+    /// Total attenuation, when every control reports dB.
     pub decibels: Option<f64>,
     /// USB DACs often apply their volume digitally: below 0 dB the samples
     /// change. Built-in cards are not checked.
     pub usb: bool,
 }
 
-/// Preferred controls, most global first; otherwise the first one with a
-/// playback volume.
+/// Preferred controls on cards other than USB DACs, most global first;
+/// otherwise the first one with a playback volume.
 const MAIN_CONTROLS: [&str; 2] = ["Master", "PCM"];
 
-/// The main playback volume of the card behind the `hw:` device `device`;
+/// The playback volume of the card behind the `hw:` device `device`;
 /// `None` when it has none.
 pub fn volume(device: &str) -> Result<Option<VolumeLevel>, AlsaError> {
     let card = card_control(device);
     let mixer = open_mixer(device, &card)?;
-    Ok(main_control(&mixer).and_then(|selem| level(&selem, is_usb_audio(&card))))
+    let usb = is_usb_audio(&card);
+    Ok(level(&controls(&mixer, usb), usb))
 }
 
-/// Sets every channel of the card's main playback volume to `percent`
-/// (clamped to 100). The hardware applies it; Lyra never scales samples.
+/// Sets the card's playback volume to `percent` (clamped to 100). The
+/// hardware applies it; Lyra never scales samples.
 pub fn set_volume(device: &str, percent: u8) -> Result<Option<VolumeLevel>, AlsaError> {
     let card = card_control(device);
     let mixer = open_mixer(device, &card)?;
-    let Some(selem) = main_control(&mixer) else {
-        return Ok(None);
-    };
-    let (min, max) = selem.get_playback_volume_range();
-    let raw = min + ((max - min) * i64::from(percent.min(100)) + 50) / 100;
-    selem
-        .set_playback_volume_all(raw)
-        .map_err(|source| AlsaError::Alsa {
-            device: device.to_owned(),
-            source,
-        })?;
-    Ok(level(&selem, is_usb_audio(&card)))
+    let usb = is_usb_audio(&card);
+    let controls = controls(&mixer, usb);
+    for selem in &controls {
+        let (min, max) = selem.get_playback_volume_range();
+        let raw = min + ((max - min) * i64::from(percent.min(100)) + 50) / 100;
+        selem
+            .set_playback_volume_all(raw)
+            .map_err(|source| AlsaError::Alsa {
+                device: device.to_owned(),
+                source,
+            })?;
+    }
+    Ok(level(&controls, usb))
 }
 
 fn open_mixer(device: &str, card: &str) -> Result<Mixer, AlsaError> {
@@ -144,39 +146,64 @@ fn open_mixer(device: &str, card: &str) -> Result<Mixer, AlsaError> {
     })
 }
 
-fn main_control(mixer: &Mixer) -> Option<Selem<'_>> {
+/// The controls the in-app volume moves. A USB DAC applies every one of
+/// its volume controls in series (often a master and per-channel ones), so
+/// all move together and 100% means all at 0 dB. On other cards, only the
+/// main control: the rest route to speakers, headphones, etc.
+fn controls(mixer: &Mixer, usb: bool) -> Vec<Selem<'_>> {
     let with_volume = || {
         mixer
             .iter()
             .filter_map(Selem::new)
             .filter(Selem::has_playback_volume)
     };
+    if usb {
+        return with_volume().collect();
+    }
     MAIN_CONTROLS
         .iter()
         .find_map(|name| with_volume().find(|selem| selem.get_id().get_name().ok() == Some(*name)))
         .or_else(|| with_volume().next())
+        .into_iter()
+        .collect()
 }
 
-/// Level of the first channel (the in-app control sets all of them alike).
-fn level(selem: &Selem<'_>, usb: bool) -> Option<VolumeLevel> {
-    let channel = SelemChannelId::all()
-        .iter()
-        .copied()
-        .find(|&channel| selem.has_playback_channel(channel))?;
-    let (min, max) = selem.get_playback_volume_range();
-    let raw = selem.get_playback_volume(channel).ok()?;
-    let percent = if max > min {
-        (((raw - min) * 100 + (max - min) / 2) / (max - min)).clamp(0, 100)
-    } else {
-        100
-    };
-    let (min_db, max_db) = selem.get_playback_db_range();
-    let decibels = (min_db != max_db)
-        .then(|| selem.get_playback_vol_db(channel).ok())
-        .flatten()
-        .map(|MilliBel(centibels)| f64::from(i32::try_from(centibels).unwrap_or(i32::MIN)) / 100.0);
+/// The lowest position among `controls`, and their attenuation added up
+/// (they apply in series). `None` without controls.
+fn level(controls: &[Selem<'_>], usb: bool) -> Option<VolumeLevel> {
+    let mut percent: Option<i64> = None;
+    let mut decibels = Some(0.0);
+    for selem in controls {
+        let Some(channel) = SelemChannelId::all()
+            .iter()
+            .copied()
+            .find(|&channel| selem.has_playback_channel(channel))
+        else {
+            continue;
+        };
+        let (min, max) = selem.get_playback_volume_range();
+        let Ok(raw) = selem.get_playback_volume(channel) else {
+            continue;
+        };
+        let position = if max > min {
+            (((raw - min) * 100 + (max - min) / 2) / (max - min)).clamp(0, 100)
+        } else {
+            100
+        };
+        percent = Some(percent.map_or(position, |lowest| lowest.min(position)));
+        let (min_db, max_db) = selem.get_playback_db_range();
+        let db = (min_db != max_db)
+            .then(|| selem.get_playback_vol_db(channel).ok())
+            .flatten();
+        decibels = match (decibels, db) {
+            (Some(total), Some(MilliBel(centibels))) => {
+                Some(total + f64::from(i32::try_from(centibels).unwrap_or(i32::MIN)) / 100.0)
+            }
+            _ => None,
+        };
+    }
     Some(VolumeLevel {
-        percent: u8::try_from(percent).unwrap_or(100),
+        percent: u8::try_from(percent?).unwrap_or(100),
         decibels,
         usb,
     })
@@ -234,14 +261,14 @@ fn adjust(selem: &Selem<'_>) -> Option<Adjusted> {
     Some(Adjusted { state, saved })
 }
 
-/// The overall state is the worst control's; a known attenuation outranks
-/// an unknown control.
+/// The overall state of controls applied in series: attenuations add up;
+/// a known attenuation outranks an unknown control.
 fn combine(total: HardwareVolume, control: HardwareVolume) -> HardwareVolume {
     use HardwareVolume::{Attenuated, None, Unity, Unknown};
     match (total, control) {
-        (Attenuated { centibels: a }, Attenuated { centibels: b }) => Attenuated {
-            centibels: a.min(b),
-        },
+        (Attenuated { centibels: a }, Attenuated { centibels: b }) => {
+            Attenuated { centibels: a + b }
+        }
         (attenuated @ Attenuated { .. }, _) | (_, attenuated @ Attenuated { .. }) => attenuated,
         (Unknown, _) | (_, Unknown) => Unknown,
         (None | Unity, Unity) | (Unity, None) => Unity,
@@ -263,7 +290,7 @@ mod tests {
     use super::{HardwareVolume, combine};
 
     #[test]
-    fn worst_control_wins() {
+    fn attenuations_add_up() {
         let attenuated = HardwareVolume::Attenuated { centibels: -600 };
         assert_eq!(
             combine(HardwareVolume::None, HardwareVolume::Unity),
@@ -272,7 +299,7 @@ mod tests {
         assert_eq!(combine(HardwareVolume::Unity, attenuated), attenuated);
         assert_eq!(
             combine(attenuated, HardwareVolume::Attenuated { centibels: -100 }),
-            attenuated
+            HardwareVolume::Attenuated { centibels: -700 }
         );
         assert_eq!(combine(HardwareVolume::Unknown, attenuated), attenuated);
         assert_eq!(

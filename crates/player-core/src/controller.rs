@@ -579,7 +579,7 @@ fn dop_allowed(encoding: Encoding, volume: HardwareVolume) -> Result<(), PlayerE
         }
         (Encoding::Dop(_), HardwareVolume::Attenuated { centibels }) => format!(
             "DSD over DoP needs the DAC's volume at 0 dB; it is at {} dB. \
-             Raise it to maximum (for example in alsamixer) and play again.",
+             Raise it to 100% with Lyra's volume control under Output and play again.",
             format_db(centibels)
         ),
         _ => return Ok(()),

@@ -128,7 +128,8 @@ pub enum HardwareVolume {
     /// Every playback volume control is at 0 dB.
     Unity,
     /// Attenuated: output is not bit-perfect if the device applies it
-    /// digitally. Lowest setting, in hundredths of a dB.
+    /// digitally. Total of the controls in series (each at its lowest
+    /// channel), in hundredths of a dB.
     Attenuated { centibels: i64 },
     /// Controls without dB information; cannot tell.
     Unknown,
