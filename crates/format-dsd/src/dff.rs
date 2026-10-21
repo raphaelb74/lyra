@@ -135,6 +135,40 @@ impl Dff {
     }
 }
 
+/// Start of the body of a top-level `ID3 ` chunk: not in the DSDIFF spec,
+/// but where taggers put an ID3v2 tag, usually after the sound data.
+pub(crate) fn tag_offset(source: &mut dyn Source) -> Result<Option<u64>, DsdError> {
+    /// Real files have a handful of chunks; stop on anything stranger.
+    const MAX_CHUNKS: usize = 64;
+    source.seek(SeekFrom::Start(0)).map_err(DsdError::Io)?;
+    let (id, form_size) = chunk_header(source)?;
+    let form_type: [u8; 4] = read_array(source)?;
+    if &id != b"FRM8" || &form_type != b"DSD " {
+        return Err(malformed("not a DSDIFF form"));
+    }
+    let form_end = 12_u64.saturating_add(form_size);
+    let mut at = 16;
+    for _ in 0..MAX_CHUNKS {
+        if at >= form_end {
+            break;
+        }
+        // A truncated chunk header ends the search; the audio may still play.
+        let Ok((id, size)) = chunk_header(source) else {
+            break;
+        };
+        let body = at + 12;
+        if &id == b"ID3 " {
+            return Ok(Some(body));
+        }
+        at = body
+            .checked_add(size)
+            .and_then(|end| end.checked_add(size & 1))
+            .ok_or_else(|| malformed("chunk size"))?;
+        source.seek(SeekFrom::Start(at)).map_err(DsdError::Io)?;
+    }
+    Ok(None)
+}
+
 /// Reads `FS  `, `CHNL` and `CMPR` from a `PROP` chunk; skips the rest.
 fn read_properties(
     source: &mut dyn Source,

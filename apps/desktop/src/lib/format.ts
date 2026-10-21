@@ -1,4 +1,4 @@
-import type { Output, Track } from './ipc';
+import type { Output, SourceFormat, Track } from './ipc';
 
 /** `FLAC 24/96`, `WAV 16/44.1`, `DSD64 · DSF`. */
 export function sourceLabel(track: Track): string {
@@ -7,6 +7,13 @@ export function sourceLabel(track: Track): string {
   }
 
   return `${track.codec.toUpperCase()} ${String(track.bitsPerSample)}/${kilohertz(track.sampleRate)}`;
+}
+
+/** Short badge without bit depth: `DSD128`, `FLAC 96`. */
+export function formatBadge(format: SourceFormat): string {
+  if (format.dsdMultiple !== null) return `DSD${String(format.dsdMultiple)}`;
+
+  return `${format.codec.toUpperCase()} ${kilohertz(format.sampleRate)}`;
 }
 
 /** `S24_3LE · 96 kHz`, `DoP · S24_3LE · 176.4 kHz`, `Native DSD · DSD_U32_BE · 88.2 kHz`. */

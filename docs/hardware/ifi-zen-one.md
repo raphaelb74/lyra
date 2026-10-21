@@ -96,6 +96,10 @@ The user confirmed playback on the DAC, and the ZEN ONE's format LED changes col
 
 With `auto`, Lyra picks native DSD on this DAC, since the driver exposes `DSD_U32_BE` (`DSD raw: DOP=0, bitrev=0`). DSD256 is native-only here, as predicted from the descriptors (spec A04): forcing DoP fails with an explicit message, never a PCM fallback. The engine tests prove the native stream carries every DSD bit of the file in `DSD_U32_BE` order (DSF and DFF), with the last word filled with DSD silence (`0x69`). The USB volume was restored to 32511 after the runs.
 
+## Scan during playback (A07, M4a)
+
+2026-10-21, release builds: the 10 s synthetic DSD256 file played as native `DSD_U32_BE` at 352800 while three full scans of the user's library (1,082 tracks, 105 albums, fresh database each time) ran in parallel, taking 1.9 s, 1.3 s and 0.7 s. **Underruns: 0.** The files were in the page cache (they had been scanned before), so this measures CPU and database contention, not cold-disk I/O; the A07 target of 10k tracks is still to be measured.
+
 ## Bit-perfect risks found
 
 1. **USB volume control.** The device exposes hardware volume (`'ZEN ONE ',0`, 0–32512). It was at 32511 = **−0.01 dB**, not 0 dB; PipeWire had set it. The ZEN ONE has no volume knob: this control is only visible to software. If the XMOS firmware applies it digitally, any setting below maximum alters samples. Set to 0 dB with `amixer -c ONE cset numid=4 32512,32512 && amixer -c ONE cset numid=5 32512`; it stayed at 0 dB after PipeWire used the device again, but **after unplugging and replugging it was back at 32511**, so setting it once is not enough. **Lyra now handles it** (`audio-alsa` `volume.rs`): on USB Audio cards, a control within 0.5 dB of 0 dB is set to exactly 0 dB while Lyra holds the device and restored on release (verified: 32511 → 32512 during playback → 32511 after). Lower settings are left alone and reported as attenuated (not bit-perfect), since on a headphone DAC they are the listening level.

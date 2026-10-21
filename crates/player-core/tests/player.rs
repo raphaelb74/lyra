@@ -360,6 +360,11 @@ fn dop_is_refused_unless_the_dac_volume_is_known_to_be_untouched() {
 
         let error = wait_for(&updates, PlaybackState::Error).0.error.unwrap();
         assert_eq!(error.kind, ErrorKind::Unsupported, "{volume:?}");
+        let reason = match volume {
+            HardwareVolume::Unknown => "would play loud noise",
+            _ => "it is at −6.00 dB",
+        };
+        assert!(error.message.contains(reason), "{}", error.message);
         drop(player);
         recorder.with(|recording| {
             assert!(

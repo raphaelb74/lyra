@@ -4,6 +4,7 @@
 
   import {
     BackendError,
+    attempt,
     backend,
     onFilesDropped,
     onStatus,
@@ -11,10 +12,13 @@
     type DroppedFile,
     type PlayerStatus,
   } from './lib/ipc';
+  import Library from './lib/Library.svelte';
   import PlayerBar from './lib/PlayerBar.svelte';
 
   const api = backend();
-  const laterViews = ['Albums', 'Artists', 'Playlists', 'Settings'];
+  const laterViews = ['Artists', 'Playlists', 'Settings'];
+
+  type View = 'library' | 'files';
 
   let connection = $state('Connecting to Rust…');
   let connected = $state(false);
@@ -31,6 +35,7 @@
   });
   let position = $state(0);
   let actionError = $state<string | null>(null);
+  let view = $state<View>('library');
 
   const device = $derived(devices.find((d) => d.name === selectedDevice));
   const shownError = $derived(actionError ?? status.error?.message ?? null);
@@ -68,23 +73,22 @@
     }
   }
 
-  /** Runs a command; shows its error instead of throwing. */
-  async function attempt(action: () => Promise<null>) {
-    actionError = null;
+  function showError(message: string) {
+    actionError = message;
+  }
 
-    try {
-      await action();
-    } catch (error) {
-      actionError = error instanceof BackendError ? error.message : UNEXPECTED;
-    }
+  /** Runs a command; shows its error instead of throwing. */
+  async function command(action: () => Promise<null>) {
+    actionError = null;
+    await attempt(action, showError);
   }
 
   function playFile(file: DroppedFile) {
-    void attempt(() => api.play(file.path, selectedDevice));
+    void command(() => api.play(file.path, selectedDevice));
   }
 
   function toggle() {
-    void attempt(() =>
+    void command(() =>
       status.state === 'playing' ? api.pause() : api.resume(),
     );
   }
@@ -102,6 +106,7 @@
         status = next;
       }),
       onFilesDropped((dropped) => {
+        view = 'files';
         dropNotice =
           dropped.length === 0
             ? 'Only FLAC, WAV, DSF and DFF files can be played.'
@@ -142,48 +147,28 @@
     <aside aria-label="Application">
       <h1><span aria-hidden="true">♮</span> Lyra</h1>
       <nav aria-label="Main navigation">
-        <button type="button" aria-current="page">Now playing</button>
-        {#each laterViews as view (view)}
+        <button
+          type="button"
+          aria-current={view === 'library' ? 'page' : undefined}
+          onclick={() => (view = 'library')}>Library</button
+        >
+        <button
+          type="button"
+          aria-current={view === 'files' ? 'page' : undefined}
+          onclick={() => (view = 'files')}>Files</button
+        >
+        {#each laterViews as later (later)}
           <button type="button" disabled title="Not available yet"
-            >{view}</button
+            >{later}</button
           >
         {/each}
       </nav>
-      <small>Local music. Clear intent.</small>
-    </aside>
-    <main>
-      <header>
-        <div>
-          <p class="eyebrow">DIRECT TO YOUR DAC</p>
-          <h2>A little room for listening.</h2>
-          <p class="muted">
-            Exact samples, exact rate, straight to the hardware.
-          </p>
-        </div>
-        <span class="badge">M1 · Preview</span>
-      </header>
-      <section class="backend" aria-label="Backend connection">
-        <div>
-          <h3>Desktop connection</h3>
-          <p
-            role="status"
-            data-testid="backend-status"
-            data-connected={connected}
-          >
-            {connection}
-          </p>
-        </div>
-        <button onclick={checkBackend} disabled={checking}
-          >{checking ? 'Checking…' : 'Check backend'}</button
-        >
-      </section>
-      {#if shownError}
-        <p class="alert" role="alert">{shownError}</p>
-      {/if}
-      <section aria-labelledby="device-title">
+      <section class="output" aria-labelledby="device-title">
         <div class="section-heading">
-          <h3 id="device-title">Output device</h3>
-          <button type="button" onclick={loadDevices}>Refresh</button>
+          <h3 id="device-title">Output</h3>
+          <button type="button" class="small" onclick={loadDevices}
+            >Refresh</button
+          >
         </div>
         <div class="device" data-testid="devices" data-loaded={devicesLoaded}>
           {#if devices.length > 0}
@@ -204,32 +189,57 @@
           {/if}
         </div>
       </section>
-      <section aria-labelledby="files-title">
-        <div class="section-heading">
-          <h3 id="files-title">Files</h3>
-          <span class="muted">{files.length} dropped</span>
-        </div>
-        {#if files.length > 0}
-          <ul class="files">
-            {#each files as file (file.path)}
-              <li>
-                <button
-                  type="button"
-                  aria-current={status.track?.fileName === file.name}
-                  disabled={selectedDevice === ''}
-                  onclick={() => {
-                    playFile(file);
-                  }}><span>{file.name}</span><small>{file.path}</small></button
-                >
-              </li>
-            {/each}
-          </ul>
-        {/if}
-        <p class="drop">
-          {dropNotice ??
-            'Drop FLAC, WAV, DSF or DFF files anywhere on this window, then choose one to play.'}
+      <section class="backend" aria-label="Backend connection">
+        <p
+          role="status"
+          data-testid="backend-status"
+          data-connected={connected}
+        >
+          {connection}
         </p>
+        <button
+          type="button"
+          class="small"
+          onclick={checkBackend}
+          disabled={checking}>{checking ? 'Checking…' : 'Check'}</button
+        >
       </section>
+    </aside>
+    <main>
+      {#if shownError}
+        <p class="alert" role="alert">{shownError}</p>
+      {/if}
+      {#if view === 'library'}
+        <Library {api} device={selectedDevice} onError={showError} />
+      {:else}
+        <section aria-labelledby="files-title">
+          <div class="section-heading">
+            <h3 id="files-title">Files</h3>
+            <span class="muted">{files.length} dropped</span>
+          </div>
+          {#if files.length > 0}
+            <ul class="files">
+              {#each files as file (file.path)}
+                <li>
+                  <button
+                    type="button"
+                    aria-current={status.track?.fileName === file.name}
+                    disabled={selectedDevice === ''}
+                    onclick={() => {
+                      playFile(file);
+                    }}
+                    ><span>{file.name}</span><small>{file.path}</small></button
+                  >
+                </li>
+              {/each}
+            </ul>
+          {/if}
+          <p class="drop">
+            {dropNotice ??
+              'Drop FLAC, WAV, DSF or DFF files anywhere on this window to play them, or a folder to add it to the library.'}
+          </p>
+        </section>
+      {/if}
     </main>
   </div>
   <PlayerBar
@@ -238,11 +248,11 @@
     {device}
     onToggle={toggle}
     onStop={() => {
-      void attempt(api.stop);
+      void command(api.stop);
     }}
     onSeek={(seconds: number) => {
       position = seconds;
-      void attempt(() => api.seek(seconds));
+      void command(() => api.seek(seconds));
     }}
   />
 </div>
@@ -258,19 +268,21 @@
     min-height: 0;
   }
   aside {
-    width: 215px;
+    width: 240px;
     flex-shrink: 0;
     background: #151c24;
-    padding: 28px 24px;
+    padding: 28px 20px;
     border-right: 1px solid #29323a;
     display: flex;
     flex-direction: column;
+    gap: 24px;
+    overflow-y: auto;
   }
   h1 {
     font-size: 25px;
     letter-spacing: 4px;
     text-transform: uppercase;
-    margin: 8px 0 48px;
+    margin: 8px 0 24px;
   }
   h1 span {
     color: #b4d9cb;
@@ -287,16 +299,14 @@
     text-align: left;
   }
   nav button:disabled {
-    opacity: 1;
+    opacity: 0.55;
   }
   nav [aria-current='page'] {
     color: #d9eee4;
     background: #263831;
   }
-  aside > small {
+  .output {
     margin-top: auto;
-    padding-top: 32px;
-    color: #a2adb7;
   }
   main {
     flex: 1;
@@ -305,39 +315,16 @@
     max-width: 1400px;
     overflow-y: auto;
   }
-  header,
   .section-heading,
   .backend {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 20px;
-  }
-  .eyebrow {
-    color: #b4d9cb;
-    font-size: 11px;
-    letter-spacing: 2.5px;
-  }
-  h2 {
-    font-weight: 500;
-    font-size: clamp(24px, 3vw, 36px);
-    margin: 16px 0;
-    letter-spacing: -1px;
+    gap: 12px;
   }
   .muted {
     color: #a2adb7;
     font-size: 13px;
-  }
-  .badge {
-    color: #b4d9cb;
-    border: 1px solid #38534a;
-    padding: 7px 10px;
-    border-radius: 6px;
-    white-space: nowrap;
-    font-size: 12px;
-  }
-  section {
-    margin-top: 32px;
   }
   h3 {
     font-size: 16px;
@@ -345,11 +332,24 @@
     margin: 0;
   }
   .section-heading {
+    margin-bottom: 12px;
+  }
+  main .section-heading {
     margin-bottom: 20px;
   }
+  .small {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
   .backend {
-    border-block: 1px solid #29343d;
-    padding-block: 16px;
+    border-top: 1px solid #29343d;
+    padding-top: 16px;
+  }
+  .backend p {
+    font-size: 11px;
+    color: #b4d9cb;
+    line-height: 1.5;
+    margin: 0;
   }
   .files {
     list-style: none;
@@ -386,19 +386,22 @@
     font-size: 13px;
   }
   .device {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    flex-wrap: wrap;
+    display: grid;
+    gap: 6px;
+  }
+  .device small {
+    font-size: 11px;
+    overflow-wrap: anywhere;
   }
   select {
     font: inherit;
+    font-size: 13px;
     color: inherit;
     background: #182129;
     border: 1px solid #577369;
     border-radius: 8px;
-    padding: 10px 12px;
-    min-width: min(100%, 420px);
+    padding: 8px 10px;
+    width: 100%;
   }
   .alert {
     border: 1px solid #8a5a3c;
@@ -408,34 +411,20 @@
     padding: 12px 16px;
     font-size: 13px;
     line-height: 1.5;
-  }
-  .backend p {
-    font-size: 12px;
-    color: #b4d9cb;
-    line-height: 1.5;
-    margin-bottom: 0;
+    margin-top: 0;
   }
   @media (max-width: 950px) {
     main {
       padding: 30px 25px;
     }
     aside {
-      width: 170px;
+      width: 200px;
       padding: 25px 15px;
     }
   }
   @media (max-width: 650px) {
     aside {
       display: none;
-    }
-    header {
-      align-items: flex-start;
-    }
-    .badge {
-      display: none;
-    }
-    .backend {
-      align-items: flex-start;
     }
   }
 </style>

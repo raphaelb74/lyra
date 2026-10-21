@@ -20,8 +20,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-src 'none'",
-      "devCsp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:1420; img-src 'self' data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-src 'none'"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data: lyra-art:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-src 'none'",
+      "devCsp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:1420; img-src 'self' data: lyra-art:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-src 'none'"
     }
   },
   "bundle": {
@@ -29,7 +29,7 @@
     "targets": ["deb"],
     "category": "Music",
     "shortDescription": "Lyra local music player",
-    "longDescription": "Linux-first bit-perfect music player. Plays FLAC and WAV directly to an ALSA hardware device at the exact source format and rate.",
+    "longDescription": "Linux-first bit-perfect music player. Plays FLAC, WAV, DSF and DFF directly to an ALSA hardware device at the exact source format and rate, with native DSD or DoP.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -51,10 +51,13 @@ Done 2026-10-20: fixtures and engine tests verify every DSD bit through DoP; res
 
 ## M4 — Library and polished UI
 
-- [ ] SQLite migrations, folder scanner, metadata/artwork cache.
-- [ ] Album/artist/track browser, queue, playlist editing, Now Playing.
-- [ ] Settings, diagnostics, dark design system, accessibility and keyboard shortcuts.
-- [ ] Incremental scan and error states.
+Three PRs: **M4a** library and album browser, **M4b** queue, playlists and Now Playing, **M4c** settings (including DSD→PCM conversion), diagnostics, design system and accessibility.
+
+- [x] SQLite migrations, folder scanner, metadata/artwork cache (M4a: `crates/library`; bundled SQLite, Symphonia tags for FLAC/WAV, `id3` for DSF/DFF; folders added by drop or a folder picker opened from Rust).
+- [ ] DSD→PCM conversion as the last resort, with its Settings switch (M4c): native DSD, then DoP, then a low-pass/decimating conversion to 24-bit PCM at the highest 44.1 kHz-family rate the device takes, level-matched. Always labelled "not bit-perfect"; runs on the controller thread, never the writer. Settings: "DSD on devices without DSD support: Convert to PCM / Refuse" and "DSD transport: Auto / Native / DoP". Updates the spec non-goal to "no *silent* DSD→PCM conversion". Tests: synthetic DSD tone keeps frequency and level, no clipping.
+- [ ] Album/artist/track browser, queue, playlist editing, Now Playing. (M4a: album grid and album tracks; the rest in M4b.)
+- [ ] Settings, diagnostics, dark design system, accessibility and keyboard shortcuts (M4c).
+- [x] Incremental scan and error states (M4a: size + mtime; unreadable files counted and reported; cancel keeps unreached files).
 
 **Done when:** 10k-track scan remains responsive during playback.
 

@@ -39,6 +39,17 @@ fn u64_at(bytes: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(field)
 }
 
+/// The ID3v2 tag position from the `DSD ` chunk's metadata pointer.
+pub(crate) fn tag_offset(source: &mut dyn Source) -> Result<Option<u64>, DsdError> {
+    source.seek(SeekFrom::Start(0)).map_err(DsdError::Io)?;
+    let header: [u8; 28] = read_array(source)?;
+    if &header[..4] != b"DSD " {
+        return Err(malformed("bad DSD chunk"));
+    }
+    let pointer = u64_at(&header, 20);
+    Ok((pointer != 0).then_some(pointer))
+}
+
 fn malformed(what: &str) -> DsdError {
     DsdError::Malformed(what.into())
 }

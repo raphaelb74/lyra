@@ -143,6 +143,22 @@ impl DsdReader {
     }
 }
 
+/// Where the file's ID3v2 tag starts, if it has one: the DSF metadata
+/// pointer, or a DFF `ID3 ` chunk. Only the position: the caller checks the
+/// tag itself.
+pub fn tag_offset(source: &mut dyn Source) -> Result<Option<u64>, DsdError> {
+    let mut magic = [0; 4];
+    source.seek(SeekFrom::Start(0)).map_err(DsdError::Io)?;
+    source
+        .read_exact(&mut magic)
+        .map_err(|_| DsdError::NotDsd)?;
+    match &magic {
+        b"DSD " => dsf::tag_offset(source),
+        b"FRM8" => dff::tag_offset(source),
+        _ => Err(DsdError::NotDsd),
+    }
+}
+
 /// Checks a DSD rate: a power-of-two multiple of DSD64, up to DSD512.
 fn valid_rate(rate: u32) -> bool {
     [1, 2, 4, 8]

@@ -30,7 +30,9 @@ npm run tauri dev     # native window with Rust backend
 npm run dev           # browser-only preview; reports that Rust is unavailable
 ```
 
-To play: choose the output device, drop FLAC, WAV, DSF or DFF files onto the window, and click one. DSD plays as native DSD when the DAC exposes it, otherwise as DoP. Lyra plays only files that were dropped. Click **Refresh** after plugging in a DAC (no hotplug detection yet).
+To play: choose the output device in the sidebar, then either add a music folder (**Add folder…**, or drop a folder onto the window) and pick an album, or drop FLAC, WAV, DSF or DFF files onto the window. DSD plays as native DSD when the DAC exposes it, otherwise as DoP.
+
+The library lives in `~/.local/share/audio.lyra.player/library.db` (SQLite) and its artwork cache in `~/.cache/audio.lyra.player/artwork/` (at most 512 MB). Lyra only reads music folders; deleting both paths resets the library. Lyra plays only files that were dropped. Click **Refresh** after plugging in a DAC (no hotplug detection yet).
 
 Release build (fat LTO, the slowest and most memory-hungry build):
 
@@ -107,6 +109,8 @@ cargo run -p audio-alsa --example play -- hw:CARD=ONE,DEV=0 track.dsf native
                                                            # DSD transport: auto (default), native or dop
 cargo run --release -p format-pcm --example verify -- *.flac   # full decode, FLAC MD5 check
 cargo run --release -p format-dsd --example inspect -- *.dsf   # full DSD read, frame count, hash
+cargo run --release -p library --example scan -- /tmp/lib.db /tmp/art ~/Music
+                                                           # scan into a throwaway library, with timing
 ```
 
 **DAC held by PipeWire.** If Lyra reports `in use by pipewire`, switch the card's PipeWire profile off while testing and back on afterwards (`pactl list cards short` lists card names):

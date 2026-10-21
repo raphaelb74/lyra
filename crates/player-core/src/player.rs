@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use crate::sink::{AudioSink, DsdTransport, Encoding, HardwareVolume, OutputFormat};
 use crate::source::Source;
-use crate::status::{ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus};
+use crate::status::{ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus, format_db};
 use crate::writer::{Chunk, ToWriter, Writer, WriterEvent};
 
 /// Decoded blocks in flight. A FLAC block is up to 4096 frames, so this is
@@ -502,21 +502,29 @@ impl Controller {
     }
 }
 
-/// DoP only reaches a DAC whose volume is known to be untouched. Attenuated
-/// DoP breaks the markers, and a device that does not decode DoP plays it as
-/// loud noise; a USB DAC at 0 dB (or without volume control) is the safe case.
+/// DoP only reaches a DAC whose volume is known to be untouched. DoP is DSD
+/// dressed as PCM: a device that does not decode it (built-in audio, most
+/// non-USB outputs) plays it as loud noise, and attenuation breaks the
+/// markers. A USB DAC at 0 dB (or without volume control) is the safe case.
 ///
 /// Native DSD has no such risk: the device was opened in a DSD format.
 fn dop_allowed(encoding: Encoding, volume: HardwareVolume) -> Result<(), PlayerError> {
-    match (encoding, volume) {
-        (Encoding::Dop(_), HardwareVolume::Attenuated { .. } | HardwareVolume::Unknown) => {
-            Err(PlayerError {
-            kind: ErrorKind::Unsupported,
-                message:
-                    "DSD over DoP needs a USB DAC with its volume at 0 dB; this device's volume is not."
-                        .into(),
-            })
+    let message = match (encoding, volume) {
+        (Encoding::Dop(_), HardwareVolume::Unknown) => {
+            "DSD over DoP is only sent to a USB DAC whose volume Lyra can check. \
+             This device is not one: if it does not decode DoP (built-in audio cannot), \
+             it would play loud noise. Lyra does not convert DSD to PCM."
+                .to_owned()
         }
-        _ => Ok(()),
-    }
+        (Encoding::Dop(_), HardwareVolume::Attenuated { centibels }) => format!(
+            "DSD over DoP needs the DAC's volume at 0 dB; it is at {} dB. \
+             Raise it to maximum (for example in alsamixer) and play again.",
+            format_db(centibels)
+        ),
+        _ => return Ok(()),
+    };
+    Err(PlayerError {
+        kind: ErrorKind::Unsupported,
+        message,
+    })
 }
