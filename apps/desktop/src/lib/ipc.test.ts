@@ -156,4 +156,35 @@ describe('playback commands', () => {
       backend(() => Promise.resolve([{ ...album, id: '1' }]), true).albums(),
     ).rejects.toMatchObject({ code: 'invalid_response' });
   });
+
+  it('validates playlist entries down to their track', async () => {
+    const track = {
+      id: 3,
+      title: 'Watch That Man',
+      artist: 'David Bowie',
+      album: 'Aladdin Sane',
+      albumId: 1,
+      disc: null,
+      track: 1,
+      durationSeconds: 269.5,
+      codec: 'dsf',
+      sampleRate: 2822400,
+      dsdMultiple: 64,
+      bitsPerSample: 1,
+      channels: 2,
+    };
+
+    const entries = [{ entryId: 9, track }];
+
+    await expect(
+      backend(() => Promise.resolve(entries), true).playlistEntries(1),
+    ).resolves.toEqual(entries);
+
+    await expect(
+      backend(
+        () => Promise.resolve([{ entryId: 9, track: { ...track, album: 1 } }]),
+        true,
+      ).playlistEntries(1),
+    ).rejects.toMatchObject({ code: 'invalid_response' });
+  });
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AddToPlaylist from './AddToPlaylist.svelte';
   import { clock, formatBadge } from './format';
   import { attempt, type Album, type Backend, type LibraryTrack } from './ipc';
 
@@ -61,6 +62,22 @@
         {album.trackCount}
         {album.trackCount === 1 ? 'track' : 'tracks'} · {formatBadge(album)}
       </p>
+      <div class="actions">
+        <button
+          type="button"
+          disabled={tracks.length === 0 || device === ''}
+          onclick={() => {
+            play(0);
+          }}>Play album</button
+        >
+        <AddToPlaylist
+          {api}
+          trackIds={tracks.map((t) => t.id)}
+          label={`Add ${album.title} to a playlist`}
+          text="Add to playlist"
+          {onError}
+        />
+      </div>
     </div>
   </header>
   {#if loaded && tracks.length === 0}
@@ -92,6 +109,12 @@
               : clock(track.durationSeconds)}</span
           >
         </button>
+        <AddToPlaylist
+          {api}
+          trackIds={[track.id]}
+          label={`Add ${track.title} to a playlist`}
+          {onError}
+        />
       </li>
     {/each}
   </ol>
@@ -137,6 +160,17 @@
     color: #a2adb7;
     font-size: 13px;
   }
+  .actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 12px;
+  }
+  ol li {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
   ol {
     list-style: none;
     padding: 0;
@@ -145,6 +179,8 @@
     gap: 2px;
   }
   ol button {
+    flex: 1;
+    min-width: 0;
     width: 100%;
     display: grid;
     grid-template-columns: 3em minmax(0, 1fr) auto 4em;

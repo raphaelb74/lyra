@@ -98,12 +98,36 @@ export interface LibraryTrack extends SourceFormat {
   id: number;
   title: string;
   artist: string;
+  album: string;
+  albumId: number;
   disc: number | null;
   track: number | null;
   durationSeconds: number | null;
   /** 1 for DSD. */
   bitsPerSample: number;
   channels: number;
+}
+
+/** Mirrors Rust's `ArtistInfo`: an album artist. */
+export interface Artist {
+  id: number;
+  name: string;
+  albumCount: number;
+  trackCount: number;
+}
+
+/** Mirrors Rust's `PlaylistInfo`. */
+export interface Playlist {
+  id: number;
+  name: string;
+  trackCount: number;
+  durationSeconds: number;
+}
+
+/** Mirrors Rust's `PlaylistEntry`; a track may appear twice. */
+export interface PlaylistEntry {
+  entryId: number;
+  track: LibraryTrack;
 }
 
 export interface ScanReport {
@@ -328,6 +352,8 @@ function isLibraryTrack(value: JsonValue): value is JsonValue & LibraryTrack {
     isNumber(value.id) &&
     isText(value.title) &&
     isText(value.artist) &&
+    isText(value.album) &&
+    isNumber(value.albumId) &&
     isNullableNumber(value.disc) &&
     isNullableNumber(value.track) &&
     isNullableNumber(value.durationSeconds) &&
@@ -340,6 +366,49 @@ function isLibraryTrackList(
   value: JsonValue,
 ): value is JsonValue & LibraryTrack[] {
   return Array.isArray(value) && value.every(isLibraryTrack);
+}
+
+function isArtist(value: JsonValue): value is JsonValue & Artist {
+  return (
+    isRecord(value) &&
+    isNumber(value.id) &&
+    isText(value.name) &&
+    isNumber(value.albumCount) &&
+    isNumber(value.trackCount)
+  );
+}
+
+function isArtistList(value: JsonValue): value is JsonValue & Artist[] {
+  return Array.isArray(value) && value.every(isArtist);
+}
+
+function isPlaylist(value: JsonValue): value is JsonValue & Playlist {
+  return (
+    isRecord(value) &&
+    isNumber(value.id) &&
+    isText(value.name) &&
+    isNumber(value.trackCount) &&
+    isNumber(value.durationSeconds)
+  );
+}
+
+function isPlaylistList(value: JsonValue): value is JsonValue & Playlist[] {
+  return Array.isArray(value) && value.every(isPlaylist);
+}
+
+function isPlaylistEntry(value: JsonValue): value is JsonValue & PlaylistEntry {
+  return (
+    isRecord(value) &&
+    isNumber(value.entryId) &&
+    value.track !== undefined &&
+    isLibraryTrack(value.track)
+  );
+}
+
+function isPlaylistEntries(
+  value: JsonValue,
+): value is JsonValue & PlaylistEntry[] {
+  return Array.isArray(value) && value.every(isPlaylistEntry);
 }
 
 function isScanReport(value: Field): value is JsonValue & ScanReport {
@@ -539,6 +608,24 @@ export function backend(
     albums: () => run('list_albums', isAlbumList),
     albumTracks: (albumId: number) =>
       run('album_tracks', isLibraryTrackList, { albumId }),
+    artists: () => run('list_artists', isArtistList),
+    artistAlbums: (artistId: number) =>
+      run('artist_albums', isAlbumList, { artistId }),
+    tracks: () => run('list_tracks', isLibraryTrackList),
+    playlists: () => run('list_playlists', isPlaylistList),
+    createPlaylist: (name: string) =>
+      run('create_playlist', isNumber, { name }),
+    renamePlaylist: (id: number, name: string) =>
+      run('rename_playlist', isNothing, { id, name }),
+    deletePlaylist: (id: number) => run('delete_playlist', isNothing, { id }),
+    playlistEntries: (id: number) =>
+      run('playlist_entries', isPlaylistEntries, { id }),
+    addToPlaylist: (id: number, trackIds: number[]) =>
+      run('add_to_playlist', isNothing, { id, trackIds }),
+    removeFromPlaylist: (entryId: number) =>
+      run('remove_from_playlist', isNothing, { entryId }),
+    moveInPlaylist: (entryId: number, to: number) =>
+      run('move_in_playlist', isNothing, { entryId, to }),
   };
 }
 

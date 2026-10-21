@@ -6,12 +6,14 @@
 
 mod art;
 mod db;
+mod playlists;
 mod scan;
 mod scanner;
 mod tags;
 
 pub use art::{MAX_CACHE_BYTES, delete_art, is_art_name};
-pub use db::{Album, Folder, Library, LibraryError, Track, UNKNOWN_ARTIST};
+pub use db::{Album, Artist, Folder, Library, LibraryError, Track, UNKNOWN_ARTIST};
+pub use playlists::{Entry, Playlist};
 pub use scan::{ScanProgress, ScanSummary, is_audio_file, scan};
 pub use scanner::{ScanEvent, Scanner};
 pub use tags::{Picture, Scanned, read as read_tags};

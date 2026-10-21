@@ -27,6 +27,17 @@
     "allow-rescan",
     "allow-get-scan-status",
     "allow-list-albums",
-    "allow-album-tracks"
+    "allow-album-tracks",
+    "allow-list-artists",
+    "allow-artist-albums",
+    "allow-list-tracks",
+    "allow-list-playlists",
+    "allow-create-playlist",
+    "allow-rename-playlist",
+    "allow-delete-playlist",
+    "allow-playlist-entries",
+    "allow-add-to-playlist",
+    "allow-remove-from-playlist",
+    "allow-move-in-playlist"
   ]
 }

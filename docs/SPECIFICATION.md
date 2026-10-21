@@ -10,7 +10,7 @@
 
 Build a local-first, lightweight, attractive graphical music player with deterministic audio output. Support bit-perfect PCM and DSD to a compatible USB DAC, without implicit DSP, resampling, software gain, or browser audio processing.
 
-**Non-goals for v1:** streaming services, UPnP, multi-room, DSP/upsampling, remote access, Windows/macOS, network library, automatic DSD-to-PCM conversion, SACD ISO extraction, MQA decoding, audio recording.
+**Non-goals for v1:** streaming services, UPnP, multi-room, DSP/upsampling, remote access, network library, automatic DSD-to-PCM conversion, SACD ISO extraction, MQA decoding, audio recording. Windows and macOS follow v1 as their own milestone (plan M6); v1 is Linux.
 
 ## 2. Core user stories
 

@@ -62,6 +62,23 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX tracks_album ON tracks (album_id);
     CREATE INDEX tracks_folder ON tracks (folder_id);
     ",
+    // 2: playlists. Items follow their track: a track that leaves the
+    // library leaves its playlists too.
+    "
+    CREATE TABLE playlists (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+    );
+    CREATE TABLE playlist_items (
+        id INTEGER PRIMARY KEY,
+        playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE
+    );
+    CREATE INDEX playlist_items_order ON playlist_items (playlist_id, position);
+    CREATE INDEX playlist_items_track ON playlist_items (track_id);
+    ",
 ];
 
 /// Shown when a file has no artist tag.
@@ -77,6 +94,8 @@ pub enum LibraryError {
         by: PathBuf,
     },
     NotADirectory(PathBuf),
+    /// A request the user can fix (empty name, unknown playlist, …).
+    Invalid(String),
 }
 
 impl fmt::Display for LibraryError {
@@ -91,6 +110,7 @@ impl fmt::Display for LibraryError {
                 by.display()
             ),
             Self::NotADirectory(path) => write!(f, "{} is not a folder", path.display()),
+            Self::Invalid(reason) => f.write_str(reason),
         }
     }
 }
@@ -138,6 +158,15 @@ pub struct Album {
     pub best_codec: String,
 }
 
+/// An album artist.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Artist {
+    pub id: i64,
+    pub name: String,
+    pub albums: u32,
+    pub tracks: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Track {
     pub id: i64,
@@ -145,6 +174,7 @@ pub struct Track {
     pub title: String,
     pub artist: String,
     pub album_id: i64,
+    pub album: String,
     pub disc: Option<u32>,
     pub track: Option<u32>,
     pub duration_ms: Option<u64>,
@@ -318,6 +348,47 @@ impl Library {
             .optional()?)
     }
 
+    /// Album artists with their album and track counts, by name.
+    pub fn artists(&self) -> Result<Vec<Artist>, LibraryError> {
+        let mut statement = self.conn.prepare(
+            "SELECT artists.id, artists.name, COUNT(DISTINCT albums.id), COUNT(tracks.id)
+             FROM artists
+             JOIN albums ON albums.artist_id = artists.id
+             JOIN tracks ON tracks.album_id = albums.id
+             GROUP BY artists.id
+             ORDER BY artists.name",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(Artist {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                albums: row.get(2)?,
+                tracks: row.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Albums whose album artist is `artist_id`, by year.
+    pub fn artist_albums(&self, artist_id: i64) -> Result<Vec<Album>, LibraryError> {
+        let mut statement = self.conn.prepare(&format!(
+            "{ALBUM_COLUMNS} WHERE albums.artist_id = ?1 GROUP BY albums.id
+             ORDER BY albums.year, albums.title"
+        ))?;
+        let rows = statement.query_map([artist_id], album_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Every track, by artist, album and position.
+    pub fn tracks(&self) -> Result<Vec<Track>, LibraryError> {
+        let mut statement = self.conn.prepare(&format!(
+            "{TRACK_COLUMNS} ORDER BY artists.name, albums.title, tracks.disc, tracks.track,
+             tracks.title"
+        ))?;
+        let rows = statement.query_map([], track_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// Artwork file name of an album, if it has one.
     pub fn album_art(&self, album_id: i64) -> Result<Option<String>, LibraryError> {
         Ok(self
@@ -351,27 +422,48 @@ fn album_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
     })
 }
 
-const TRACK_COLUMNS: &str = "SELECT tracks.id, tracks.path, tracks.title, artists.name,
-        tracks.album_id, tracks.disc, tracks.track, tracks.duration_ms, tracks.codec,
-        tracks.sample_rate, tracks.bits_per_sample, tracks.channels
-    FROM tracks JOIN artists ON artists.id = tracks.artist_id";
+/// The columns [`track_row`] reads, in order.
+macro_rules! track_columns {
+    () => {
+        "tracks.id, tracks.path, tracks.title, artists.name, tracks.album_id, albums.title,
+         tracks.disc, tracks.track, tracks.duration_ms, tracks.codec, tracks.sample_rate,
+         tracks.bits_per_sample, tracks.channels"
+    };
+}
 
-fn track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
+/// The tables those columns come from.
+macro_rules! track_tables {
+    () => {
+        "tracks
+         JOIN artists ON artists.id = tracks.artist_id
+         JOIN albums ON albums.id = tracks.album_id"
+    };
+}
+
+pub(crate) use {track_columns, track_tables};
+
+/// Columns read by [`track_row`]; extra columns of a query start here.
+pub(crate) const TRACK_FIELDS: usize = 13;
+
+const TRACK_COLUMNS: &str = concat!("SELECT ", track_columns!(), " FROM ", track_tables!());
+
+pub(crate) fn track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
     Ok(Track {
         id: row.get(0)?,
         path: path_from(&row.get::<_, Vec<u8>>(1)?),
         title: row.get(2)?,
         artist: row.get(3)?,
         album_id: row.get(4)?,
-        disc: row.get(5)?,
-        track: row.get(6)?,
+        album: row.get(5)?,
+        disc: row.get(6)?,
+        track: row.get(7)?,
         duration_ms: row
-            .get::<_, Option<i64>>(7)?
+            .get::<_, Option<i64>>(8)?
             .and_then(|ms| u64::try_from(ms).ok()),
-        codec: row.get(8)?,
-        sample_rate: row.get(9)?,
-        bits_per_sample: row.get(10)?,
-        channels: row.get(11)?,
+        codec: row.get(9)?,
+        sample_rate: row.get(10)?,
+        bits_per_sample: row.get(11)?,
+        channels: row.get(12)?,
     })
 }
 

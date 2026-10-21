@@ -16,15 +16,17 @@
   import Library from './lib/Library.svelte';
   import NowPlaying from './lib/NowPlaying.svelte';
   import PlayerBar from './lib/PlayerBar.svelte';
+  import Playlists from './lib/Playlists.svelte';
   import QueueView from './lib/QueueView.svelte';
 
   const api = backend();
-  const laterViews = ['Artists', 'Playlists', 'Settings'];
+  const laterViews = ['Settings'];
 
-  type View = 'library' | 'now' | 'queue' | 'files';
+  type View = 'library' | 'playlists' | 'now' | 'queue' | 'files';
 
   const views: readonly { id: View; label: string }[] = [
     { id: 'library', label: 'Library' },
+    { id: 'playlists', label: 'Playlists' },
     { id: 'now', label: 'Now playing' },
     { id: 'queue', label: 'Queue' },
     { id: 'files', label: 'Files' },
@@ -236,6 +238,13 @@
       {/if}
       {#if view === 'library'}
         <Library
+          {api}
+          device={selectedDevice}
+          playingId={libraryId}
+          onError={showError}
+        />
+      {:else if view === 'playlists'}
+        <Playlists
           {api}
           device={selectedDevice}
           playingId={libraryId}

@@ -313,3 +313,102 @@ fn the_scanner_runs_in_the_background_and_reports() {
     // The UI's own connection sees the result.
     assert_eq!(Library::open(&db).unwrap().albums().unwrap().len(), 2);
 }
+
+#[test]
+fn artists_and_all_tracks() {
+    let dir = temp_dir("artists_and_all_tracks");
+    let root = dir.join("music");
+    music(&root);
+    let mut library = Library::open(&dir.join("library.db")).unwrap();
+    library.add_folder(&root).unwrap();
+    run_scan(&mut library, &dir.join("art"));
+
+    let artists = library.artists().unwrap();
+    let names: Vec<_> = artists
+        .iter()
+        .map(|artist| (artist.name.as_str(), artist.albums, artist.tracks))
+        .collect();
+    assert_eq!(names, [("David Bowie", 1, 2), ("Unknown Artist", 1, 2)]);
+    let albums = library.artist_albums(artists[0].id).unwrap();
+    assert_eq!(albums.len(), 1);
+    assert_eq!(albums[0].title, "Aladdin Sane");
+
+    let tracks = library.tracks().unwrap();
+    assert_eq!(tracks.len(), 4);
+    assert_eq!(
+        (tracks[0].title.as_str(), tracks[0].album.as_str()),
+        ("Watch That Man", "Aladdin Sane")
+    );
+}
+
+#[test]
+fn playlists_keep_order_through_edits_and_rescans() {
+    let dir = temp_dir("playlists_keep_order_through_edits_and_rescans");
+    let root = dir.join("music");
+    music(&root);
+    let art = dir.join("art");
+    let mut library = Library::open(&dir.join("library.db")).unwrap();
+    library.add_folder(&root).unwrap();
+    run_scan(&mut library, &art);
+    let ids: Vec<i64> = library.tracks().unwrap().iter().map(|t| t.id).collect();
+    let titles = |library: &Library, playlist| -> Vec<String> {
+        library
+            .playlist_entries(playlist)
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.track.title)
+            .collect()
+    };
+
+    let mix = library.create_playlist("  Late night  ").unwrap();
+    library
+        .add_to_playlist(mix, &[ids[0], ids[1], ids[2]])
+        .unwrap();
+    library.add_to_playlist(mix, &[ids[0]]).unwrap(); // the same track twice
+    assert_eq!(
+        titles(&library, mix),
+        ["Watch That Man", "Aladdin Sane", "a", "Watch That Man"]
+    );
+
+    let entries = library.playlist_entries(mix).unwrap();
+    library.move_in_playlist(entries[2].id, 0).unwrap();
+    library.remove_from_playlist(entries[3].id).unwrap();
+    assert_eq!(
+        titles(&library, mix),
+        ["a", "Watch That Man", "Aladdin Sane"]
+    );
+    library.move_in_playlist(entries[2].id, 99).unwrap(); // clamped to the end
+    assert_eq!(
+        titles(&library, mix),
+        ["Watch That Man", "Aladdin Sane", "a"]
+    );
+
+    library.rename_playlist(mix, "Night").unwrap();
+    let listed = library.playlists().unwrap();
+    assert_eq!((listed[0].name.as_str(), listed[0].tracks), ("Night", 3));
+
+    // A deleted file leaves the playlist; the order of the rest holds.
+    fs::remove_file(root.join("Bowie/02.dff")).unwrap();
+    run_scan(&mut library, &art);
+    assert_eq!(titles(&library, mix), ["Watch That Man", "a"]);
+    library.add_to_playlist(mix, &[ids[3]]).unwrap();
+    assert_eq!(titles(&library, mix), ["Watch That Man", "a", "b"]);
+
+    // User mistakes are explained, not panicked on.
+    assert!(matches!(
+        library.create_playlist("   "),
+        Err(LibraryError::Invalid(_))
+    ));
+    assert!(matches!(
+        library.add_to_playlist(mix, &[-5]),
+        Err(LibraryError::Invalid(_))
+    ));
+    assert!(matches!(
+        library.rename_playlist(-1, "x"),
+        Err(LibraryError::Invalid(_))
+    ));
+
+    library.delete_playlist(mix).unwrap();
+    assert_eq!(library.playlists().unwrap(), []);
+    assert_eq!(library.tracks().unwrap().len(), 3, "tracks stay");
+}
