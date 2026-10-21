@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Local Lyra window: playback commands and their events; no filesystem, shell, or remote capabilities",
+  "description": "Local Lyra window: playback and library commands and their events; no filesystem, dialog, shell, or remote capabilities (the folder picker opens from Rust)",
   "windows": ["main"],
   "permissions": [
     "core:event:allow-listen",
@@ -14,6 +14,14 @@
     "allow-stop",
     "allow-seek",
     "allow-get-status",
-    "allow-get-position"
+    "allow-get-position",
+    "allow-play-track",
+    "allow-list-folders",
+    "allow-pick-folder",
+    "allow-remove-folder",
+    "allow-rescan",
+    "allow-get-scan-status",
+    "allow-list-albums",
+    "allow-album-tracks"
   ]
 }

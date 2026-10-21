@@ -23,9 +23,11 @@ tauri-build = { workspace = true }
 audio-alsa = { workspace = true }
 format-dsd = { workspace = true }
 format-pcm = { workspace = true }
+library = { workspace = true }
 player-core = { workspace = true }
 serde = { workspace = true }
 tauri = { workspace = true }
+tauri-plugin-dialog = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

@@ -64,6 +64,60 @@ export interface Track {
   bitPerfect: Verdict | null;
 }
 
+/** Mirrors Rust's `FolderInfo`: a folder the library scans. */
+export interface Folder {
+  id: number;
+  path: string;
+}
+
+/** Source format shared by albums and tracks. */
+export interface SourceFormat {
+  codec: string;
+  /** PCM sample rate, or DSD bit rate per channel. */
+  sampleRate: number;
+  dsdMultiple: number | null;
+}
+
+/** Mirrors Rust's `AlbumInfo`; the format is the best among its tracks. */
+export interface Album extends SourceFormat {
+  id: number;
+  title: string;
+  artist: string;
+  year: number | null;
+  /** `lyra-art://` URL of the cover, or null. */
+  art: string | null;
+  trackCount: number;
+}
+
+/** Mirrors Rust's `LibraryTrack`. */
+export interface LibraryTrack extends SourceFormat {
+  id: number;
+  title: string;
+  artist: string;
+  disc: number | null;
+  track: number | null;
+  durationSeconds: number | null;
+  /** 1 for DSD. */
+  bitsPerSample: number;
+  channels: number;
+}
+
+export interface ScanReport {
+  added: number;
+  updated: number;
+  removed: number;
+  failed: number;
+}
+
+/** Mirrors Rust's `ScanStatus`. */
+export interface ScanStatus {
+  running: boolean;
+  done: number;
+  total: number;
+  last: ScanReport | null;
+  error: string | null;
+}
+
 /** Mirrors Rust's `Status`. */
 export interface PlayerStatus {
   state: PlaybackState;
@@ -209,6 +263,81 @@ function isTrack(value: Field): value is JsonValue & Track {
   );
 }
 
+function isFolder(value: JsonValue): value is JsonValue & Folder {
+  return isRecord(value) && isNumber(value.id) && isText(value.path);
+}
+
+function isFolderList(value: JsonValue): value is JsonValue & Folder[] {
+  return Array.isArray(value) && value.every(isFolder);
+}
+
+function isSourceFormat(value: Readonly<Record<string, JsonValue>>): boolean {
+  return (
+    isText(value.codec) &&
+    isNumber(value.sampleRate) &&
+    isNullableNumber(value.dsdMultiple)
+  );
+}
+
+function isAlbum(value: JsonValue): value is JsonValue & Album {
+  return (
+    isRecord(value) &&
+    isSourceFormat(value) &&
+    isNumber(value.id) &&
+    isText(value.title) &&
+    isText(value.artist) &&
+    isNullableNumber(value.year) &&
+    isNullableText(value.art) &&
+    isNumber(value.trackCount)
+  );
+}
+
+function isAlbumList(value: JsonValue): value is JsonValue & Album[] {
+  return Array.isArray(value) && value.every(isAlbum);
+}
+
+function isLibraryTrack(value: JsonValue): value is JsonValue & LibraryTrack {
+  return (
+    isRecord(value) &&
+    isSourceFormat(value) &&
+    isNumber(value.id) &&
+    isText(value.title) &&
+    isText(value.artist) &&
+    isNullableNumber(value.disc) &&
+    isNullableNumber(value.track) &&
+    isNullableNumber(value.durationSeconds) &&
+    isNumber(value.bitsPerSample) &&
+    isNumber(value.channels)
+  );
+}
+
+function isLibraryTrackList(
+  value: JsonValue,
+): value is JsonValue & LibraryTrack[] {
+  return Array.isArray(value) && value.every(isLibraryTrack);
+}
+
+function isScanReport(value: Field): value is JsonValue & ScanReport {
+  return (
+    isRecord(value) &&
+    isNumber(value.added) &&
+    isNumber(value.updated) &&
+    isNumber(value.removed) &&
+    isNumber(value.failed)
+  );
+}
+
+function isScanStatus(value: JsonValue): value is JsonValue & ScanStatus {
+  return (
+    isRecord(value) &&
+    isFlag(value.running) &&
+    isNumber(value.done) &&
+    isNumber(value.total) &&
+    (value.last === null || isScanReport(value.last)) &&
+    isNullableText(value.error)
+  );
+}
+
 function isIpcError(
   value: unknown,
 ): value is { code: string; message: string } {
@@ -304,6 +433,22 @@ async function call<T>(
   return response;
 }
 
+const UNEXPECTED = 'Unexpected error while contacting Rust.';
+
+/** Runs a backend call; reports a readable message instead of throwing. */
+export async function attempt<T>(
+  action: () => Promise<T>,
+  report: (message: string) => void,
+): Promise<T | undefined> {
+  try {
+    return await action();
+  } catch (error) {
+    report(error instanceof BackendError ? error.message : UNEXPECTED);
+
+    return undefined;
+  }
+}
+
 /** Commands bound to one transport; tests pass a fake runner. */
 export function backend(
   runCommand: RunCommand = invoke,
@@ -323,6 +468,16 @@ export function backend(
     seek: (seconds: number) => run('seek', isNothing, { seconds }),
     status: () => run('get_status', isStatus),
     position: () => run('get_position', isNumber),
+    playTrack: (trackId: number, device: string) =>
+      run('play_track', isNothing, { trackId, device }),
+    folders: () => run('list_folders', isFolderList),
+    pickFolder: () => run('pick_folder', isNothing),
+    removeFolder: (id: number) => run('remove_folder', isNothing, { id }),
+    rescan: () => run('rescan', isNothing),
+    scanStatus: () => run('get_scan_status', isScanStatus),
+    albums: () => run('list_albums', isAlbumList),
+    albumTracks: (albumId: number) =>
+      run('album_tracks', isLibraryTrackList, { albumId }),
   };
 }
 
@@ -345,5 +500,30 @@ export function onFilesDropped(
     const files = event.payload;
 
     if (Array.isArray(files) && files.every(isDroppedFile)) handle(files);
+  });
+}
+
+/** Scan progress and results. */
+export function onScanStatus(
+  handle: (status: ScanStatus) => void,
+): Promise<UnlistenFn> {
+  return listen<JsonValue>('scan-status', (event) => {
+    if (isScanStatus(event.payload)) handle(event.payload);
+  });
+}
+
+/** Folders or albums changed: reload them. */
+export function onLibraryChanged(handle: () => void): Promise<UnlistenFn> {
+  return listen('library-changed', () => {
+    handle();
+  });
+}
+
+/** A sentence for the user about a folder they added (e.g. already covered). */
+export function onLibraryNotice(
+  handle: (message: string) => void,
+): Promise<UnlistenFn> {
+  return listen<JsonValue>('library-notice', (event) => {
+    if (isText(event.payload)) handle(event.payload);
   });
 }

@@ -120,4 +120,36 @@ describe('playback commands', () => {
       backend(() => Promise.resolve([{ name: 1 }]), true).listDevices(),
     ).rejects.toMatchObject({ code: 'invalid_response' });
   });
+
+  it('validates library albums and passes track ids to play', async () => {
+    const album = {
+      id: 1,
+      title: 'Aladdin Sane',
+      artist: 'David Bowie',
+      year: 1973,
+      art: 'lyra-art://localhost/1-1.jpg',
+      trackCount: 10,
+      codec: 'dsf',
+      sampleRate: 2822400,
+      dsdMultiple: 64,
+    };
+
+    const runCommand = vi.fn((command: string) =>
+      Promise.resolve(command === 'list_albums' ? [album] : null),
+    );
+
+    const api = backend(runCommand, true);
+
+    await expect(api.albums()).resolves.toEqual([album]);
+
+    await api.playTrack(7, 'hw:CARD=ONE,DEV=0');
+    expect(runCommand).toHaveBeenLastCalledWith('play_track', {
+      trackId: 7,
+      device: 'hw:CARD=ONE,DEV=0',
+    });
+
+    await expect(
+      backend(() => Promise.resolve([{ ...album, id: '1' }]), true).albums(),
+    ).rejects.toMatchObject({ code: 'invalid_response' });
+  });
 });

@@ -1,0 +1,19 @@
+[package]
+name = "library"
+description = "Music library: SQLite schema, folder scanner, tags and artwork"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+format-dsd.workspace = true
+id3.workspace = true
+rusqlite.workspace = true
+symphonia.workspace = true
+
+[lints]
+workspace = true

@@ -156,7 +156,8 @@ impl NowPlaying {
     }
 }
 
-fn format_db(centibels: i64) -> String {
+/// `−6.01` for −601 centibels.
+pub(crate) fn format_db(centibels: i64) -> String {
     let sign = if centibels < 0 { "−" } else { "" };
     let magnitude = centibels.unsigned_abs();
     format!("{sign}{}.{:02}", magnitude / 100, magnitude % 100)

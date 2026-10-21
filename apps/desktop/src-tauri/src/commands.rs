@@ -6,25 +6,52 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
+use library::{Library, LibraryError, Scanner};
 use player_core::{DsdTransport, Player};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
+use tauri_plugin_dialog::DialogExt;
 
-use crate::ipc::{AppInfo, DeviceInfo, IpcError, Status, frames_to_seconds};
+use crate::ipc::{
+    AlbumInfo, AppInfo, DeviceInfo, FolderInfo, IpcError, LibraryTrack, ScanStatus, Status,
+    frames_to_seconds,
+};
 
-/// Engine plus the files the user dropped. Only dropped files can be played,
-/// so the webview cannot ask Rust to open arbitrary paths.
+/// Event telling the UI to reload folders and albums.
+pub const LIBRARY_CHANGED_EVENT: &str = "library-changed";
+/// Event carrying a sentence for the user about a folder they added.
+pub const LIBRARY_NOTICE_EVENT: &str = "library-notice";
+
+/// Engine, library, and the files the user dropped. Only dropped files and
+/// tracks inside library folders can be played, so the webview cannot ask
+/// Rust to open arbitrary paths.
 pub struct AppState {
     pub player: Player,
     dropped: Mutex<HashSet<PathBuf>>,
+    /// The UI's connection; the scanner has its own.
+    library: Mutex<Library>,
+    pub scanner: Scanner,
+    /// Last scan state, kept by the scanner's listener.
+    pub scan_status: Arc<Mutex<ScanStatus>>,
+    pub art_dir: PathBuf,
 }
 
 impl AppState {
-    pub fn new(player: Player) -> Self {
+    pub fn new(
+        player: Player,
+        library: Library,
+        scanner: Scanner,
+        scan_status: Arc<Mutex<ScanStatus>>,
+        art_dir: PathBuf,
+    ) -> Self {
         Self {
             player,
             dropped: Mutex::new(HashSet::new()),
+            library: Mutex::new(library),
+            scanner,
+            scan_status,
+            art_dir,
         }
     }
 
@@ -41,19 +68,34 @@ impl AppState {
             .unwrap_or_else(PoisonError::into_inner)
             .contains(path)
     }
+
+    fn library(&self) -> std::sync::MutexGuard<'_, Library> {
+        self.library.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Adds a folder the user chose (dropped or picked) and scans it.
+    /// Returns a sentence for the user when it cannot be added.
+    pub fn add_folder(&self, path: &Path) -> Result<(), String> {
+        self.library()
+            .add_folder(path)
+            .map_err(|error| library_error(&error).message)?;
+        self.scanner.request();
+        Ok(())
+    }
 }
 
-/// FLAC, WAV, DSF and DFF, by extension; content is checked when the file is
-/// opened (so a macOS `._` file named `.dsf` is refused there).
-pub fn is_playable(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            ["flac", "wav", "dsf", "dff"]
-                .iter()
-                .any(|known| extension.eq_ignore_ascii_case(known))
-        })
+fn library_error(error: &LibraryError) -> IpcError {
+    let code = match error {
+        LibraryError::AlreadyCovered { .. } | LibraryError::NotADirectory(_) => "invalid_request",
+        LibraryError::Db(_) | LibraryError::Io(_) => "library_failed",
+    };
+    IpcError {
+        code,
+        message: error.to_string(),
+    }
 }
+
+pub use library::is_audio_file as is_playable;
 
 #[tauri::command]
 pub fn get_app_info() -> AppInfo {
@@ -89,6 +131,105 @@ pub fn play(path: String, device: String, state: State<'_, AppState>) -> Result<
         .player
         .play(path, device, DsdTransport::Auto)
         .map_err(IpcError::from)
+}
+
+#[tauri::command]
+pub fn play_track(
+    track_id: i64,
+    device: String,
+    state: State<'_, AppState>,
+) -> Result<(), IpcError> {
+    if !device.starts_with("hw:") {
+        return Err(IpcError::invalid_request(format!(
+            "{device} is not a hardware device"
+        )));
+    }
+    let track = state
+        .library()
+        .track(track_id)
+        .map_err(|error| library_error(&error))?
+        .ok_or_else(|| IpcError::invalid_request("That track is no longer in the library."))?;
+    state
+        .player
+        .play(track.path, device, DsdTransport::Auto)
+        .map_err(IpcError::from)
+}
+
+#[tauri::command(async)]
+pub fn list_folders(state: State<'_, AppState>) -> Result<Vec<FolderInfo>, IpcError> {
+    let folders = state
+        .library()
+        .folders()
+        .map_err(|error| library_error(&error))?;
+    Ok(folders.into_iter().map(FolderInfo::from).collect())
+}
+
+/// Opens the system folder picker. The choice arrives as `library-changed`
+/// or `library-notice`; the webview never sends a path.
+#[tauri::command]
+pub fn pick_folder(app: AppHandle) {
+    let handle = app.clone();
+    app.dialog()
+        .file()
+        .set_title("Add a music folder")
+        .pick_folder(move |picked| {
+            let Some(path) = picked.and_then(|picked| picked.into_path().ok()) else {
+                return; // Cancelled.
+            };
+            let state = tauri::Manager::state::<AppState>(&handle);
+            let _ = match state.add_folder(&path) {
+                Ok(()) => handle.emit(LIBRARY_CHANGED_EVENT, ()),
+                Err(message) => handle.emit(LIBRARY_NOTICE_EVENT, message),
+            };
+        });
+}
+
+/// Removes a folder and its tracks from the library; the files stay on disk.
+#[tauri::command(async)]
+pub fn remove_folder(id: i64, app: AppHandle, state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.scanner.cancel();
+    let unused = state
+        .library()
+        .remove_folder(id)
+        .map_err(|error| library_error(&error))?;
+    library::delete_art(&state.art_dir, &unused);
+    let _ = app.emit(LIBRARY_CHANGED_EVENT, ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn rescan(state: State<'_, AppState>) {
+    state.scanner.request();
+}
+
+#[tauri::command]
+pub fn get_scan_status(state: State<'_, AppState>) -> ScanStatus {
+    state
+        .scan_status
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
+
+#[tauri::command(async)]
+pub fn list_albums(state: State<'_, AppState>) -> Result<Vec<AlbumInfo>, IpcError> {
+    let albums = state
+        .library()
+        .albums()
+        .map_err(|error| library_error(&error))?;
+    Ok(albums.into_iter().map(AlbumInfo::from).collect())
+}
+
+#[tauri::command(async)]
+pub fn album_tracks(
+    album_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<LibraryTrack>, IpcError> {
+    let tracks = state
+        .library()
+        .album_tracks(album_id)
+        .map_err(|error| library_error(&error))?;
+    Ok(tracks.into_iter().map(LibraryTrack::from).collect())
 }
 
 #[tauri::command]

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { clock, outputLabel, sourceLabel } from './format';
+import { clock, formatBadge, outputLabel, sourceLabel } from './format';
 import type { Track } from './ipc';
 
 const flac: Track = {
@@ -55,6 +55,15 @@ describe('display formatting', () => {
         channels: 2,
       }),
     ).toBe('Native DSD · DSD_U32_BE · 88.2 kHz');
+  });
+
+  it('badges albums by their best format', () => {
+    expect(
+      formatBadge({ codec: 'dsf', sampleRate: 5644800, dsdMultiple: 128 }),
+    ).toBe('DSD128');
+    expect(
+      formatBadge({ codec: 'flac', sampleRate: 96000, dsdMultiple: null }),
+    ).toBe('FLAC 96');
   });
 
   it.each([

@@ -8,6 +8,7 @@ use std::path::Path;
 use audio_alsa::Device;
 use format_dsd::Container;
 use format_pcm::{Codec, SampleEncoding};
+use library::{Album, Folder, ScanSummary};
 use player_core::{
     BitPerfect, Encoding, ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus,
     SourceInfo, Transport,
@@ -232,6 +233,129 @@ fn alsa_format_name(encoding: Encoding) -> &'static str {
         SampleEncoding::S24In3Le => "S24_3LE",
         SampleEncoding::S24In4Le => "S24_LE",
         SampleEncoding::S32Le => "S32_LE",
+    }
+}
+
+/// URL of a cached artwork file, served by the `lyra-art` protocol.
+pub const ART_URL: &str = "lyra-art://localhost/";
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FolderInfo {
+    pub id: i64,
+    pub path: String,
+}
+
+impl From<Folder> for FolderInfo {
+    fn from(folder: Folder) -> Self {
+        Self {
+            id: folder.id,
+            path: folder.path.display().to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumInfo {
+    pub id: i64,
+    pub title: String,
+    pub artist: String,
+    pub year: Option<i32>,
+    /// Artwork URL, or `None`.
+    pub art: Option<String>,
+    pub track_count: u32,
+    /// Best source format among the tracks.
+    pub codec: String,
+    pub sample_rate: u32,
+    pub dsd_multiple: Option<u32>,
+}
+
+impl From<Album> for AlbumInfo {
+    fn from(album: Album) -> Self {
+        Self {
+            id: album.id,
+            title: album.title,
+            artist: album.artist,
+            year: album.year,
+            art: album.art.map(|name| format!("{ART_URL}{name}")),
+            track_count: album.tracks,
+            dsd_multiple: dsd_multiple(&album.best_codec, album.best_rate),
+            codec: album.best_codec,
+            sample_rate: album.best_rate,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryTrack {
+    pub id: i64,
+    pub title: String,
+    pub artist: String,
+    pub disc: Option<u32>,
+    pub track: Option<u32>,
+    pub duration_seconds: Option<f64>,
+    pub codec: String,
+    pub sample_rate: u32,
+    pub bits_per_sample: u32,
+    pub channels: u32,
+    pub dsd_multiple: Option<u32>,
+}
+
+impl From<library::Track> for LibraryTrack {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "display only; 2^52 ms is far beyond any track"
+    )]
+    fn from(track: library::Track) -> Self {
+        Self {
+            id: track.id,
+            dsd_multiple: dsd_multiple(&track.codec, track.sample_rate),
+            title: track.title,
+            artist: track.artist,
+            disc: track.disc,
+            track: track.track,
+            duration_seconds: track.duration_ms.map(|ms| ms as f64 / 1000.0),
+            codec: track.codec,
+            sample_rate: track.sample_rate,
+            bits_per_sample: track.bits_per_sample,
+            channels: track.channels,
+        }
+    }
+}
+
+fn dsd_multiple(codec: &str, rate: u32) -> Option<u32> {
+    matches!(codec, "dsf" | "dff").then(|| format_dsd::multiple(rate))
+}
+
+/// Pushed on the `scan-status` event and returned by `get_scan_status`.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct ScanStatus {
+    pub running: bool,
+    pub done: usize,
+    pub total: usize,
+    /// Result of the last finished scan.
+    pub last: Option<ScanReport>,
+    /// Why the last scan failed.
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ScanReport {
+    pub added: usize,
+    pub updated: usize,
+    pub removed: usize,
+    pub failed: usize,
+}
+
+impl From<&ScanSummary> for ScanReport {
+    fn from(summary: &ScanSummary) -> Self {
+        Self {
+            added: summary.added,
+            updated: summary.updated,
+            removed: summary.removed,
+            failed: summary.failed,
+        }
     }
 }
 

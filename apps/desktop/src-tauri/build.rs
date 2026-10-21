@@ -13,6 +13,14 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "seek",
             "get_status",
             "get_position",
+            "play_track",
+            "list_folders",
+            "pick_folder",
+            "remove_folder",
+            "rescan",
+            "get_scan_status",
+            "list_albums",
+            "album_tracks",
         ]));
     tauri_build::try_build(attributes)?;
     Ok(())
