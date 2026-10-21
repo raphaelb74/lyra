@@ -18,10 +18,12 @@
     api: Backend;
     /** Selected output device; empty when none. */
     device: string;
+    /** Library id of the playing track. */
+    playingId: number | null;
     onError: (message: string) => void;
   }
 
-  const { api, device, onError }: Props = $props();
+  const { api, device, playingId, onError }: Props = $props();
 
   let folders = $state<Folder[]>([]);
   let albums = $state<Album[]>([]);
@@ -109,6 +111,7 @@
     album={openAlbum}
     {api}
     {device}
+    {playingId}
     {onError}
     onBack={() => (openAlbumId = null)}
   />

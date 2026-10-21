@@ -11,14 +11,24 @@
     type DeviceInfo,
     type DroppedFile,
     type PlayerStatus,
+    type TrackDetails,
   } from './lib/ipc';
   import Library from './lib/Library.svelte';
+  import NowPlaying from './lib/NowPlaying.svelte';
   import PlayerBar from './lib/PlayerBar.svelte';
+  import QueueView from './lib/QueueView.svelte';
 
   const api = backend();
   const laterViews = ['Artists', 'Playlists', 'Settings'];
 
-  type View = 'library' | 'files';
+  type View = 'library' | 'now' | 'queue' | 'files';
+
+  const views: readonly { id: View; label: string }[] = [
+    { id: 'library', label: 'Library' },
+    { id: 'now', label: 'Now playing' },
+    { id: 'queue', label: 'Queue' },
+    { id: 'files', label: 'Files' },
+  ];
 
   let connection = $state('Connecting to Rust…');
   let connected = $state(false);
@@ -32,12 +42,15 @@
     state: 'stopped',
     track: null,
     error: null,
+    queueLength: 0,
   });
   let position = $state(0);
   let actionError = $state<string | null>(null);
   let view = $state<View>('library');
+  let details = $state<TrackDetails | null>(null);
 
   const device = $derived(devices.find((d) => d.name === selectedDevice));
+  const libraryId = $derived(status.track?.libraryId ?? null);
   const shownError = $derived(actionError ?? status.error?.message ?? null);
 
   const UNEXPECTED = 'Unexpected error while contacting Rust.';
@@ -126,6 +139,21 @@
     };
   });
 
+  // Library data for the playing track (title, album, cover).
+  $effect(() => {
+    const id = libraryId;
+
+    if (id === null) {
+      details = null;
+
+      return;
+    }
+
+    void attempt(() => api.trackDetails(id), showError).then((found) => {
+      if (libraryId === id) details = found ?? null;
+    });
+  });
+
   // Poll the position only while audio moves.
   $effect(() => {
     if (status.state !== 'playing') return;
@@ -147,16 +175,13 @@
     <aside aria-label="Application">
       <h1><span aria-hidden="true">♮</span> Lyra</h1>
       <nav aria-label="Main navigation">
-        <button
-          type="button"
-          aria-current={view === 'library' ? 'page' : undefined}
-          onclick={() => (view = 'library')}>Library</button
-        >
-        <button
-          type="button"
-          aria-current={view === 'files' ? 'page' : undefined}
-          onclick={() => (view = 'files')}>Files</button
-        >
+        {#each views as item (item.id)}
+          <button
+            type="button"
+            aria-current={view === item.id ? 'page' : undefined}
+            onclick={() => (view = item.id)}>{item.label}</button
+          >
+        {/each}
         {#each laterViews as later (later)}
           <button type="button" disabled title="Not available yet"
             >{later}</button
@@ -210,7 +235,21 @@
         <p class="alert" role="alert">{shownError}</p>
       {/if}
       {#if view === 'library'}
-        <Library {api} device={selectedDevice} onError={showError} />
+        <Library
+          {api}
+          device={selectedDevice}
+          playingId={libraryId}
+          onError={showError}
+        />
+      {:else if view === 'now'}
+        <NowPlaying {status} {details} {device} />
+      {:else if view === 'queue'}
+        <QueueView
+          {api}
+          current={status.track?.queueIndex ?? null}
+          queueLength={status.queueLength}
+          onError={showError}
+        />
       {:else}
         <section aria-labelledby="files-title">
           <div class="section-heading">
@@ -246,7 +285,14 @@
     {status}
     {position}
     {device}
+    {details}
     onToggle={toggle}
+    onPrevious={() => {
+      void command(api.previous);
+    }}
+    onNext={() => {
+      void command(api.next);
+    }}
     onStop={() => {
       void command(api.stop);
     }}

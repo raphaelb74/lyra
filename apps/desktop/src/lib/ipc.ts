@@ -49,6 +49,10 @@ export interface Output {
 }
 
 export interface Track {
+  /** Library track id; null for a dropped file. */
+  libraryId: number | null;
+  /** Position in the queue. */
+  queueIndex: number;
   fileName: string;
   device: string;
   codec: 'flac' | 'wav' | 'dsf' | 'dff';
@@ -123,6 +127,25 @@ export interface PlayerStatus {
   state: PlaybackState;
   track: Track | null;
   error: { code: string; message: string } | null;
+  queueLength: number;
+}
+
+/** Mirrors Rust's `QueueEntry`. */
+export interface QueueEntry {
+  trackId: number | null;
+  title: string;
+  artist: string | null;
+  durationSeconds: number | null;
+}
+
+/** Mirrors Rust's `TrackDetails`: library data for Now Playing. */
+export interface TrackDetails {
+  title: string;
+  artist: string;
+  album: string | null;
+  albumId: number;
+  year: number | null;
+  art: string | null;
 }
 
 /** Errors raised in the UI itself, plus the `code`s Rust sends. */
@@ -247,6 +270,8 @@ function isOutput(value: Field): value is JsonValue & Output {
 function isTrack(value: Field): value is JsonValue & Track {
   return (
     isRecord(value) &&
+    isNullableNumber(value.libraryId) &&
+    isNumber(value.queueIndex) &&
     isText(value.fileName) &&
     isText(value.device) &&
     (value.codec === 'flac' ||
@@ -338,6 +363,35 @@ function isScanStatus(value: JsonValue): value is JsonValue & ScanStatus {
   );
 }
 
+function isQueueEntry(value: JsonValue): value is JsonValue & QueueEntry {
+  return (
+    isRecord(value) &&
+    isNullableNumber(value.trackId) &&
+    isText(value.title) &&
+    isNullableText(value.artist) &&
+    isNullableNumber(value.durationSeconds)
+  );
+}
+
+function isQueue(value: JsonValue): value is JsonValue & QueueEntry[] {
+  return Array.isArray(value) && value.every(isQueueEntry);
+}
+
+function isTrackDetails(
+  value: JsonValue,
+): value is JsonValue & (TrackDetails | null) {
+  return (
+    value === null ||
+    (isRecord(value) &&
+      isText(value.title) &&
+      isText(value.artist) &&
+      isNullableText(value.album) &&
+      isNumber(value.albumId) &&
+      isNullableNumber(value.year) &&
+      isNullableText(value.art))
+  );
+}
+
 function isIpcError(
   value: unknown,
 ): value is { code: string; message: string } {
@@ -357,7 +411,8 @@ function isStatus(value: JsonValue): value is JsonValue & PlayerStatus {
     isText(value.state) &&
     STATES.includes(value.state) &&
     (value.track === null || isTrack(value.track)) &&
-    (value.error === null || isIpcError(value.error))
+    (value.error === null || isIpcError(value.error)) &&
+    isNumber(value.queueLength)
   );
 }
 
@@ -468,8 +523,14 @@ export function backend(
     seek: (seconds: number) => run('seek', isNothing, { seconds }),
     status: () => run('get_status', isStatus),
     position: () => run('get_position', isNumber),
-    playTrack: (trackId: number, device: string) =>
-      run('play_track', isNothing, { trackId, device }),
+    playTracks: (trackIds: number[], start: number, device: string) =>
+      run('play_tracks', isNothing, { trackIds, start, device }),
+    next: () => run('next', isNothing),
+    previous: () => run('previous', isNothing),
+    skipTo: (index: number) => run('skip_to', isNothing, { index }),
+    queue: () => run('get_queue', isQueue),
+    trackDetails: (trackId: number) =>
+      run<TrackDetails | null>('track_details', isTrackDetails, { trackId }),
     folders: () => run('list_folders', isFolderList),
     pickFolder: () => run('pick_folder', isNothing),
     removeFolder: (id: number) => run('remove_folder', isNothing, { id }),

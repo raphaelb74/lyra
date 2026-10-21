@@ -107,6 +107,8 @@ cargo run -p audio-alsa --example play -- hw:CARD=ONE,DEV=0 track.flac
                                                            # plays, prints the kernel's hw_params and underruns
 cargo run -p audio-alsa --example play -- hw:CARD=ONE,DEV=0 track.dsf native
                                                            # DSD transport: auto (default), native or dop
+cargo run -p audio-alsa --example play -- hw:CARD=ONE,DEV=0 01.flac 02.flac
+                                                           # a queue: gapless where the format allows
 cargo run --release -p format-pcm --example verify -- *.flac   # full decode, FLAC MD5 check
 cargo run --release -p format-dsd --example inspect -- *.dsf   # full DSD read, frame count, hash
 cargo run --release -p library --example scan -- /tmp/lib.db /tmp/art ~/Music

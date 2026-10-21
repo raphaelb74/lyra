@@ -4,6 +4,7 @@
 //! engine is tested with [`mock::MockSink`] and runs on the DAC through
 //! `audio-alsa`.
 
+mod controller;
 pub mod mock;
 mod player;
 mod sink;
@@ -11,7 +12,7 @@ mod source;
 mod status;
 mod writer;
 
-pub use player::{POOL_SIZE, Player};
+pub use player::{POOL_SIZE, Player, QueueItem};
 pub use sink::{
     AudioSink, DsdTransport, Encoding, HardwareVolume, OutputFormat, SinkError, SinkErrorKind,
     StreamFormat, Transport,

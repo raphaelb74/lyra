@@ -279,30 +279,22 @@ impl Library {
 
     /// Albums sorted by artist, then year and title.
     pub fn albums(&self) -> Result<Vec<Album>, LibraryError> {
-        let mut statement = self.conn.prepare(
-            "SELECT albums.id, albums.title, artists.name, albums.year, albums.art,
-                    COUNT(tracks.id), MAX(tracks.sample_rate),
-                    (SELECT codec FROM tracks AS best WHERE best.album_id = albums.id
-                     ORDER BY best.sample_rate DESC LIMIT 1)
-             FROM albums
-             JOIN artists ON artists.id = albums.artist_id
-             JOIN tracks ON tracks.album_id = albums.id
-             GROUP BY albums.id
-             ORDER BY artists.name, albums.year, albums.title",
-        )?;
-        let rows = statement.query_map([], |row| {
-            Ok(Album {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                artist: row.get(2)?,
-                year: row.get(3)?,
-                art: row.get(4)?,
-                tracks: row.get(5)?,
-                best_rate: row.get(6)?,
-                best_codec: row.get(7)?,
-            })
-        })?;
+        let mut statement = self.conn.prepare(&format!(
+            "{ALBUM_COLUMNS} GROUP BY albums.id ORDER BY artists.name, albums.year, albums.title"
+        ))?;
+        let rows = statement.query_map([], album_row)?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn album(&self, id: i64) -> Result<Option<Album>, LibraryError> {
+        Ok(self
+            .conn
+            .query_row(
+                &format!("{ALBUM_COLUMNS} WHERE albums.id = ?1 GROUP BY albums.id"),
+                [id],
+                album_row,
+            )
+            .optional()?)
     }
 
     /// Tracks of an album in disc and track order.
@@ -336,6 +328,27 @@ impl Library {
             .optional()?
             .flatten())
     }
+}
+
+const ALBUM_COLUMNS: &str = "SELECT albums.id, albums.title, artists.name, albums.year,
+        albums.art, COUNT(tracks.id), MAX(tracks.sample_rate),
+        (SELECT codec FROM tracks AS best WHERE best.album_id = albums.id
+         ORDER BY best.sample_rate DESC LIMIT 1)
+    FROM albums
+    JOIN artists ON artists.id = albums.artist_id
+    JOIN tracks ON tracks.album_id = albums.id";
+
+fn album_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
+    Ok(Album {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        artist: row.get(2)?,
+        year: row.get(3)?,
+        art: row.get(4)?,
+        tracks: row.get(5)?,
+        best_rate: row.get(6)?,
+        best_codec: row.get(7)?,
+    })
 }
 
 const TRACK_COLUMNS: &str = "SELECT tracks.id, tracks.path, tracks.title, artists.name,

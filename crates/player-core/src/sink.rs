@@ -163,6 +163,16 @@ impl fmt::Display for StreamFormat {
 }
 
 impl OutputFormat {
+    /// Whether a device opened in this format can play `stream` exactly as
+    /// is: the condition for continuing into the next track without
+    /// reopening (gapless).
+    pub fn carries(&self, stream: &StreamFormat) -> bool {
+        self.channels == stream.channels()
+            && stream
+                .candidates()
+                .contains(&(self.encoding, self.sample_rate))
+    }
+
     /// The first candidate the device accepts (`accepts(layout, rate)`).
     /// `None` means the stream cannot be played exactly: no rate, channel
     /// or format change is ever made.
@@ -288,6 +298,25 @@ mod tests {
             chosen(DsdTransport::Dop),
             Some((Encoding::Dop(SampleEncoding::S24In3Le), 176_400))
         );
+    }
+
+    #[test]
+    fn an_open_device_carries_only_exact_continuations() {
+        let pcm = |rate, bits| StreamFormat::Pcm {
+            sample_rate: rate,
+            channels: 2,
+            bits_per_sample: bits,
+        };
+        let s24 = OutputFormat::negotiate(&pcm(96_000, 24), |_, _| true).unwrap();
+        // 16-bit fits a 24-bit layout losslessly; rate and depth may not grow.
+        assert!(s24.carries(&pcm(96_000, 16)));
+        assert!(!s24.carries(&pcm(44_100, 24)));
+        assert!(!s24.carries(&pcm(96_000, 32)));
+        assert!(!s24.carries(&dsd64(DsdTransport::Auto)));
+
+        let native = OutputFormat::negotiate(&dsd64(DsdTransport::Auto), zen_one).unwrap();
+        assert!(native.carries(&dsd64(DsdTransport::Native)));
+        assert!(!native.carries(&dsd64(DsdTransport::Dop)));
     }
 
     #[test]

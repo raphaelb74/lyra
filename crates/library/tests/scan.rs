@@ -286,6 +286,8 @@ fn reopening_keeps_the_library() {
     let album = library.albums().unwrap().remove(0);
     let first = library.album_tracks(album.id).unwrap().remove(0);
     assert_eq!(library.track(first.id).unwrap(), Some(first));
+    assert_eq!(library.album(album.id).unwrap(), Some(album));
+    assert_eq!(library.album(-1).unwrap(), None);
 }
 
 #[test]

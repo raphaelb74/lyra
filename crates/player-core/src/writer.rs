@@ -17,6 +17,8 @@ const PAUSE_POLL: Duration = Duration::from_millis(20);
 pub(crate) struct Chunk {
     /// Playback generation; bumped by seek and stop to invalidate queued audio.
     pub generation: u64,
+    /// Which track of the queue this is (a counter, unique per start).
+    pub seq: u64,
     /// Track position of the first frame.
     pub start_frame: u64,
     pub frames: u64,
@@ -44,9 +46,11 @@ pub(crate) enum WriterEvent {
         generation: u64,
         result: Result<OutputFormat, SinkError>,
     },
-    /// First audio of this generation reached the device.
+    /// The first audio of track `seq` reached the device: the first track
+    /// of a generation, or the next one of a gapless sequence.
     Started {
         generation: u64,
+        seq: u64,
     },
     Drained {
         generation: u64,
@@ -72,8 +76,8 @@ struct Device {
     open: bool,
     /// Generation whose audio the device holds.
     generation: u64,
-    /// Audio of `generation` was written.
-    started: bool,
+    /// Track whose audio was written last, if any in this generation.
+    seq: Option<u64>,
     paused: bool,
 }
 
@@ -136,7 +140,7 @@ impl<S: AudioSink> Writer<S> {
             // First chunk after a seek: drop what the device still holds.
             self.sink.discard()?;
             device.generation = chunk.generation;
-            device.started = false;
+            device.seq = None;
         }
         self.wait_while_paused(chunk.generation, device)?;
         if !self.is_live(chunk.generation) {
@@ -146,10 +150,11 @@ impl<S: AudioSink> Writer<S> {
         self.shared
             .position
             .store(chunk.start_frame + chunk.frames, Ordering::Release);
-        if !device.started {
-            device.started = true;
+        if device.seq != Some(chunk.seq) {
+            device.seq = Some(chunk.seq);
             self.send(WriterEvent::Started {
                 generation: chunk.generation,
+                seq: chunk.seq,
             });
         }
         Ok(())

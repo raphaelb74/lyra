@@ -1,4 +1,4 @@
-import type { Output, SourceFormat, Track } from './ipc';
+import type { Output, SourceFormat, Track, Verdict } from './ipc';
 
 /** `FLAC 24/96`, `WAV 16/44.1`, `DSD64 · DSF`. */
 export function sourceLabel(track: Track): string {
@@ -47,4 +47,17 @@ export function clock(seconds: number): string {
   }
 
   return `${String(minutes)}:${secs}`;
+}
+
+/** `Bit-perfect`, `Not bit-perfect: <reason>`, … */
+export function verdictLabel(verdict: Verdict | null): string {
+  if (verdict === null) return 'Bit-perfect: not playing';
+
+  if (verdict.status === 'yes') return 'Bit-perfect';
+
+  const reason = verdict.reason ?? 'unknown';
+
+  return verdict.status === 'no'
+    ? `Not bit-perfect: ${reason}`
+    : `Bit-perfect unverified: ${reason}`;
 }
