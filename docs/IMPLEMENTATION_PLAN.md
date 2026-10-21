@@ -55,7 +55,7 @@ Four PRs: **M4a** library and album browser, **M4b-1** queue, gapless and Now Pl
 
 - [x] SQLite migrations, folder scanner, metadata/artwork cache (M4a: `crates/library`; bundled SQLite, Symphonia tags for FLAC/WAV, `id3` for DSF/DFF; folders added by drop or a folder picker opened from Rust).
 - [ ] DSD→PCM conversion as the last resort, with its Settings switch (M4c): native DSD, then DoP, then a low-pass/decimating conversion to 24-bit PCM at the highest 44.1 kHz-family rate the device takes, level-matched. Always labelled "not bit-perfect"; runs on the controller thread, never the writer. Settings: "DSD on devices without DSD support: Convert to PCM / Refuse" and "DSD transport: Auto / Native / DoP". Updates the spec non-goal to "no *silent* DSD→PCM conversion". Tests: synthetic DSD tone keeps frequency and level, no clipping.
-- [ ] Album/artist/track browser, queue, playlist editing, Now Playing. (M4a: album grid and album tracks. M4b-1: engine queue with gapless continuation of same-format tracks, DoP marker phase kept across boundaries, next/previous/skip, Now Playing and Queue views. M4b-2: playlists, Artists and Tracks views.)
+- [ ] Album/artist/track browser, queue, playlist editing, Now Playing. (M4a: album grid and album tracks. M4b-1: engine queue with gapless continuation of same-format tracks, DoP marker phase kept across boundaries, next/previous/skip, Now Playing and Queue views. M4b-2: playlists (migration 2; entries keep their own id, follow their track out of the library; create, rename, delete, add, move, remove), Artists and Tracks views with search.)
 - [ ] Settings, diagnostics, dark design system, accessibility and keyboard shortcuts (M4c).
 - [x] Incremental scan and error states (M4a: size + mtime; unreadable files counted and reported; cancel keeps unreached files).
 
@@ -63,6 +63,7 @@ Four PRs: **M4a** library and album browser, **M4b-1** queue, gapless and Now Pl
 
 ## M5 — Production hardening
 
+- [ ] Design overhaul before packaging: visual design, layout, interactions and a review of functions and features, once the M4 feature set is complete.
 - [ ] Gapless and seek regression tests; unplug/replug tests; buffer underrun diagnostics.
 - [ ] MPRIS integration and icons.
 - [ ] Take the DAC from PipeWire cleanly: request it through the device-reservation D-Bus protocol (`org.freedesktop.ReserveDevice1`), which PipeWire/WirePlumber honor, and hand it back when Lyra releases it. One D-Bus client (`zbus`) serves this and MPRIS.
@@ -71,6 +72,18 @@ Four PRs: **M4a** library and album browser, **M4b-1** queue, gapless and Now Pl
 - [ ] Release notes, installation instructions, hardware compatibility report.
 
 **Done when:** acceptance tests A01–A12 are documented with pass/fail evidence.
+
+## M6 — Windows and macOS
+
+Linux stays the reference platform. UI, library and engine are shared; each platform gets its own output crate behind `AudioSink`, with the same rule: the most direct path, exact format, no silent conversion.
+
+- [ ] `audio-wasapi`: WASAPI exclusive mode for bit-perfect PCM and DoP; device enumeration, exact format negotiation, endpoint volume handling.
+- [ ] Native DSD on Windows through ASIO where the DAC's driver provides it (check the Steinberg SDK licence first).
+- [ ] `audio-coreaudio`: CoreAudio exclusive (hog mode) with the device's physical format set to the source format; DoP for DSD (CoreAudio has no native DSD).
+- [ ] Hardware evidence per platform in `docs/hardware/`, as for Linux.
+- [ ] Packaging and signing: Windows installer (MSI/NSIS) with code signing; macOS `.dmg` with notarization.
+
+**Done when:** PCM and DoP are bit-perfect on both platforms with recorded hardware evidence, and installers are signed.
 
 ## Initial M0 prompt
 

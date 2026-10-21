@@ -26,6 +26,17 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "get_scan_status",
             "list_albums",
             "album_tracks",
+            "list_artists",
+            "artist_albums",
+            "list_tracks",
+            "list_playlists",
+            "create_playlist",
+            "rename_playlist",
+            "delete_playlist",
+            "playlist_entries",
+            "add_to_playlist",
+            "remove_from_playlist",
+            "move_in_playlist",
         ]));
     tauri_build::try_build(attributes)?;
     Ok(())

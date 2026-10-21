@@ -14,8 +14,9 @@ use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::ipc::{
-    ART_URL, AlbumInfo, AppInfo, DeviceInfo, FolderInfo, IpcError, LibraryTrack, QueueEntry,
-    ScanStatus, Status, TrackDetails, file_name, frames_to_seconds,
+    ART_URL, AlbumInfo, AppInfo, ArtistInfo, DeviceInfo, FolderInfo, IpcError, LibraryTrack,
+    PlaylistEntry, PlaylistInfo, QueueEntry, ScanStatus, Status, TrackDetails, file_name,
+    frames_to_seconds,
 };
 
 /// Event telling the UI to reload folders and albums.
@@ -86,7 +87,9 @@ impl AppState {
 
 fn library_error(error: &LibraryError) -> IpcError {
     let code = match error {
-        LibraryError::AlreadyCovered { .. } | LibraryError::NotADirectory(_) => "invalid_request",
+        LibraryError::AlreadyCovered { .. }
+        | LibraryError::NotADirectory(_)
+        | LibraryError::Invalid(_) => "invalid_request",
         LibraryError::Db(_) | LibraryError::Io(_) => "library_failed",
     };
     IpcError {
@@ -131,6 +134,89 @@ pub fn play(path: String, device: String, state: State<'_, AppState>) -> Result<
         .player
         .play(path, device, DsdTransport::Auto)
         .map_err(IpcError::from)
+}
+
+/// Runs one library call and converts its error for the UI.
+fn query<T>(
+    state: &AppState,
+    run: impl FnOnce(&mut Library) -> Result<T, LibraryError>,
+) -> Result<T, IpcError> {
+    run(&mut state.library()).map_err(|error| library_error(&error))
+}
+
+#[tauri::command(async)]
+pub fn list_artists(state: State<'_, AppState>) -> Result<Vec<ArtistInfo>, IpcError> {
+    let artists = query(&state, |library| library.artists())?;
+    Ok(artists.into_iter().map(ArtistInfo::from).collect())
+}
+
+#[tauri::command(async)]
+pub fn artist_albums(
+    artist_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<AlbumInfo>, IpcError> {
+    let albums = query(&state, |library| library.artist_albums(artist_id))?;
+    Ok(albums.into_iter().map(AlbumInfo::from).collect())
+}
+
+#[tauri::command(async)]
+pub fn list_tracks(state: State<'_, AppState>) -> Result<Vec<LibraryTrack>, IpcError> {
+    let tracks = query(&state, |library| library.tracks())?;
+    Ok(tracks.into_iter().map(LibraryTrack::from).collect())
+}
+
+#[tauri::command(async)]
+pub fn list_playlists(state: State<'_, AppState>) -> Result<Vec<PlaylistInfo>, IpcError> {
+    let playlists = query(&state, |library| library.playlists())?;
+    Ok(playlists.into_iter().map(PlaylistInfo::from).collect())
+}
+
+/// Returns the new playlist's id.
+#[tauri::command(async)]
+pub fn create_playlist(name: String, state: State<'_, AppState>) -> Result<i64, IpcError> {
+    query(&state, |library| library.create_playlist(&name))
+}
+
+#[tauri::command(async)]
+pub fn rename_playlist(id: i64, name: String, state: State<'_, AppState>) -> Result<(), IpcError> {
+    query(&state, |library| library.rename_playlist(id, &name))
+}
+
+#[tauri::command(async)]
+pub fn delete_playlist(id: i64, state: State<'_, AppState>) -> Result<(), IpcError> {
+    query(&state, |library| library.delete_playlist(id))
+}
+
+#[tauri::command(async)]
+pub fn playlist_entries(
+    id: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<PlaylistEntry>, IpcError> {
+    let entries = query(&state, |library| library.playlist_entries(id))?;
+    Ok(entries.into_iter().map(PlaylistEntry::from).collect())
+}
+
+#[tauri::command(async)]
+pub fn add_to_playlist(
+    id: i64,
+    track_ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> Result<(), IpcError> {
+    query(&state, |library| library.add_to_playlist(id, &track_ids))
+}
+
+#[tauri::command(async)]
+pub fn remove_from_playlist(entry_id: i64, state: State<'_, AppState>) -> Result<(), IpcError> {
+    query(&state, |library| library.remove_from_playlist(entry_id))
+}
+
+#[tauri::command(async)]
+pub fn move_in_playlist(
+    entry_id: i64,
+    to: usize,
+    state: State<'_, AppState>,
+) -> Result<(), IpcError> {
+    query(&state, |library| library.move_in_playlist(entry_id, to))
 }
 
 /// Plays library tracks as the queue, from `start` (e.g. an album from the

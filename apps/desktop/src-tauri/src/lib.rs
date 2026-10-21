@@ -86,6 +86,17 @@ pub fn run() -> tauri::Result<()> {
             commands::get_scan_status,
             commands::list_albums,
             commands::album_tracks,
+            commands::list_artists,
+            commands::artist_albums,
+            commands::list_tracks,
+            commands::list_playlists,
+            commands::create_playlist,
+            commands::rename_playlist,
+            commands::delete_playlist,
+            commands::playlist_entries,
+            commands::add_to_playlist,
+            commands::remove_from_playlist,
+            commands::move_in_playlist,
         ])
         .build(tauri::generate_context!())?;
     app.run(|handle, event| {

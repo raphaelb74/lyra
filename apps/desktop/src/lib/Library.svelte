@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
+  import AlbumGrid from './AlbumGrid.svelte';
   import AlbumView from './AlbumView.svelte';
-  import { formatBadge } from './format';
+  import ArtistList from './ArtistList.svelte';
+  import TrackList from './TrackList.svelte';
   import {
     attempt,
     onLibraryChanged,
@@ -30,11 +32,21 @@
   let loaded = $state(false);
   let scan = $state<ScanStatus | null>(null);
   let notice = $state<string | null>(null);
-  let openAlbumId = $state<number | null>(null);
+  let openAlbum = $state<Album | null>(null);
+  type Tab = 'albums' | 'artists' | 'tracks';
+
+  const tabs: readonly { id: Tab; label: string }[] = [
+    { id: 'albums', label: 'Albums' },
+    { id: 'artists', label: 'Artists' },
+    { id: 'tracks', label: 'Tracks' },
+  ];
+
+  let tab = $state<Tab>('albums');
+  /** Bumped whenever the library changes, so every tab reloads. */
+  let version = $state(0);
   /** Folder awaiting a second click to confirm removal. */
   let confirming = $state<number | null>(null);
 
-  const openAlbum = $derived(albums.find((a) => a.id === openAlbumId));
   const scanText = $derived.by(() => {
     if (scan === null) return '';
 
@@ -64,7 +76,14 @@
 
     if (both) [folders, albums] = both;
 
+    // An open album may be gone or changed: keep it only if still there.
+    openAlbum = albums.find((a) => a.id === openAlbum?.id) ?? null;
     loaded = true;
+    version += 1;
+  }
+
+  function showAlbum(album: Album) {
+    openAlbum = album;
   }
 
   function remove(folder: Folder) {
@@ -113,7 +132,7 @@
     {device}
     {playingId}
     {onError}
-    onBack={() => (openAlbumId = null)}
+    onBack={() => (openAlbum = null)}
   />
 {:else}
   <section aria-labelledby="folders-title">
@@ -166,45 +185,32 @@
     </p>
   </section>
 
-  <section aria-labelledby="albums-title">
-    <div class="heading">
-      <h3 id="albums-title">Albums</h3>
-      <span class="muted">{albums.length}</span>
+  <section aria-label="Library">
+    <div class="tabs" role="tablist" aria-label="Browse by">
+      {#each tabs as item (item.id)}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === item.id}
+          onclick={() => (tab = item.id)}>{item.label}</button
+        >
+      {/each}
+      <span class="muted">{albums.length} albums</span>
     </div>
-    {#if albums.length > 0}
-      <ul class="grid">
-        {#each albums as album (album.id)}
-          <li>
-            <button
-              type="button"
-              onclick={() => {
-                openAlbumId = album.id;
-              }}
-            >
-              {#if album.art}
-                <img
-                  src={album.art}
-                  alt=""
-                  loading="lazy"
-                  width="200"
-                  height="200"
-                />
-              {:else}
-                <span class="placeholder" aria-hidden="true">♪</span>
-              {/if}
-              <strong>{album.title}</strong>
-              <small>{album.artist}</small>
-              <small class="badge">{formatBadge(album)}</small>
-            </button>
-          </li>
-        {/each}
-      </ul>
-    {:else if loaded}
-      <p class="drop">
-        {folders.length === 0
-          ? 'Add a music folder, or drop one onto this window.'
-          : 'No FLAC, WAV, DSF or DFF files found yet.'}
-      </p>
+    {#if albums.length === 0}
+      {#if loaded}
+        <p class="drop">
+          {folders.length === 0
+            ? 'Add a music folder, or drop one onto this window.'
+            : 'No FLAC, WAV, DSF or DFF files found yet.'}
+        </p>
+      {/if}
+    {:else if tab === 'albums'}
+      <AlbumGrid {albums} onOpen={showAlbum} />
+    {:else if tab === 'artists'}
+      <ArtistList {api} {version} onOpenAlbum={showAlbum} {onError} />
+    {:else}
+      <TrackList {api} {device} {playingId} {version} {onError} />
     {/if}
   </section>
 {/if}
@@ -264,62 +270,27 @@
     border-color: #8a5a3c;
     color: #f0d2bf;
   }
-  .grid {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 24px 20px;
-  }
-  .grid button {
-    width: 100%;
-    display: grid;
+  .tabs {
+    display: flex;
+    align-items: center;
     gap: 4px;
-    text-align: left;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #29343d;
+  }
+  .tabs button {
     border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
     background: transparent;
-    padding: 0;
-  }
-  .grid img,
-  .placeholder {
-    width: 100%;
-    height: auto;
-    aspect-ratio: 1;
-    object-fit: cover;
-    border-radius: 8px;
-    background: #182129;
-    margin-bottom: 6px;
-  }
-  .placeholder {
-    display: grid;
-    place-items: center;
-    font-size: 40px;
-    color: #577369;
-  }
-  .grid button:focus-visible img,
-  .grid button:focus-visible .placeholder,
-  .grid button:hover img,
-  .grid button:hover .placeholder {
-    outline: 2px solid #577369;
-    outline-offset: 2px;
-  }
-  .grid strong {
-    font-weight: 500;
-    font-size: 14px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .grid small {
+    padding: 10px 14px;
     color: #a2adb7;
-    font-size: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
-  .grid .badge {
-    color: #b4d9cb;
+  .tabs [aria-selected='true'] {
+    color: #d9eee4;
+    border-bottom-color: #b4d9cb;
+  }
+  .tabs .muted {
+    margin-left: auto;
   }
   .drop {
     border: 1px dashed #38534a;

@@ -8,7 +8,7 @@ use std::path::Path;
 use audio_alsa::Device;
 use format_dsd::Container;
 use format_pcm::{Codec, SampleEncoding};
-use library::{Album, Folder, ScanSummary};
+use library::{Album, Artist, Entry, Folder, Playlist, ScanSummary};
 use player_core::{
     BitPerfect, Encoding, ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus,
     SourceInfo, Transport,
@@ -299,6 +299,8 @@ pub struct LibraryTrack {
     pub id: i64,
     pub title: String,
     pub artist: String,
+    pub album: String,
+    pub album_id: i64,
     pub disc: Option<u32>,
     pub track: Option<u32>,
     pub duration_seconds: Option<f64>,
@@ -320,6 +322,8 @@ impl From<library::Track> for LibraryTrack {
             dsd_multiple: dsd_multiple(&track.codec, track.sample_rate),
             title: track.title,
             artist: track.artist,
+            album: track.album,
+            album_id: track.album_id,
             disc: track.disc,
             track: track.track,
             duration_seconds: track.duration_ms.map(|ms| ms as f64 / 1000.0),
@@ -333,6 +337,67 @@ impl From<library::Track> for LibraryTrack {
 
 fn dsd_multiple(codec: &str, rate: u32) -> Option<u32> {
     matches!(codec, "dsf" | "dff").then(|| format_dsd::multiple(rate))
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistInfo {
+    pub id: i64,
+    pub name: String,
+    pub album_count: u32,
+    pub track_count: u32,
+}
+
+impl From<Artist> for ArtistInfo {
+    fn from(artist: Artist) -> Self {
+        Self {
+            id: artist.id,
+            name: artist.name,
+            album_count: artist.albums,
+            track_count: artist.tracks,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistInfo {
+    pub id: i64,
+    pub name: String,
+    pub track_count: u32,
+    pub duration_seconds: f64,
+}
+
+impl From<Playlist> for PlaylistInfo {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "display only; 2^52 ms is far beyond any playlist"
+    )]
+    fn from(playlist: Playlist) -> Self {
+        Self {
+            id: playlist.id,
+            name: playlist.name,
+            track_count: playlist.tracks,
+            duration_seconds: playlist.duration_ms as f64 / 1000.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistEntry {
+    /// Identifies this entry (a track may appear twice).
+    pub entry_id: i64,
+    pub track: LibraryTrack,
+}
+
+impl From<Entry> for PlaylistEntry {
+    fn from(entry: Entry) -> Self {
+        Self {
+            entry_id: entry.id,
+            track: LibraryTrack::from(entry.track),
+        }
+    }
 }
 
 /// One queue entry, described for the Queue view.
