@@ -17,12 +17,20 @@
   import PlayerBar from './lib/PlayerBar.svelte';
   import Playlists from './lib/Playlists.svelte';
   import QueueView from './lib/QueueView.svelte';
+  import Diagnostics from './lib/Diagnostics.svelte';
   import Settings from './lib/Settings.svelte';
   import VolumeControl from './lib/VolumeControl.svelte';
 
   const api = backend();
 
-  type View = 'library' | 'playlists' | 'now' | 'queue' | 'files' | 'settings';
+  type View =
+    | 'library'
+    | 'playlists'
+    | 'now'
+    | 'queue'
+    | 'files'
+    | 'settings'
+    | 'diagnostics';
 
   const views: readonly { id: View; label: string }[] = [
     { id: 'library', label: 'Library' },
@@ -31,6 +39,7 @@
     { id: 'queue', label: 'Queue' },
     { id: 'files', label: 'Files' },
     { id: 'settings', label: 'Settings' },
+    { id: 'diagnostics', label: 'Diagnostics' },
   ];
 
   let connection = $state('Connecting to Rust…');
@@ -256,6 +265,8 @@
         <NowPlaying {status} {details} {device} />
       {:else if view === 'settings'}
         <Settings {api} onError={showError} />
+      {:else if view === 'diagnostics'}
+        <Diagnostics {api} {device} {status} onError={showError} />
       {:else if view === 'queue'}
         <QueueView
           {api}
@@ -395,10 +406,6 @@
   }
   main .section-heading {
     margin-bottom: 20px;
-  }
-  .small {
-    padding: 4px 10px;
-    font-size: 12px;
   }
   .backend {
     border-top: 1px solid var(--border);

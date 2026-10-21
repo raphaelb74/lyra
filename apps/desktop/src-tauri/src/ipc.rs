@@ -5,13 +5,13 @@
 
 use std::path::Path;
 
-use audio_alsa::Device;
+use audio_alsa::{Capabilities, Device, KernelReport, SinkReport};
 use format_dsd::Container;
 use format_pcm::{Codec, SampleEncoding};
 use library::{Album, Artist, Entry, Folder, Playlist, ScanSummary};
 use player_core::{
-    BitPerfect, Encoding, ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus,
-    SourceInfo, Transport,
+    BitPerfect, ConversionStats, Encoding, ErrorKind, NowPlaying, PlaybackState, PlayerError,
+    PlayerStatus, SourceInfo, Transport,
 };
 use serde::Serialize;
 
@@ -265,6 +265,109 @@ fn alsa_format_name(encoding: Encoding) -> &'static str {
     }
 }
 
+/// Response of `get_diagnostics`: what the kernel and Lyra report about one
+/// device, read now.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsInfo {
+    pub device: String,
+    pub kernel: Option<String>,
+    pub alsa: Option<String>,
+    pub usb_id: Option<String>,
+    /// The kernel's `hw_params` while the device is open (by anyone).
+    pub hw_params: Option<String>,
+    /// USB stream state while playing, including the DAC's feedback rate.
+    pub usb_stream: Option<String>,
+    /// Present while Lyra plays on this device.
+    pub playback: Option<PlaybackDiagnostics>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackDiagnostics {
+    /// Since the device was opened.
+    pub underruns: u64,
+    pub buffer_frames: u64,
+    pub period_frames: u64,
+    /// Program that handed the device to Lyra, e.g. `pipewire`.
+    pub taken_from: Option<String>,
+    pub conversion: Option<ConversionInfo>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversionInfo {
+    pub clipped: u64,
+    /// Highest level before clamping, dBFS; `None` while only silence played.
+    pub peak_db: Option<f64>,
+}
+
+impl DiagnosticsInfo {
+    pub fn new(
+        device: String,
+        kernel: KernelReport,
+        playback: Option<SinkReport>,
+        conversion: Option<ConversionStats>,
+    ) -> Self {
+        let playback = playback.map(|report| PlaybackDiagnostics {
+            underruns: report.underruns,
+            buffer_frames: report.buffer.buffer_frames,
+            period_frames: report.buffer.period_frames,
+            taken_from: report.taken_from,
+            conversion: conversion.map(|stats| ConversionInfo {
+                clipped: stats.clipped,
+                peak_db: (stats.peak > 0.0).then(|| 20.0 * stats.peak.log10()),
+            }),
+        });
+        Self {
+            device,
+            kernel: kernel.kernel,
+            alsa: kernel.alsa,
+            usb_id: kernel.usb_id,
+            hw_params: kernel.hw_params,
+            usb_stream: kernel.usb_stream,
+            playback,
+        }
+    }
+}
+
+/// Response of `probe_device`: what the driver says the device accepts.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilitiesInfo {
+    pub channels_min: u32,
+    pub channels_max: u32,
+    pub formats: Vec<FormatSupport>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FormatSupport {
+    /// ALSA name, e.g. `S24_3LE` or `DSD_U32_BE`.
+    pub format: &'static str,
+    pub rates: Vec<u32>,
+}
+
+impl From<Capabilities> for CapabilitiesInfo {
+    fn from(capabilities: Capabilities) -> Self {
+        let pcm = capabilities.pcm.into_iter().map(|support| FormatSupport {
+            format: alsa_format_name(Encoding::Pcm(support.encoding)),
+            rates: support.rates,
+        });
+        let dsd = capabilities
+            .dsd
+            .into_iter()
+            .map(|(layout, rates)| FormatSupport {
+                format: layout.name(),
+                rates,
+            });
+        Self {
+            channels_min: capabilities.channels_min,
+            channels_max: capabilities.channels_max,
+            formats: pcm.chain(dsd).collect(),
+        }
+    }
+}
+
 /// URL of a cached artwork file, served by the `lyra-art` protocol.
 pub const ART_URL: &str = "lyra-art://localhost/";
 
@@ -496,7 +599,7 @@ pub fn frames_to_seconds(frames: u64, sample_rate: u32) -> f64 {
 mod tests {
     use player_core::{ErrorKind, PlayerError};
 
-    use super::IpcError;
+    use super::{DiagnosticsInfo, IpcError};
 
     #[test]
     fn player_errors_keep_their_message_and_get_a_stable_code() {
@@ -511,5 +614,35 @@ mod tests {
                 "message": "hw:CARD=ONE,DEV=0 is in use by pipewire (pid 1283)",
             })
         );
+    }
+
+    #[test]
+    fn diagnostics_report_conversion_peak_in_dbfs() {
+        let buffer = audio_alsa::BufferConfig {
+            buffer_frames: 22_050,
+            period_frames: 5_513,
+        };
+        let playback = audio_alsa::SinkReport {
+            device: "hw:CARD=PCH,DEV=0".into(),
+            underruns: 2,
+            buffer,
+            taken_from: Some("pipewire".into()),
+        };
+        let peak = |peak| player_core::ConversionStats { clipped: 3, peak };
+        let json = |peak| {
+            serde_json::to_value(DiagnosticsInfo::new(
+                "hw:CARD=PCH,DEV=0".into(),
+                audio_alsa::KernelReport::default(),
+                Some(playback.clone()),
+                Some(peak),
+            ))
+            .unwrap()
+        };
+        let half = json(peak(0.5));
+        let db = half["playback"]["conversion"]["peakDb"].as_f64().unwrap();
+        assert!((db + 6.0206).abs() < 1e-3, "{db}");
+        assert_eq!(half["playback"]["underruns"], 2);
+        assert_eq!(half["playback"]["takenFrom"], "pipewire");
+        assert!(json(peak(0.0))["playback"]["conversion"]["peakDb"].is_null());
     }
 }

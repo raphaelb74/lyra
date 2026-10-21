@@ -41,6 +41,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "set_settings",
             "get_volume",
             "set_volume",
+            "get_diagnostics",
+            "probe_device",
         ]));
     tauri_build::try_build(attributes)?;
     Ok(())

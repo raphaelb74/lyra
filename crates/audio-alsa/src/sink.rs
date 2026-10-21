@@ -1,6 +1,5 @@
 use std::ffi::CString;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use alsa::pcm::{Access, HwParams, State};
@@ -8,7 +7,8 @@ use alsa::{PCM, ValueOr};
 use player_core::{AudioSink, OutputFormat, SinkError, SinkErrorKind, StreamFormat};
 
 use crate::device::{alsa_format, open};
-use crate::error::{AlsaError, errno};
+use crate::diagnostics::SinkStats;
+use crate::error::{AlsaError, errno, find_holder};
 use crate::reserve::Reservation;
 use crate::volume::{self, SavedVolume};
 
@@ -36,7 +36,7 @@ pub struct AlsaSink {
     /// handed back.
     stream: Option<Stream>,
     reservation: Option<Reservation>,
-    underruns: Arc<AtomicU64>,
+    stats: Arc<SinkStats>,
 }
 
 /// Buffer geometry the driver granted, for diagnostics.
@@ -62,10 +62,10 @@ impl AlsaSink {
         Self::default()
     }
 
-    /// Underruns since creation (the device ran out of audio). Shared, so it
-    /// can be read while the sink is owned by the writer thread.
-    pub fn underruns(&self) -> Arc<AtomicU64> {
-        Arc::clone(&self.underruns)
+    /// Underruns, buffer geometry and hand-over of the open device. Shared,
+    /// so it can be read while the writer thread owns the sink.
+    pub fn stats(&self) -> Arc<SinkStats> {
+        Arc::clone(&self.stats)
     }
 
     pub fn buffer_config(&self) -> Option<BufferConfig> {
@@ -164,6 +164,11 @@ impl AlsaSink {
             (current.can_pause(), buffer)
         };
 
+        let taken_from = self
+            .reservation
+            .as_ref()
+            .and_then(|reservation| reservation.taken_from().map(str::to_owned));
+        self.stats.opened(device, buffer, taken_from);
         self.stream = Some(Stream {
             pcm,
             _volume: saved_volume,
@@ -185,7 +190,12 @@ impl AlsaSink {
             Err(error) if errno::of(&error) == errno::EBUSY && self.reservation.is_none() => error,
             result => return result,
         };
-        self.reservation = card.and_then(Reservation::acquire);
+        let holder = card
+            .and_then(|card| find_holder(card, device_number(device)))
+            .and_then(|holder| holder.command);
+        self.reservation = card
+            .and_then(Reservation::acquire)
+            .map(|reservation| reservation.with_holder(holder));
         if self.reservation.is_none() {
             return Err(error);
         }
@@ -209,6 +219,7 @@ impl AudioSink for AlsaSink {
         let result = self.open_stream(device, stream);
         if result.is_err() {
             // Nothing is playing: the sound server may have the card back.
+            self.stats.closed();
             self.reservation = None;
         }
         result
@@ -231,7 +242,7 @@ impl AudioSink for AlsaSink {
                     errno::EPIPE => {
                         // Underrun: the device played silence. Continue from
                         // the next sample; nothing is skipped.
-                        self.underruns.fetch_add(1, Ordering::Relaxed);
+                        self.stats.underrun();
                         stream.pcm.prepare().map_err(|error| stream.failed(error))?;
                     }
                     errno::ESTRPIPE => {
@@ -295,6 +306,7 @@ impl AudioSink for AlsaSink {
         // Dropping the handle closes the device; queued audio is discarded.
         self.stream = None;
         self.reservation = None;
+        self.stats.closed();
     }
 }
 
@@ -324,7 +336,7 @@ fn sink_error(error: &AlsaError) -> SinkError {
 }
 
 /// Card index for `hw:CARD=<id>,…` or `hw:<n>,…`, to find a busy device's holder.
-fn card_index(device: &str) -> Option<i32> {
+pub(crate) fn card_index(device: &str) -> Option<i32> {
     let card = hw_part(device, "CARD", 0)?;
     if let Ok(index) = card.parse() {
         return Some(index);
@@ -342,7 +354,7 @@ pub(crate) fn card_control(device: &str) -> String {
     }
 }
 
-fn device_number(device: &str) -> u32 {
+pub(crate) fn device_number(device: &str) -> u32 {
     hw_part(device, "DEV", 1)
         .and_then(|dev| dev.parse().ok())
         .unwrap_or(0)

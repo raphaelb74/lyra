@@ -34,6 +34,8 @@ const INTERFACE: &str = "org.freedesktop.ReserveDevice1";
 /// connection, which frees the name.
 pub(crate) struct Reservation {
     card: i32,
+    /// Program that held the card, as procfs named it (e.g. `pipewire`).
+    holder: Option<String>,
     /// Dropped first: its closing tells the thread to stop.
     stop: Option<Sender<()>>,
     thread: Option<JoinHandle<()>>,
@@ -81,6 +83,7 @@ impl Reservation {
             .ok()?;
         Some(Self {
             card,
+            holder: None,
             stop: Some(stop),
             thread: Some(thread),
         })
@@ -88,6 +91,15 @@ impl Reservation {
 
     pub(crate) fn card(&self) -> i32 {
         self.card
+    }
+
+    pub(crate) fn with_holder(mut self, holder: Option<String>) -> Self {
+        self.holder = holder;
+        self
+    }
+
+    pub(crate) fn taken_from(&self) -> Option<&str> {
+        self.holder.as_deref()
     }
 }
 

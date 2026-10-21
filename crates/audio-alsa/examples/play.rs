@@ -19,23 +19,25 @@ use std::time::{Duration, Instant};
 use audio_alsa::{AlsaSink, list_playback_devices};
 use player_core::{DsdFallback, DsdPolicy, DsdTransport, PlaybackState, Player, QueueItem};
 
-fn main() -> ExitCode {
+const USAGE: &str =
+    "usage: play <hw:CARD=…,DEV=…> <file.flac|wav|dsf|dff>… [auto|native|dop|convert] [seconds=N]";
+
+struct Args {
+    device: String,
+    items: Vec<QueueItem>,
+    dsd: DsdPolicy,
+    per_track: Option<Duration>,
+}
+
+fn parse_args() -> Option<Args> {
     let mut args = std::env::args().skip(1);
-    let usage = "usage: play <hw:CARD=…,DEV=…> <file.flac|wav|dsf|dff>… [auto|native|dop|convert] [seconds=N]";
-    let Some(device) = args.next() else {
-        eprintln!("{usage}");
-        return ExitCode::FAILURE;
-    };
+    let device = args.next()?;
     let mut dsd = DsdPolicy::default();
     let mut items = Vec::new();
     let mut per_track = None;
     for arg in args {
         if let Some(seconds) = arg.strip_prefix("seconds=") {
-            let Ok(seconds) = seconds.parse() else {
-                eprintln!("{usage}");
-                return ExitCode::FAILURE;
-            };
-            per_track = Some(Duration::from_secs(seconds));
+            per_track = Some(Duration::from_secs(seconds.parse().ok()?));
             continue;
         }
         match arg.as_str() {
@@ -49,14 +51,29 @@ fn main() -> ExitCode {
             }),
         }
     }
-    if items.is_empty() {
-        eprintln!("{usage}");
+    (!items.is_empty()).then_some(Args {
+        device,
+        items,
+        dsd,
+        per_track,
+    })
+}
+
+fn main() -> ExitCode {
+    let Some(Args {
+        device,
+        items,
+        dsd,
+        per_track,
+    }) = parse_args()
+    else {
+        eprintln!("{USAGE}");
         return ExitCode::FAILURE;
-    }
+    };
 
     let count = items.len();
     let sink = AlsaSink::new();
-    let underruns = sink.underruns();
+    let sink_stats = sink.stats();
     let (tx, updates) = mpsc::channel();
     let player = match Player::new(sink, move |status| {
         let _ = tx.send(status.clone());
@@ -75,7 +92,12 @@ fn main() -> ExitCode {
     let mut printed_params = false;
     let mut shown = None;
     let mut track_started = Instant::now();
+    // Counted per open device; sampled while it is open.
+    let mut last_underruns = 0;
     loop {
+        if let Some(report) = sink_stats.report() {
+            last_underruns = report.underruns;
+        }
         if let Some(limit) = per_track
             && track_started.elapsed() >= limit
         {
@@ -117,10 +139,7 @@ fn main() -> ExitCode {
             _ => {}
         }
     }
-    println!(
-        "underruns: {}",
-        underruns.load(std::sync::atomic::Ordering::Relaxed)
-    );
+    println!("underruns (last open): {last_underruns}");
     ExitCode::SUCCESS
 }
 

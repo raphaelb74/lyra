@@ -7,12 +7,16 @@ import type {
   Album,
   AppInfo,
   Artist,
+  Capabilities,
+  ConversionInfo,
+  DiagnosticsInfo,
   DeviceInfo,
   DroppedFile,
   Folder,
   JsonValue,
   LibraryTrack,
   Output,
+  PlaybackDiagnostics,
   PlayerStatus,
   Playlist,
   PlaylistEntry,
@@ -130,6 +134,61 @@ export function isSettings(value: Field): value is JsonValue & Settings {
     (value.dsdFallback === 'refuse' || value.dsdFallback === 'convert') &&
     isNumber(value.conversionGainDb) &&
     isNumber(value.resyncDelayMs)
+  );
+}
+
+function isConversion(value: Field): value is JsonValue & ConversionInfo {
+  return (
+    isRecord(value) && isNumber(value.clipped) && isNullableNumber(value.peakDb)
+  );
+}
+
+function isPlayback(value: Field): value is JsonValue & PlaybackDiagnostics {
+  return (
+    isRecord(value) &&
+    isNumber(value.underruns) &&
+    isNumber(value.bufferFrames) &&
+    isNumber(value.periodFrames) &&
+    isNullableText(value.takenFrom) &&
+    (value.conversion === null || isConversion(value.conversion))
+  );
+}
+
+export function isDiagnostics(
+  value: Field,
+): value is JsonValue & DiagnosticsInfo {
+  return (
+    isRecord(value) &&
+    isText(value.device) &&
+    isNullableText(value.kernel) &&
+    isNullableText(value.alsa) &&
+    isNullableText(value.usbId) &&
+    isNullableText(value.hwParams) &&
+    isNullableText(value.usbStream) &&
+    (value.playback === null || isPlayback(value.playback))
+  );
+}
+
+export function isCapabilities(
+  value: Field,
+): value is JsonValue & Capabilities {
+  return (
+    isRecord(value) &&
+    isNumber(value.channelsMin) &&
+    isNumber(value.channelsMax) &&
+    Array.isArray(value.formats) &&
+    value.formats.every(isFormatSupport)
+  );
+}
+
+function isFormatSupport(
+  value: Field,
+): value is JsonValue & Capabilities['formats'][number] {
+  return (
+    isRecord(value) &&
+    isText(value.format) &&
+    Array.isArray(value.rates) &&
+    value.rates.every(isNumber)
   );
 }
 

@@ -107,7 +107,7 @@ impl std::error::Error for AlsaError {
 ///
 /// `/proc/asound/cardN/pcmDp/subS/status` lists `owner_pid` while the
 /// substream is open. Best effort: `None` when procfs is unavailable.
-fn find_holder(card: i32, device: u32) -> Option<Holder> {
+pub(crate) fn find_holder(card: i32, device: u32) -> Option<Holder> {
     let base = format!("/proc/asound/card{card}/pcm{device}p");
     let entries = fs::read_dir(base).ok()?;
     entries.filter_map(Result::ok).find_map(|entry| {

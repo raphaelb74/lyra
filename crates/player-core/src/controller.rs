@@ -411,6 +411,7 @@ impl Controller {
         let feed = &mut session.feed;
         match feed.source.next(&output, session.dsd, &mut buffer) {
             Ok(Some(frames)) => {
+                self.shared.conversion.publish(feed.source.conversion());
                 let chunk = Chunk {
                     generation: session.generation,
                     seq: feed.entry.seq,
@@ -538,6 +539,7 @@ impl Controller {
     /// Invalidates queued audio and releases the device.
     fn close_session(&mut self) {
         if self.session.take().is_some() {
+            self.shared.conversion.publish(None);
             self.shared.next_generation();
             self.to_writer(ToWriter::Close);
             self.writer_thread.unpark();

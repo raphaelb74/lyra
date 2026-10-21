@@ -8,15 +8,16 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use audio_alsa::SinkStats;
 use library::{Library, LibraryError, Scanner};
 use player_core::{Player, QueueItem};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::ipc::{
-    ART_URL, AlbumInfo, AppInfo, ArtistInfo, DeviceInfo, FolderInfo, IpcError, LibraryTrack,
-    PlaylistEntry, PlaylistInfo, QueueEntry, ScanStatus, Status, TrackDetails, VolumeInfo,
-    file_name, frames_to_seconds, ms_to_seconds,
+    ART_URL, AlbumInfo, AppInfo, ArtistInfo, CapabilitiesInfo, DeviceInfo, DiagnosticsInfo,
+    FolderInfo, IpcError, LibraryTrack, PlaylistEntry, PlaylistInfo, QueueEntry, ScanStatus,
+    Status, TrackDetails, VolumeInfo, file_name, frames_to_seconds, ms_to_seconds,
 };
 use crate::settings::Settings;
 
@@ -30,6 +31,8 @@ pub const LIBRARY_NOTICE_EVENT: &str = "library-notice";
 /// Rust to open arbitrary paths.
 pub struct AppState {
     pub player: Player,
+    /// The engine's sink, read for diagnostics.
+    sink_stats: Arc<SinkStats>,
     dropped: Mutex<HashSet<PathBuf>>,
     /// The UI's connection; the scanner has its own.
     library: Mutex<Library>,
@@ -46,6 +49,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(
         player: Player,
+        sink_stats: Arc<SinkStats>,
         library: Library,
         scanner: Scanner,
         scan_status: Arc<Mutex<ScanStatus>>,
@@ -54,6 +58,7 @@ impl AppState {
     ) -> Self {
         let state = Self {
             player,
+            sink_stats,
             dropped: Mutex::new(HashSet::new()),
             library: Mutex::new(library),
             scanner,
@@ -555,6 +560,53 @@ pub fn set_volume(
     }
     let level = audio_alsa::set_volume(&device, percent).map_err(|error| volume_error(&error))?;
     Ok(level.map(|level| volume_info(level, None)))
+}
+
+/// What the kernel and Lyra report about `device` right now. Cheap: procfs
+/// and counters only, so the UI can refresh it every second.
+#[tauri::command(async)]
+pub fn get_diagnostics(
+    device: String,
+    state: State<'_, AppState>,
+) -> Result<DiagnosticsInfo, IpcError> {
+    let device = hardware_device(device)?;
+    let playback = state
+        .sink_stats
+        .report()
+        .filter(|report| report.device == device);
+    let conversion = playback.as_ref().and_then(|_| state.player.conversion());
+    let kernel = audio_alsa::kernel_report(&device);
+    Ok(DiagnosticsInfo::new(device, kernel, playback, conversion))
+}
+
+/// Opens `device` briefly and asks the driver what it accepts.
+#[tauri::command(async)]
+pub fn probe_device(
+    device: String,
+    state: State<'_, AppState>,
+) -> Result<CapabilitiesInfo, IpcError> {
+    let device = hardware_device(device)?;
+    if state
+        .sink_stats
+        .report()
+        .is_some_and(|report| report.device == device)
+    {
+        return Err(IpcError::invalid_request(
+            "Lyra is playing on this device. Stop playback to see every format it accepts.",
+        ));
+    }
+    let probe_error = |message: String| IpcError {
+        code: "probe_failed",
+        message,
+    };
+    let found = audio_alsa::list_playback_devices()
+        .map_err(|error| probe_error(format!("Cannot list devices: {error}")))?
+        .into_iter()
+        .find(|candidate| candidate.name == device)
+        .ok_or_else(|| probe_error(format!("{device} not found; is the DAC connected?")))?;
+    audio_alsa::probe(&found)
+        .map(CapabilitiesInfo::from)
+        .map_err(|error| probe_error(error.to_string()))
 }
 
 fn hardware_device(device: String) -> Result<String, IpcError> {

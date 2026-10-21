@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Local Lyra window: playback, library, settings and device-volume commands and their events; no filesystem, dialog, shell, or remote capabilities (the folder picker opens from Rust)",
+  "description": "Local Lyra window: playback, library, settings, device-volume and diagnostics commands and their events; no filesystem, dialog, shell, or remote capabilities (the folder picker opens from Rust)",
   "windows": ["main"],
   "permissions": [
     "core:event:allow-listen",
@@ -42,6 +42,8 @@
     "allow-get-settings",
     "allow-set-settings",
     "allow-get-volume",
-    "allow-set-volume"
+    "allow-set-volume",
+    "allow-get-diagnostics",
+    "allow-probe-device"
   ]
 }
