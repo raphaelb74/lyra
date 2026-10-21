@@ -76,7 +76,7 @@
     margin: 0;
   }
   .muted {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 13px;
   }
   ol {
@@ -99,15 +99,15 @@
   }
   button:hover,
   button:focus-visible {
-    background: #182129;
+    background: var(--surface);
   }
   button[aria-current='true'] {
-    background: #1f2d2a;
-    color: #d9eee4;
+    background: var(--surface-current);
+    color: var(--text-current);
   }
   .number,
   .time {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 13px;
     font-variant-numeric: tabular-nums;
   }
@@ -120,7 +120,7 @@
     white-space: nowrap;
   }
   .title small {
-    color: #a2adb7;
+    color: var(--text-muted);
     margin-left: 8px;
   }
 </style>

@@ -4,7 +4,7 @@
 Linux-first bit-perfect audiophile player. Rust workspace + Tauri 2 + Svelte 5/TypeScript + ALSA. iFi ZEN ONE is the first test device (see `docs/hardware/`); support any ALSA DAC, nothing model-specific. Audio engine is independent of Tauri; never use Web Audio for playback.
 
 ## Source of truth
-Read `AGENTS.md`, `docs/SPECIFICATION.md`, and `docs/IMPLEMENTATION_PLAN.md` **only when relevant**. Current milestone is M0 unless the user explicitly advances it. Check actual source and Git status before assuming work is complete. Do not blindly follow stale docs; flag contradictions.
+Read `AGENTS.md`, `docs/SPECIFICATION.md`, and `docs/IMPLEMENTATION_PLAN.md` **only when relevant**. The current milestone is the first open item in `docs/IMPLEMENTATION_PLAN.md`, unless the user says otherwise. Check actual source and Git status before assuming work is complete. Do not blindly follow stale docs; flag contradictions.
 
 ## Model and delegation policy
 - Main agent: **Opus**, solely responsible for architecture, prioritization, cross-file reasoning, final edits, and acceptance.
@@ -36,4 +36,4 @@ Read `AGENTS.md`, `docs/SPECIFICATION.md`, and `docs/IMPLEMENTATION_PLAN.md` **o
 - After context compaction, recheck task scope and Git state; do not rely on stale summaries.
 
 ## Review-only mode
-When asked to review, do not edit files. Report P0–P3 findings with exact file:line, impact, evidence, recommended fix, and M0 blocker status. Separate verified defects from design preferences. Main Opus decides verdict.
+When asked to review, do not edit files. Report P0–P3 findings with exact file:line, impact, evidence, recommended fix, and blocker status for the current milestone. Separate verified defects from design preferences. Main Opus decides verdict.

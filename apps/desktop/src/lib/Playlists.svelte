@@ -263,14 +263,8 @@
   }
   .muted,
   small {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 13px;
-  }
-  .back {
-    border: 0;
-    background: transparent;
-    padding: 6px 0;
-    color: #a2adb7;
   }
   form,
   .actions {
@@ -282,14 +276,10 @@
     font: inherit;
     font-size: 13px;
     color: inherit;
-    background: #182129;
-    border: 1px solid #38534a;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
     border-radius: 8px;
     padding: 7px 10px;
-  }
-  .danger {
-    border-color: #8a5a3c;
-    color: #f0d2bf;
   }
   ul,
   ol {
@@ -311,7 +301,7 @@
   }
   ul button:hover,
   ul button:focus-visible {
-    background: #182129;
+    background: var(--surface);
   }
   ol li {
     display: flex;
@@ -332,11 +322,11 @@
   }
   .row:hover:not(:disabled),
   .row:focus-visible {
-    background: #182129;
+    background: var(--surface);
   }
   .row[aria-current='true'] {
-    background: #1f2d2a;
-    color: #d9eee4;
+    background: var(--surface-current);
+    color: var(--text-current);
   }
   .title {
     overflow: hidden;
@@ -349,7 +339,7 @@
   }
   .number,
   .secondary {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 13px;
     font-variant-numeric: tabular-nums;
   }
@@ -360,11 +350,11 @@
     border: 0;
     background: transparent;
     padding: 6px 8px;
-    color: #a2adb7;
+    color: var(--text-muted);
   }
   .tool:hover:not(:disabled),
   .tool:focus-visible {
-    color: #d9eee4;
-    background: #182129;
+    color: var(--text-current);
+    background: var(--surface);
   }
 </style>

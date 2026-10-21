@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use library::{Library, LibraryError, Scanner};
 use player_core::{Player, QueueItem};
@@ -16,7 +16,7 @@ use tauri_plugin_dialog::DialogExt;
 use crate::ipc::{
     ART_URL, AlbumInfo, AppInfo, ArtistInfo, DeviceInfo, FolderInfo, IpcError, LibraryTrack,
     PlaylistEntry, PlaylistInfo, QueueEntry, ScanStatus, Status, TrackDetails, VolumeInfo,
-    file_name, frames_to_seconds,
+    file_name, frames_to_seconds, ms_to_seconds,
 };
 use crate::settings::Settings;
 
@@ -52,48 +52,45 @@ impl AppState {
         art_dir: PathBuf,
         settings_path: PathBuf,
     ) -> Self {
-        let settings = Settings::load(&settings_path);
-        player.set_resync_delay(settings.resync_delay());
-        Self {
+        let state = Self {
             player,
             dropped: Mutex::new(HashSet::new()),
             library: Mutex::new(library),
             scanner,
             scan_status,
             art_dir,
-            settings: Mutex::new(settings),
+            settings: Mutex::new(Settings::default()),
             settings_path,
             watched: Mutex::new(None),
-        }
+        };
+        state.apply_settings(Settings::load(&state.settings_path));
+        state
     }
 
     pub fn watched_device(&self) -> Option<String> {
-        self.watched
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        locked(&self.watched).clone()
     }
 
     fn settings(&self) -> Settings {
-        *self.settings.lock().unwrap_or_else(PoisonError::into_inner)
+        *locked(&self.settings)
+    }
+
+    /// Stores `settings` and applies what the engine uses.
+    fn apply_settings(&self, settings: Settings) {
+        self.player.set_resync_delay(settings.resync_delay());
+        *locked(&self.settings) = settings;
     }
 
     pub fn allow(&self, paths: impl IntoIterator<Item = PathBuf>) {
-        self.dropped
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .extend(paths);
+        locked(&self.dropped).extend(paths);
     }
 
     fn is_allowed(&self, path: &Path) -> bool {
-        self.dropped
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains(path)
+        locked(&self.dropped).contains(path)
     }
 
-    fn library(&self) -> std::sync::MutexGuard<'_, Library> {
-        self.library.lock().unwrap_or_else(PoisonError::into_inner)
+    fn library(&self) -> MutexGuard<'_, Library> {
+        locked(&self.library)
     }
 
     /// Adds a folder the user chose (dropped or picked) and scans it.
@@ -105,6 +102,13 @@ impl AppState {
         self.scanner.request();
         Ok(())
     }
+}
+
+/// Locks `mutex`. A thread that panicked while holding it leaves data that
+/// is still valid for these uses (plain values and collections), so the lock
+/// is taken anyway rather than failing every later command.
+pub fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn library_error(error: &LibraryError) -> IpcError {
@@ -146,11 +150,7 @@ pub fn play(path: String, device: String, state: State<'_, AppState>) -> Result<
             "Drop the file onto the Lyra window to play it.",
         ));
     }
-    if !device.starts_with("hw:") {
-        return Err(IpcError::invalid_request(format!(
-            "{device} is not a hardware device"
-        )));
-    }
+    let device = hardware_device(device)?;
     state
         .player
         .play(path, device, state.settings().dsd_policy())
@@ -249,11 +249,7 @@ pub fn play_tracks(
     device: String,
     state: State<'_, AppState>,
 ) -> Result<(), IpcError> {
-    if !device.starts_with("hw:") {
-        return Err(IpcError::invalid_request(format!(
-            "{device} is not a hardware device"
-        )));
-    }
+    let device = hardware_device(device)?;
     let items = {
         let library = state.library();
         let mut items = Vec::with_capacity(track_ids.len());
@@ -306,7 +302,7 @@ pub fn get_queue(state: State<'_, AppState>) -> Result<Vec<QueueEntry>, IpcError
         entries.push(match track {
             Some(track) => QueueEntry {
                 track_id: Some(track.id),
-                duration_seconds: LibraryTrack::from(track.clone()).duration_seconds,
+                duration_seconds: track.duration_ms.map(ms_to_seconds),
                 title: track.title,
                 artist: Some(track.artist),
             },
@@ -399,11 +395,7 @@ pub fn rescan(state: State<'_, AppState>) {
 
 #[tauri::command]
 pub fn get_scan_status(state: State<'_, AppState>) -> ScanStatus {
-    state
-        .scan_status
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone()
+    locked(&state.scan_status).clone()
 }
 
 #[tauri::command(async)]
@@ -534,11 +526,7 @@ pub fn set_settings(settings: Settings, state: State<'_, AppState>) -> Result<Se
             code: "settings_not_saved",
             message: format!("Cannot save the settings: {error}"),
         })?;
-    state.player.set_resync_delay(settings.resync_delay());
-    *state
-        .settings
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner) = settings;
+    state.apply_settings(settings);
     Ok(settings)
 }
 
@@ -549,9 +537,9 @@ pub fn get_volume(
     state: State<'_, AppState>,
 ) -> Result<Option<VolumeInfo>, IpcError> {
     let device = hardware_device(device)?;
-    *state.watched.lock().unwrap_or_else(PoisonError::into_inner) = Some(device.clone());
+    *locked(&state.watched) = Some(device.clone());
     let level = audio_alsa::volume(&device).map_err(|error| volume_error(&error))?;
-    Ok(level.map(|level| volume_info(level, volume_lock(&state, &device))))
+    Ok(level.map(|level| volume_info(level, state.player.status().volume_lock(&device))))
 }
 
 /// Moves `device`'s hardware volume; refused while DoP plays on it.
@@ -562,7 +550,7 @@ pub fn set_volume(
     state: State<'_, AppState>,
 ) -> Result<Option<VolumeInfo>, IpcError> {
     let device = hardware_device(device)?;
-    if let Some(reason) = volume_lock(&state, &device) {
+    if let Some(reason) = state.player.status().volume_lock(&device) {
         return Err(IpcError::invalid_request(reason));
     }
     let level = audio_alsa::set_volume(&device, percent).map_err(|error| volume_error(&error))?;
@@ -577,16 +565,6 @@ fn hardware_device(device: String) -> Result<String, IpcError> {
             "{device} is not a hardware device"
         )))
     }
-}
-
-/// The lock applies to the device that is playing.
-pub fn volume_lock(state: &AppState, device: &str) -> Option<&'static str> {
-    let status = state.player.status();
-    let playing_here = status
-        .track
-        .as_ref()
-        .is_some_and(|track| track.device == device);
-    playing_here.then(|| status.volume_lock()).flatten()
 }
 
 pub fn volume_info(level: audio_alsa::VolumeLevel, locked: Option<&'static str>) -> VolumeInfo {

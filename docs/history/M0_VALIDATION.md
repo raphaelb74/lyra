@@ -52,4 +52,4 @@ The IPC boundary tests inject a fake command runner (no module mocking) and cove
 
 ## Notes
 
-The first native build attempts failed because GLib/GTK/WebKit development packages were missing; after they were installed, native validation succeeded. The [desktop screenshot](../artifacts/desktop.png), `artifacts/desktop-smoke.json`, and logs are local generated artifacts and are not committed. No playback, parsing, device discovery, scanner, DSP, or bit-perfect functionality is implemented or claimed.
+The first native build attempts failed because GLib/GTK/WebKit development packages were missing; after they were installed, native validation succeeded. The [desktop screenshot](../../artifacts/desktop.png), `artifacts/desktop-smoke.json`, and logs are local generated artifacts and are not committed. No playback, parsing, device discovery, scanner, DSP, or bit-perfect functionality is implemented or claimed.

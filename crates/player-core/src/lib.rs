@@ -5,6 +5,7 @@
 //! `audio-alsa`.
 
 mod controller;
+mod dop;
 pub mod mock;
 mod player;
 mod sink;

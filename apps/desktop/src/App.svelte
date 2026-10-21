@@ -6,13 +6,12 @@
     BackendError,
     attempt,
     backend,
-    onFilesDropped,
-    onStatus,
     type DeviceInfo,
     type DroppedFile,
     type PlayerStatus,
     type TrackDetails,
   } from './lib/ipc';
+  import { onFilesDropped, onStatus } from './lib/events';
   import Library from './lib/Library.svelte';
   import NowPlaying from './lib/NowPlaying.svelte';
   import PlayerBar from './lib/PlayerBar.svelte';
@@ -330,9 +329,9 @@
   aside {
     width: 240px;
     flex-shrink: 0;
-    background: #151c24;
+    background: var(--bg-sidebar);
     padding: 28px 20px;
-    border-right: 1px solid #29323a;
+    border-right: 1px solid var(--border-sidebar);
     display: flex;
     flex-direction: column;
     gap: 24px;
@@ -345,12 +344,12 @@
     margin: 8px 0 24px;
   }
   h1 span {
-    color: #b4d9cb;
+    color: var(--accent);
   }
   nav {
     display: grid;
     gap: 8px;
-    color: #a2adb7;
+    color: var(--text-muted);
   }
   nav button {
     border: 0;
@@ -362,8 +361,8 @@
     opacity: 0.55;
   }
   nav [aria-current='page'] {
-    color: #d9eee4;
-    background: #263831;
+    color: var(--text-current);
+    background: var(--surface-selected);
   }
   .output {
     margin-top: auto;
@@ -383,7 +382,7 @@
     gap: 12px;
   }
   .muted {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 13px;
   }
   h3 {
@@ -402,12 +401,12 @@
     font-size: 12px;
   }
   .backend {
-    border-top: 1px solid #29343d;
+    border-top: 1px solid var(--border);
     padding-top: 16px;
   }
   .backend p {
     font-size: 11px;
-    color: #b4d9cb;
+    color: var(--accent);
     line-height: 1.5;
     margin: 0;
   }
@@ -424,25 +423,25 @@
     display: flex;
     justify-content: space-between;
     gap: 16px;
-    background: #182129;
-    border-color: #29343d;
+    background: var(--surface);
+    border-color: var(--border);
   }
   .files button[aria-current='true'] {
-    border-color: #577369;
-    background: #1f2d2a;
+    border-color: var(--accent-line);
+    background: var(--surface-current);
   }
   .files small {
-    color: #a2adb7;
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .drop {
-    border: 1px dashed #38534a;
+    border: 1px dashed var(--border-strong);
     border-radius: 8px;
     padding: 28px;
     text-align: center;
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 13px;
   }
   .device {
@@ -457,16 +456,16 @@
     font: inherit;
     font-size: 13px;
     color: inherit;
-    background: #182129;
-    border: 1px solid #577369;
+    background: var(--surface);
+    border: 1px solid var(--accent-line);
     border-radius: 8px;
     padding: 8px 10px;
     width: 100%;
   }
   .alert {
-    border: 1px solid #8a5a3c;
-    background: #2a1f1a;
-    color: #f0d2bf;
+    border: 1px solid var(--danger-line);
+    background: var(--danger-surface);
+    color: var(--danger-text);
     border-radius: 8px;
     padding: 12px 16px;
     font-size: 13px;

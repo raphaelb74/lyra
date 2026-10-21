@@ -3,11 +3,11 @@
 
   import {
     attempt,
-    onDeviceVolume,
     type Backend,
     type PlayerStatus,
     type VolumeInfo,
   } from './ipc';
+  import { onDeviceVolume } from './events';
 
   interface Props {
     api: Backend;
@@ -166,10 +166,10 @@
   }
   input {
     width: 100%;
-    accent-color: #577369;
+    accent-color: var(--accent-line);
   }
   .muted {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 12px;
   }
 </style>

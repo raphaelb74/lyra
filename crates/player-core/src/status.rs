@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use format_dsd::DsdError;
 use format_pcm::DecodeError;
 
+use crate::dop;
 use crate::sink::{Encoding, HardwareVolume, OutputFormat, SinkError, SinkErrorKind};
 use crate::source::SourceInfo;
 
@@ -187,14 +188,12 @@ pub struct PlayerStatus {
 }
 
 impl PlayerStatus {
-    /// Why the device volume must not change now, if it must not: DoP is
-    /// DSD dressed as PCM, and any attenuation turns it into noise.
-    pub fn volume_lock(&self) -> Option<&'static str> {
-        let output = self.track.as_ref()?.output?;
+    /// Why `device`'s volume must not change now, if it must not: DoP is
+    /// playing on it (see [`crate::dop`]).
+    pub fn volume_lock(&self, device: &str) -> Option<&'static str> {
+        let track = self.track.as_ref().filter(|track| track.device == device)?;
         let active = !matches!(self.state, PlaybackState::Stopped | PlaybackState::Error);
-        (active && matches!(output.encoding, Encoding::Dop(_))).then_some(
-            "The volume stays at 0 dB during DoP playback: any change would turn the DSD into noise.",
-        )
+        (active && dop::is_dop(&track.output?)).then_some(dop::VOLUME_LOCKED)
     }
 
     pub(crate) const STOPPED: Self = Self {
@@ -277,9 +276,23 @@ mod tests {
         };
         let dop = Encoding::Dop(SampleEncoding::S24In3Le);
         let pcm = Encoding::Pcm(SampleEncoding::S24In3Le);
-        assert!(status(PlaybackState::Playing, dop).volume_lock().is_some());
-        assert!(status(PlaybackState::Paused, dop).volume_lock().is_some());
-        assert_eq!(status(PlaybackState::Stopped, dop).volume_lock(), None);
-        assert_eq!(status(PlaybackState::Playing, pcm).volume_lock(), None);
+        let here = "";
+        assert!(
+            status(PlaybackState::Playing, dop)
+                .volume_lock(here)
+                .is_some()
+        );
+        assert!(
+            status(PlaybackState::Paused, dop)
+                .volume_lock(here)
+                .is_some()
+        );
+        assert_eq!(status(PlaybackState::Stopped, dop).volume_lock(here), None);
+        assert_eq!(status(PlaybackState::Playing, pcm).volume_lock(here), None);
+        // Another device is not locked by DoP playing here.
+        assert_eq!(
+            status(PlaybackState::Playing, dop).volume_lock("hw:2"),
+            None
+        );
     }
 }

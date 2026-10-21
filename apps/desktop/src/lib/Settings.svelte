@@ -1,5 +1,6 @@
 <script lang="ts">
   import { attempt, type Backend, type Settings } from './ipc';
+  import RadioGroup, { type Option } from './RadioGroup.svelte';
 
   interface Props {
     api: Backend;
@@ -7,12 +8,6 @@
   }
 
   const { api, onError }: Props = $props();
-
-  interface Option<T> {
-    value: T;
-    label: string;
-    hint: string;
-  }
 
   const transports: Option<Settings['dsdTransport']>[] = [
     {
@@ -134,89 +129,48 @@
   </div>
 
   {#if settings}
-    <fieldset>
-      <legend>DSD transport</legend>
-      {#each transports as option (option.value)}
-        <label>
-          <input
-            type="radio"
-            name="dsd-transport"
-            value={option.value}
-            checked={settings.dsdTransport === option.value}
-            onchange={() => {
-              chooseTransport(option.value);
-            }}
-          />
-          <span>{option.label}<small>{option.hint}</small></span>
-        </label>
-      {/each}
-    </fieldset>
+    <RadioGroup
+      legend="DSD transport"
+      name="dsd-transport"
+      options={transports}
+      value={settings.dsdTransport}
+      onChoose={chooseTransport}
+    />
 
-    <fieldset>
-      <legend>Pause before playback when the format changes</legend>
-      <p class="muted">
-        Many DACs need a moment to switch between sample rates, or between PCM
-        and DSD; without it the first notes can be noise or missing. Lyra plays
-        silence first, only when the format changes.
-      </p>
-      {#each delays as option (option.value)}
-        <label>
-          <input
-            type="radio"
-            name="resync-delay"
-            value={option.value}
-            checked={settings.resyncDelayMs === option.value}
-            onchange={() => {
-              chooseDelay(option.value);
-            }}
-          />
-          <span>{option.label}<small>{option.hint}</small></span>
-        </label>
-      {/each}
-    </fieldset>
+    <RadioGroup
+      legend="Pause before playback when the format changes"
+      name="resync-delay"
+      options={delays}
+      value={settings.resyncDelayMs}
+      onChoose={chooseDelay}
+    >
+      Many DACs need a moment to switch between sample rates, or between PCM and
+      DSD; without it the first notes can be noise or missing. Lyra plays
+      silence first, only when the format changes.
+    </RadioGroup>
 
-    <fieldset>
-      <legend>DSD on devices without DSD support</legend>
-      <p class="muted">
-        Built-in audio and most non-USB outputs take neither native DSD nor DoP.
-        {#if settings.dsdTransport !== 'auto'}
-          Conversion only applies with the Auto transport.
-        {/if}
-      </p>
-      {#each fallbacks as option (option.value)}
-        <label>
-          <input
-            type="radio"
-            name="dsd-fallback"
-            value={option.value}
-            checked={settings.dsdFallback === option.value}
-            onchange={() => {
-              chooseFallback(option.value);
-            }}
-          />
-          <span>{option.label}<small>{option.hint}</small></span>
-        </label>
-      {/each}
-    </fieldset>
+    <RadioGroup
+      legend="DSD on devices without DSD support"
+      name="dsd-fallback"
+      options={fallbacks}
+      value={settings.dsdFallback}
+      onChoose={chooseFallback}
+    >
+      Built-in audio and most non-USB outputs take neither native DSD nor DoP.
+      {#if settings.dsdTransport !== 'auto'}
+        Conversion only applies with the Auto transport.
+      {/if}
+    </RadioGroup>
 
     {#if settings.dsdFallback === 'convert'}
-      <fieldset disabled={!converting}>
-        <legend>Conversion gain</legend>
-        {#each gains as option (option.value)}
-          <label>
-            <input
-              type="radio"
-              name="conversion-gain"
-              value={option.value}
-              checked={settings.conversionGainDb === option.value}
-              onchange={() => {
-                chooseGain(option.value);
-              }}
-            />
-            <span>{option.label}<small>{option.hint}</small></span>
-          </label>
-        {/each}
-      </fieldset>
+      <RadioGroup
+        legend="Conversion gain"
+        name="conversion-gain"
+        options={gains}
+        value={settings.conversionGainDb}
+        disabled={!converting}
+        onChoose={chooseGain}
+      />
     {/if}
   {:else}
     <p class="muted">Loading settings…</p>
@@ -236,50 +190,11 @@
     margin: 0;
   }
   .saved {
-    color: #b4d9cb;
-    font-size: 13px;
-  }
-  fieldset {
-    border: 1px solid #29343d;
-    border-radius: 8px;
-    padding: 12px 16px 16px;
-    margin: 0 0 16px;
-    max-width: 640px;
-    display: grid;
-    gap: 6px;
-  }
-  fieldset:disabled {
-    opacity: 0.5;
-  }
-  legend {
-    padding: 0 6px;
-    font-weight: 500;
-  }
-  label {
-    display: flex;
-    gap: 10px;
-    align-items: flex-start;
-    padding: 6px 4px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  label:hover {
-    background: #182129;
-  }
-  input {
-    margin-top: 3px;
-    accent-color: #577369;
-  }
-  label span {
-    display: grid;
-    gap: 2px;
-  }
-  small,
-  .muted {
-    color: #a2adb7;
+    color: var(--accent);
     font-size: 13px;
   }
   .muted {
-    margin: 0 0 4px;
+    color: var(--text-muted);
+    font-size: 13px;
   }
 </style>

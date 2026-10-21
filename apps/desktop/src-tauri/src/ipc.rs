@@ -334,10 +334,6 @@ pub struct LibraryTrack {
 }
 
 impl From<library::Track> for LibraryTrack {
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "display only; 2^52 ms is far beyond any track"
-    )]
     fn from(track: library::Track) -> Self {
         Self {
             id: track.id,
@@ -348,7 +344,7 @@ impl From<library::Track> for LibraryTrack {
             album_id: track.album_id,
             disc: track.disc,
             track: track.track,
-            duration_seconds: track.duration_ms.map(|ms| ms as f64 / 1000.0),
+            duration_seconds: track.duration_ms.map(ms_to_seconds),
             codec: track.codec,
             sample_rate: track.sample_rate,
             bits_per_sample: track.bits_per_sample,
@@ -391,16 +387,12 @@ pub struct PlaylistInfo {
 }
 
 impl From<Playlist> for PlaylistInfo {
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "display only; 2^52 ms is far beyond any playlist"
-    )]
     fn from(playlist: Playlist) -> Self {
         Self {
             id: playlist.id,
             name: playlist.name,
             track_count: playlist.tracks,
-            duration_seconds: playlist.duration_ms as f64 / 1000.0,
+            duration_seconds: ms_to_seconds(playlist.duration_ms),
         }
     }
 }
@@ -480,6 +472,15 @@ pub fn file_name(path: &Path) -> String {
         || path.display().to_string(),
         |name| name.to_string_lossy().into_owned(),
     )
+}
+
+/// Library durations are milliseconds; the UI shows seconds.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "durations are far below 2^52 ms"
+)]
+pub fn ms_to_seconds(ms: u64) -> f64 {
+    ms as f64 / 1000.0
 }
 
 /// Display only: exact positions stay in frames inside the engine.

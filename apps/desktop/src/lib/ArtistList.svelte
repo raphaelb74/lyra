@@ -84,7 +84,7 @@
   }
   li button:hover,
   li button:focus-visible {
-    background: #182129;
+    background: var(--surface);
   }
   li span {
     overflow: hidden;
@@ -93,15 +93,9 @@
   }
   small,
   .muted {
-    color: #a2adb7;
+    color: var(--text-muted);
     font-size: 12px;
     white-space: nowrap;
-  }
-  .back {
-    border: 0;
-    background: transparent;
-    padding: 6px 0;
-    color: #a2adb7;
   }
   .artist {
     font-size: 24px;
