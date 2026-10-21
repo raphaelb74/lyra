@@ -51,12 +51,13 @@ Done 2026-10-20: fixtures and engine tests verify every DSD bit through DoP; res
 
 ## M4 — Library and polished UI
 
-Five PRs: **M4a** library and album browser, **M4b-1** queue, gapless and Now Playing, **M4b-2** playlists, Artists and Tracks views, **M4c-1** Settings and DSD→PCM conversion, **M4c-2** diagnostics, design system, accessibility and shortcuts.
+Five PRs: **M4a** library and album browser, **M4b-1** queue, gapless and Now Playing, **M4b-2** playlists, Artists and Tracks views, **M4c-1** Settings and DSD→PCM conversion, **M4c-2** diagnostics, design system, accessibility, shortcuts and taking the DAC from PipeWire.
 
 - [x] SQLite migrations, folder scanner, metadata/artwork cache (M4a: `crates/library`; bundled SQLite, Symphonia tags for FLAC/WAV, `id3` for DSF/DFF; folders added by drop or a folder picker opened from Rust).
 - [x] DSD→PCM conversion as the last resort, with its Settings switch (M4c-1: `crates/dsd-pcm`; 88.2 kHz output, 44.1 kHz fallback; see the [design](DSD_TO_PCM_DESIGN.md) for the measured choices): native DSD, then DoP, then a low-pass/decimating conversion to 24-bit PCM at the highest 44.1 kHz-family rate the device takes, level-matched. Always labelled "not bit-perfect"; runs on the controller thread, never the writer. Settings: "DSD on devices without DSD support: Convert to PCM / Refuse" and "DSD transport: Auto / Native / DoP". Updates the spec non-goal to "no *silent* DSD→PCM conversion". Tests: synthetic DSD tone keeps frequency and level, no clipping.
 - [ ] Album/artist/track browser, queue, playlist editing, Now Playing. (M4a: album grid and album tracks. M4b-1: engine queue with gapless continuation of same-format tracks, DoP marker phase kept across boundaries, next/previous/skip, Now Playing and Queue views. M4b-2: playlists (migration 2; entries keep their own id, follow their track out of the library; create, rename, delete, add, move, remove), Artists and Tracks views with search.)
 - [ ] Settings, diagnostics, dark design system, accessibility and keyboard shortcuts (M4c). M4c-1: Settings view (DSD transport, conversion, conversion gain, pause before playback on a format change) saved to `settings.json`; hardware volume control that follows the desktop's volume keys, with the bit-perfect verdict updated live and DoP stopped if the volume moves; silence before a format change and a DSD-silence ending on stop. M4c-2: diagnostics (including the converter's clip count and peak), design system, accessibility, shortcuts.
+- [ ] Take the DAC from PipeWire cleanly (M4c-2): before opening a device, request it through the device-reservation D-Bus protocol (`org.freedesktop.ReserveDevice1.Audio<card>`), which PipeWire/WirePlumber honor, and release it when Lyra closes the device or quits, so PipeWire takes it back. Today a DAC that is the OS output fails with "device busy". One D-Bus client (`zbus`, new dependency) serves this and later MPRIS. Falls back to today's busy error when no session bus or no reservation is offered.
 - [x] Incremental scan and error states (M4a: size + mtime; unreadable files counted and reported; cancel keeps unreached files).
 
 **Done when:** 10k-track scan remains responsive during playback.
@@ -66,8 +67,7 @@ Five PRs: **M4a** library and album browser, **M4b-1** queue, gapless and Now Pl
 - [ ] Design overhaul before packaging: visual design, layout, interactions and a review of functions and features, once the M4 feature set is complete.
 - [ ] Name the audio engine **UNDA** (Unified Native Digital Audio): rename the `player-core` crate to `unda` and use the name in the docs and UI (e.g. the about screen). Other crates keep their descriptive names. Before M6, so the Windows and macOS output crates start under it.
 - [ ] Gapless and seek regression tests; unplug/replug tests; buffer underrun diagnostics.
-- [ ] MPRIS integration and icons.
-- [ ] Take the DAC from PipeWire cleanly: request it through the device-reservation D-Bus protocol (`org.freedesktop.ReserveDevice1`), which PipeWire/WirePlumber honor, and hand it back when Lyra releases it. One D-Bus client (`zbus`) serves this and MPRIS.
+- [ ] MPRIS integration and icons, on the D-Bus client added in M4c-2.
 - [ ] Packages for recent distributions: `.deb`, `.rpm`, AppImage, Flatpak (needs explicit ALSA device access in the sandbox), AUR. Test each on a real install.
 - [ ] Parser fuzzing, dependency license/security audit, log privacy review.
 - [ ] Release notes, installation instructions, hardware compatibility report.
