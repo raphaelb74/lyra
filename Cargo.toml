@@ -71,6 +71,11 @@ lossy_float_literal = "warn"
 opt-level = 2
 debug = false
 
+# DSD→PCM conversion runs in real time and is about 50× slower unoptimized:
+# a dev build would drop out constantly.
+[profile.dev.package.dsd-pcm]
+opt-level = 3
+
 [profile.release]
 opt-level = 3
 lto = "fat"
