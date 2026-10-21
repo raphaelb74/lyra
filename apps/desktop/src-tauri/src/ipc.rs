@@ -78,6 +78,14 @@ pub struct VolumeInfo {
     pub locked: Option<&'static str>,
 }
 
+/// A device's volume changed (event payload).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceVolume {
+    pub device: String,
+    pub volume: Option<VolumeInfo>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {

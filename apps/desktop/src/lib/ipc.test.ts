@@ -193,6 +193,7 @@ describe('playback commands', () => {
       dsdTransport: 'auto',
       dsdFallback: 'convert',
       conversionGainDb: 3,
+      resyncDelayMs: 500,
     } as const;
 
     const runCommand = vi.fn(() => Promise.resolve(settings));

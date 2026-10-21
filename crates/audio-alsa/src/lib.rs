@@ -11,4 +11,4 @@ mod volume;
 pub use device::{Capabilities, Device, PcmSupport, list_playback_devices, probe};
 pub use error::{AlsaError, Holder};
 pub use sink::{AlsaSink, BufferConfig};
-pub use volume::{VolumeLevel, set_volume, volume};
+pub use volume::{VolumeLevel, hardware_volume, set_volume, volume};

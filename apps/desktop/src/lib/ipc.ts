@@ -308,6 +308,8 @@ export interface Settings {
   dsdFallback: 'refuse' | 'convert';
   /** Gain for converted DSD: 0, 3 or 6 dB. */
   conversionGainDb: number;
+  /** Silence before playback when the format changes: 0–2000 ms. */
+  resyncDelayMs: number;
 }
 
 export function isSettings(value: Field): value is JsonValue & Settings {
@@ -317,7 +319,8 @@ export function isSettings(value: Field): value is JsonValue & Settings {
       value.dsdTransport === 'native' ||
       value.dsdTransport === 'dop') &&
     (value.dsdFallback === 'refuse' || value.dsdFallback === 'convert') &&
-    isNumber(value.conversionGainDb)
+    isNumber(value.conversionGainDb) &&
+    isNumber(value.resyncDelayMs)
   );
 }
 
@@ -707,6 +710,23 @@ export function onScanStatus(
 ): Promise<UnlistenFn> {
   return listen<JsonValue>('scan-status', (event) => {
     if (isScanStatus(event.payload)) handle(event.payload);
+  });
+}
+
+/** A device's volume changed, in Lyra or elsewhere (volume keys, PipeWire). */
+export function onDeviceVolume(
+  handle: (device: string, volume: VolumeInfo | null) => void,
+): Promise<UnlistenFn> {
+  return listen<JsonValue>('device-volume', (event) => {
+    const payload = event.payload;
+
+    if (
+      isRecord(payload) &&
+      isText(payload.device) &&
+      isVolume(payload.volume)
+    ) {
+      handle(payload.device, payload.volume);
+    }
   });
 }
 

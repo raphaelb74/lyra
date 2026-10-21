@@ -52,6 +52,16 @@ Lyra `play` example, direct `hw:` open, PipeWire running, volume as above (not 0
 
 DoP refusal message: "DSD over DoP needs the DAC's volume at 0 dB; it is at −34.50 dB." Nothing was written to the device.
 
+## Format switching
+
+Reported by the user in the app: the first notes after a format change (PCM to DSD and back, or the first track after launch) sometimes came out as noise, and closing Lyra in the middle of a native DSD track could leave the DAC playing noise for whatever came next. From the command line, a clean or killed DSD stream followed by PCM through PipeWire played cleanly in every attempt, so the DAC needs time to switch, not a different shutdown.
+
+Lyra's answer, as in other players (Roon's "resync delay"):
+- **Silence before playback** when the device's format changes, and on the first open after start: 0.5 s by default, adjustable in Settings (Off to 2 s). Sent only after the output is accepted, so a refused DoP device never gets DoP silence.
+- **A clean DSD ending:** stopped or closed mid-stream, Lyra drops the queued audio, plays 0.1 s of DSD idle pattern and lets it finish before releasing the device.
+
+To confirm by ear on this DAC: PCM → native DSD → PCM in one session, and quitting during DSD, both without noise.
+
 ## To do
 
 - With the volume at 0 dB (100% in Lyra): DoP DSD64/128 and the bit-perfect verdict.

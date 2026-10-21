@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+
   import {
     attempt,
+    onDeviceVolume,
     type Backend,
     type PlayerStatus,
     type VolumeInfo,
@@ -95,6 +98,24 @@
     return ` · ${value} dB`;
   }
 
+  /** Follows changes made outside Lyra; ignored while a change is sent. */
+  function followed(changed: string, level: VolumeInfo | null) {
+    if (changed !== device || sending) return;
+
+    volume = level;
+    loaded = true;
+  }
+
+  onMount(() => {
+    const unlisten = onDeviceVolume(followed);
+
+    return () => {
+      void unlisten.then((stop) => {
+        stop();
+      });
+    };
+  });
+
   $effect(() => {
     loaded = false;
     void load(device, playback);
@@ -125,7 +146,8 @@
       {:else if notBitPerfect}
         Below 0 dB, most USB DACs change the samples: not bit-perfect.
       {:else}
-        The device's own volume; Lyra never scales the samples. Ctrl+↑/↓.
+        The device's own volume, shared with the desktop's volume keys; Lyra
+        never scales the samples. Ctrl+↑/↓.
       {/if}
     </small>
   {:else if loaded}

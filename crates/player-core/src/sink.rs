@@ -98,6 +98,35 @@ impl Encoding {
         }
     }
 
+    /// Appends `frames` frames of silence in this layout: zeros for PCM,
+    /// the DSD idle pattern for native DSD, and the idle pattern with DoP
+    /// markers (starting at 0x05, as a track does) for DoP. Keep `frames`
+    /// even for DoP so the marker phase is unchanged after it.
+    pub fn silence(self, channels: usize, frames: usize, out: &mut Vec<u8>) {
+        match self {
+            Self::Pcm(layout) | Self::Converted(layout) => {
+                out.resize(out.len() + frames * channels * layout.bytes(), 0);
+            }
+            Self::Dsd(layout) => {
+                out.resize(
+                    out.len() + frames * channels * layout.bytes(),
+                    format_dsd::SILENCE,
+                );
+            }
+            Self::Dop(layout) => {
+                let idle = format_dsd::SILENCE;
+                let mut samples = Vec::with_capacity(frames * channels);
+                for frame in 0..frames {
+                    let marker = if frame % 2 == 0 { 0x05 } else { 0xFA };
+                    // Left-justified 24-bit: marker, then two DSD bytes.
+                    let sample = i32::from_be_bytes([marker, idle, idle, 0]);
+                    samples.extend(std::iter::repeat_n(sample, channels));
+                }
+                layout.pack(&samples, out);
+            }
+        }
+    }
+
     pub fn frame_bytes(self, channels: usize) -> usize {
         channels
             * match self {
@@ -508,5 +537,28 @@ mod tests {
         };
         assert!(!output.carries(&pcm));
         assert!(!output.carries(&dsd64(DsdTransport::Auto, false)));
+    }
+
+    #[test]
+    fn silence_matches_each_layout() {
+        let mut out = Vec::new();
+        Encoding::Pcm(SampleEncoding::S24In3Le).silence(2, 3, &mut out);
+        assert_eq!(out, vec![0; 18]);
+
+        out.clear();
+        Encoding::Dsd(DsdLayout::U32Be).silence(2, 2, &mut out);
+        assert_eq!(out, vec![0x69; 16]);
+
+        // DoP, S24_3LE stereo: [low, high, marker] per channel; markers
+        // alternate from 0x05, data is the idle pattern.
+        out.clear();
+        Encoding::Dop(SampleEncoding::S24In3Le).silence(2, 2, &mut out);
+        assert_eq!(
+            out,
+            [
+                0x69, 0x69, 0x05, 0x69, 0x69, 0x05, //
+                0x69, 0x69, 0xFA, 0x69, 0x69, 0xFA,
+            ]
+        );
     }
 }

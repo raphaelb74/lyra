@@ -61,6 +61,18 @@
     },
   ];
 
+  const delays: Option<number>[] = [
+    { value: 0, label: 'Off', hint: 'Start at once.' },
+    { value: 250, label: '0.25 s', hint: 'For DACs that switch quickly.' },
+    {
+      value: 500,
+      label: '0.5 s',
+      hint: 'Default: enough for the DACs tested so far.',
+    },
+    { value: 1000, label: '1 s', hint: 'If the first notes are noise or cut.' },
+    { value: 2000, label: '2 s', hint: 'For slow DACs.' },
+  ];
+
   let settings = $state<Settings | null>(null);
   let saved = $state(false);
 
@@ -98,6 +110,10 @@
     void save({ dsdFallback: value });
   }
 
+  function chooseDelay(value: number) {
+    void save({ resyncDelayMs: value });
+  }
+
   function chooseGain(value: number) {
     void save({ conversionGainDb: value });
   }
@@ -129,6 +145,29 @@
             checked={settings.dsdTransport === option.value}
             onchange={() => {
               chooseTransport(option.value);
+            }}
+          />
+          <span>{option.label}<small>{option.hint}</small></span>
+        </label>
+      {/each}
+    </fieldset>
+
+    <fieldset>
+      <legend>Pause before playback when the format changes</legend>
+      <p class="muted">
+        Many DACs need a moment to switch between sample rates, or between PCM
+        and DSD; without it the first notes can be noise or missing. Lyra plays
+        silence first, only when the format changes.
+      </p>
+      {#each delays as option (option.value)}
+        <label>
+          <input
+            type="radio"
+            name="resync-delay"
+            value={option.value}
+            checked={settings.resyncDelayMs === option.value}
+            onchange={() => {
+              chooseDelay(option.value);
             }}
           />
           <span>{option.label}<small>{option.hint}</small></span>

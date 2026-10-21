@@ -7,6 +7,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use player_core::{DsdFallback, DsdPolicy, DsdTransport};
 use serde::{Deserialize, Serialize};
@@ -17,7 +18,10 @@ use serde::{Deserialize, Serialize};
 /// releases, and the loudest masters may clip (clamped and counted).
 pub const CONVERSION_GAINS_DB: [i8; 3] = [0, 3, 6];
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Pauses offered before playback when the format changes, in ms.
+pub const RESYNC_DELAYS_MS: [u16; 5] = [0, 250, 500, 1000, 2000];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub dsd_transport: Transport,
@@ -25,6 +29,21 @@ pub struct Settings {
     pub dsd_fallback: Fallback,
     /// One of [`CONVERSION_GAINS_DB`].
     pub conversion_gain_db: i8,
+    /// Silence before playback when the format changes, so the DAC can
+    /// switch without noise; one of [`RESYNC_DELAYS_MS`].
+    pub resync_delay_ms: u16,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            dsd_transport: Transport::default(),
+            dsd_fallback: Fallback::default(),
+            conversion_gain_db: 0,
+            // Enough for the DACs tested so far to switch between PCM and DSD.
+            resync_delay_ms: 500,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,6 +86,11 @@ impl Settings {
 
     pub fn is_valid(self) -> bool {
         CONVERSION_GAINS_DB.contains(&self.conversion_gain_db)
+            && RESYNC_DELAYS_MS.contains(&self.resync_delay_ms)
+    }
+
+    pub fn resync_delay(self) -> Duration {
+        Duration::from_millis(u64::from(self.resync_delay_ms))
     }
 
     /// What the engine applies to DSD files.
@@ -115,6 +139,7 @@ mod tests {
             dsd_transport: Transport::Dop,
             dsd_fallback: Fallback::Convert,
             conversion_gain_db: 3,
+            resync_delay_ms: 1000,
         };
         settings.save(&path).unwrap();
         assert_eq!(Settings::load(&path), settings);
@@ -131,6 +156,7 @@ mod tests {
             "{",
             r#"{"conversionGainDb": 5}"#,
             r#"{"dsdTransport": "pcm"}"#,
+            r#"{"resyncDelayMs": 300}"#,
         ] {
             std::fs::write(&path, content).unwrap();
             assert_eq!(Settings::load(&path), Settings::default(), "{content}");

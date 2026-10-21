@@ -69,6 +69,9 @@ pub(crate) struct Controller {
     session: Option<Session>,
     /// Last track sequence number handed out.
     seq: u64,
+    /// Device and format last opened: the pre-roll is only needed when it
+    /// changes (or on the first open, when the DAC's state is unknown).
+    last_format: Option<(String, Encoding, u32)>,
 }
 
 impl Controller {
@@ -91,6 +94,7 @@ impl Controller {
             on_change,
             session: None,
             seq: 0,
+            last_format: None,
         }
     }
 
@@ -199,6 +203,7 @@ impl Controller {
                 }
             }
             Command::Stop => self.stop(),
+            Command::VolumeChanged { device, volume } => self.volume_changed(&device, volume),
             Command::Shutdown => {}
         }
     }
@@ -338,6 +343,15 @@ impl Controller {
                     return self.fail(error);
                 }
                 session.output = Some(output);
+                let format = (session.device.clone(), output.encoding, output.sample_rate);
+                let resync = Duration::from_millis(self.shared.resync_ms.load(Ordering::Acquire));
+                if !resync.is_zero() && self.last_format.as_ref() != Some(&format) {
+                    self.to_writer(ToWriter::Preroll {
+                        generation,
+                        duration: resync,
+                    });
+                }
+                self.last_format = Some(format);
                 self.update(|status| {
                     status.state = waiting;
                     if let Some(now) = &mut status.track {
@@ -483,6 +497,30 @@ impl Controller {
             bytes: buffer,
         };
         self.to_writer(ToWriter::Chunk(chunk));
+    }
+
+    fn volume_changed(&mut self, device: &str, volume: HardwareVolume) {
+        let Some(session) = self.session.as_mut().filter(|s| s.device == device) else {
+            return;
+        };
+        let Some(mut output) = session.output.filter(|o| o.hardware_volume != volume) else {
+            return;
+        };
+        if matches!(output.encoding, Encoding::Dop(_)) && !volume.passes_dop() {
+            return self.fail(PlayerError {
+                kind: ErrorKind::Unsupported,
+                message: "Playback stopped: the DAC's volume moved during DoP, which turns \
+                          the DSD into noise. Set it back to 100% and play again."
+                    .into(),
+            });
+        }
+        output.hardware_volume = volume;
+        session.output = Some(output);
+        self.update(|status| {
+            if let Some(shown) = status.track.as_mut().and_then(|now| now.output.as_mut()) {
+                shown.hardware_volume = volume;
+            }
+        });
     }
 
     fn stop(&mut self) {

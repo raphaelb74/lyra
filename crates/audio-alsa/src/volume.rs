@@ -41,6 +41,18 @@ struct SavedControl {
 /// `card` is a card control name (`hw:CARD=ONE` or `hw:2`). Never fails
 /// playback: on any mixer error the state is [`HardwareVolume::Unknown`].
 pub(crate) fn prepare(card: &str) -> (HardwareVolume, SavedVolume) {
+    inspect(card, true)
+}
+
+/// The volume state of the card behind `device`, as playback judges it,
+/// read only. Watch it while playing: the desktop's volume keys move a
+/// USB DAC's controls through PipeWire even while Lyra holds the device.
+pub fn hardware_volume(device: &str) -> HardwareVolume {
+    inspect(&card_control(device), false).0
+}
+
+/// With `correct`, near-0 dB controls are set to 0 dB (and saved to put back).
+fn inspect(card: &str, correct: bool) -> (HardwareVolume, SavedVolume) {
     let mixer_name = card.to_owned();
     let mut saved = SavedVolume {
         mixer: mixer_name.clone(),
@@ -58,7 +70,7 @@ pub(crate) fn prepare(card: &str) -> (HardwareVolume, SavedVolume) {
         if !selem.has_playback_volume() {
             continue;
         }
-        let Some(control) = adjust(&selem) else {
+        let Some(control) = adjust(&selem, correct) else {
             state = combine(state, HardwareVolume::Unknown);
             continue;
         };
@@ -215,7 +227,7 @@ struct Adjusted {
 }
 
 /// `None` when the control has no usable dB information.
-fn adjust(selem: &Selem<'_>) -> Option<Adjusted> {
+fn adjust(selem: &Selem<'_>, correct: bool) -> Option<Adjusted> {
     let (min_db, max_db) = selem.get_playback_db_range();
     if min_db == max_db {
         return None;
@@ -237,7 +249,7 @@ fn adjust(selem: &Selem<'_>) -> Option<Adjusted> {
         if db == 0 {
             continue;
         }
-        if unity_is_exact && (AUTO_UNITY_CENTIBELS..0).contains(&db) {
+        if correct && unity_is_exact && (AUTO_UNITY_CENTIBELS..0).contains(&db) {
             selem.set_playback_volume(channel, unity).ok()?;
             changed.push((channel, raw, unity));
         } else {

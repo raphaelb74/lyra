@@ -1,6 +1,7 @@
 mod commands;
 mod ipc;
 mod settings;
+mod volume_watch;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -47,6 +48,7 @@ pub fn run() -> tauri::Result<()> {
                 art_dir,
                 app.path().app_config_dir()?.join("settings.json"),
             ));
+            volume_watch::spawn(app.handle().clone())?;
             // Pick up changes made while Lyra was closed.
             if has_folders {
                 scanner.request();

@@ -39,6 +39,8 @@ pub struct AppState {
     pub art_dir: PathBuf,
     settings: Mutex<Settings>,
     settings_path: PathBuf,
+    /// Device whose volume the UI shows, for the volume watcher.
+    watched: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -50,6 +52,8 @@ impl AppState {
         art_dir: PathBuf,
         settings_path: PathBuf,
     ) -> Self {
+        let settings = Settings::load(&settings_path);
+        player.set_resync_delay(settings.resync_delay());
         Self {
             player,
             dropped: Mutex::new(HashSet::new()),
@@ -57,9 +61,17 @@ impl AppState {
             scanner,
             scan_status,
             art_dir,
-            settings: Mutex::new(Settings::load(&settings_path)),
+            settings: Mutex::new(settings),
             settings_path,
+            watched: Mutex::new(None),
         }
+    }
+
+    pub fn watched_device(&self) -> Option<String> {
+        self.watched
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     fn settings(&self) -> Settings {
@@ -513,7 +525,7 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 pub fn set_settings(settings: Settings, state: State<'_, AppState>) -> Result<Settings, IpcError> {
     if !settings.is_valid() {
         return Err(IpcError::invalid_request(
-            "That conversion gain is not one of the offered values.",
+            "That setting is not one of the offered values.",
         ));
     }
     settings
@@ -522,6 +534,7 @@ pub fn set_settings(settings: Settings, state: State<'_, AppState>) -> Result<Se
             code: "settings_not_saved",
             message: format!("Cannot save the settings: {error}"),
         })?;
+    state.player.set_resync_delay(settings.resync_delay());
     *state
         .settings
         .lock()
@@ -536,6 +549,7 @@ pub fn get_volume(
     state: State<'_, AppState>,
 ) -> Result<Option<VolumeInfo>, IpcError> {
     let device = hardware_device(device)?;
+    *state.watched.lock().unwrap_or_else(PoisonError::into_inner) = Some(device.clone());
     let level = audio_alsa::volume(&device).map_err(|error| volume_error(&error))?;
     Ok(level.map(|level| volume_info(level, volume_lock(&state, &device))))
 }
@@ -566,7 +580,7 @@ fn hardware_device(device: String) -> Result<String, IpcError> {
 }
 
 /// The lock applies to the device that is playing.
-fn volume_lock(state: &AppState, device: &str) -> Option<&'static str> {
+pub fn volume_lock(state: &AppState, device: &str) -> Option<&'static str> {
     let status = state.player.status();
     let playing_here = status
         .track
@@ -575,7 +589,7 @@ fn volume_lock(state: &AppState, device: &str) -> Option<&'static str> {
     playing_here.then(|| status.volume_lock()).flatten()
 }
 
-fn volume_info(level: audio_alsa::VolumeLevel, locked: Option<&'static str>) -> VolumeInfo {
+pub fn volume_info(level: audio_alsa::VolumeLevel, locked: Option<&'static str>) -> VolumeInfo {
     VolumeInfo {
         percent: level.percent,
         decibels: level.decibels,
