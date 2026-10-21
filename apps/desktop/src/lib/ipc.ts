@@ -42,7 +42,8 @@ export interface Verdict {
 }
 
 export interface Output {
-  transport: 'pcm' | 'dop' | 'native';
+  /** `converted`: DSD converted to PCM, not bit-perfect. */
+  transport: 'pcm' | 'dop' | 'native' | 'converted';
   format: string;
   sampleRate: number;
   channels: number;
@@ -279,12 +280,57 @@ function isVerdict(value: Field): value is JsonValue & Verdict {
   );
 }
 
+/** Mirrors Rust's `VolumeInfo`: a card's hardware volume. */
+export interface VolumeInfo {
+  percent: number;
+  decibels: number | null;
+  /** USB DAC: below 0 dB the samples usually change. */
+  usb: boolean;
+  /** Why the volume cannot change now (DoP playing). */
+  locked: string | null;
+}
+
+function isVolume(value: Field): value is (JsonValue & VolumeInfo) | null {
+  return (
+    value === null ||
+    (isRecord(value) &&
+      isNumber(value.percent) &&
+      isNullableNumber(value.decibels) &&
+      isFlag(value.usb) &&
+      isNullableText(value.locked))
+  );
+}
+
+/** Mirrors Rust's `Settings`. */
+export interface Settings {
+  dsdTransport: 'auto' | 'native' | 'dop';
+  /** DSD on devices without DSD support. */
+  dsdFallback: 'refuse' | 'convert';
+  /** Gain for converted DSD: 0, 3 or 6 dB. */
+  conversionGainDb: number;
+  /** Silence before playback when the format changes: 0–2000 ms. */
+  resyncDelayMs: number;
+}
+
+export function isSettings(value: Field): value is JsonValue & Settings {
+  return (
+    isRecord(value) &&
+    (value.dsdTransport === 'auto' ||
+      value.dsdTransport === 'native' ||
+      value.dsdTransport === 'dop') &&
+    (value.dsdFallback === 'refuse' || value.dsdFallback === 'convert') &&
+    isNumber(value.conversionGainDb) &&
+    isNumber(value.resyncDelayMs)
+  );
+}
+
 function isOutput(value: Field): value is JsonValue & Output {
   return (
     isRecord(value) &&
     (value.transport === 'pcm' ||
       value.transport === 'dop' ||
-      value.transport === 'native') &&
+      value.transport === 'native' ||
+      value.transport === 'converted') &&
     isText(value.format) &&
     isNumber(value.sampleRate) &&
     isNumber(value.channels)
@@ -626,6 +672,13 @@ export function backend(
       run('remove_from_playlist', isNothing, { entryId }),
     moveInPlaylist: (entryId: number, to: number) =>
       run('move_in_playlist', isNothing, { entryId, to }),
+    volume: (device: string) =>
+      run<VolumeInfo | null>('get_volume', isVolume, { device }),
+    setVolume: (device: string, percent: number) =>
+      run<VolumeInfo | null>('set_volume', isVolume, { device, percent }),
+    settings: () => run('get_settings', isSettings),
+    setSettings: (settings: Settings) =>
+      run('set_settings', isSettings, { settings: { ...settings } }),
   };
 }
 
@@ -657,6 +710,23 @@ export function onScanStatus(
 ): Promise<UnlistenFn> {
   return listen<JsonValue>('scan-status', (event) => {
     if (isScanStatus(event.payload)) handle(event.payload);
+  });
+}
+
+/** A device's volume changed, in Lyra or elsewhere (volume keys, PipeWire). */
+export function onDeviceVolume(
+  handle: (device: string, volume: VolumeInfo | null) => void,
+): Promise<UnlistenFn> {
+  return listen<JsonValue>('device-volume', (event) => {
+    const payload = event.payload;
+
+    if (
+      isRecord(payload) &&
+      isText(payload.device) &&
+      isVolume(payload.volume)
+    ) {
+      handle(payload.device, payload.volume);
+    }
   });
 }
 

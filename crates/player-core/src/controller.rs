@@ -8,7 +8,7 @@ use std::thread::Thread;
 use std::time::Duration;
 
 use crate::player::{Command, Inbox, QueueItem, Shared};
-use crate::sink::{DsdTransport, Encoding, HardwareVolume, OutputFormat};
+use crate::sink::{DsdPolicy, Encoding, HardwareVolume, OutputFormat};
 use crate::source::{Source, SourceInfo};
 use crate::status::{ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus, format_db};
 use crate::writer::{Chunk, ToWriter, WriterEvent};
@@ -23,7 +23,7 @@ const RESTART_AFTER_SECONDS: u64 = 3;
 struct Session {
     items: Arc<[QueueItem]>,
     device: String,
-    dsd: DsdTransport,
+    dsd: DsdPolicy,
     generation: u64,
     /// Format the device is open with; `None` while it opens.
     output: Option<OutputFormat>,
@@ -69,6 +69,9 @@ pub(crate) struct Controller {
     session: Option<Session>,
     /// Last track sequence number handed out.
     seq: u64,
+    /// Device and format last opened: the pre-roll is only needed when it
+    /// changes (or on the first open, when the DAC's state is unknown).
+    last_format: Option<(String, Encoding, u32)>,
 }
 
 impl Controller {
@@ -91,6 +94,7 @@ impl Controller {
             on_change,
             session: None,
             seq: 0,
+            last_format: None,
         }
     }
 
@@ -199,12 +203,13 @@ impl Controller {
                 }
             }
             Command::Stop => self.stop(),
+            Command::VolumeChanged { device, volume } => self.volume_changed(&device, volume),
             Command::Shutdown => {}
         }
     }
 
     /// The queue, shown entry, device and DSD policy of the session.
-    fn current(&self) -> Option<(Arc<[QueueItem]>, usize, String, DsdTransport)> {
+    fn current(&self) -> Option<(Arc<[QueueItem]>, usize, String, DsdPolicy)> {
         self.session.as_ref().map(|session| {
             (
                 Arc::clone(&session.items),
@@ -232,7 +237,7 @@ impl Controller {
         index: usize,
         frame: u64,
         device: String,
-        dsd: DsdTransport,
+        dsd: DsdPolicy,
     ) {
         let Some(item) = items.get(index).cloned() else {
             return self.stop();
@@ -338,6 +343,15 @@ impl Controller {
                     return self.fail(error);
                 }
                 session.output = Some(output);
+                let format = (session.device.clone(), output.encoding, output.sample_rate);
+                let resync = Duration::from_millis(self.shared.resync_ms.load(Ordering::Acquire));
+                if !resync.is_zero() && self.last_format.as_ref() != Some(&format) {
+                    self.to_writer(ToWriter::Preroll {
+                        generation,
+                        duration: resync,
+                    });
+                }
+                self.last_format = Some(format);
                 self.update(|status| {
                     status.state = waiting;
                     if let Some(now) = &mut status.track {
@@ -400,7 +414,7 @@ impl Controller {
             Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return,
         };
         let feed = &mut session.feed;
-        match feed.source.next(output.encoding, &mut buffer) {
+        match feed.source.next(&output, session.dsd, &mut buffer) {
             Ok(Some(frames)) => {
                 let chunk = Chunk {
                     generation: session.generation,
@@ -412,10 +426,7 @@ impl Controller {
                 feed.next_frame += frames;
                 self.to_writer(ToWriter::Chunk(chunk));
             }
-            Ok(None) => {
-                let _ = self.free_tx.send(buffer);
-                self.track_ended(output);
-            }
+            Ok(None) => self.track_ended(output, buffer),
             Err(error) => {
                 let _ = self.free_tx.send(buffer);
                 self.fail(error);
@@ -424,9 +435,11 @@ impl Controller {
     }
 
     /// The decoded track ended: continue gaplessly into the next entry when
-    /// the open device carries it, otherwise let the device drain.
-    fn track_ended(&mut self, output: OutputFormat) {
+    /// the open device carries it, otherwise let the device drain. `buffer`
+    /// is a free buffer, for the end of converted audio.
+    fn track_ended(&mut self, output: OutputFormat, buffer: Vec<u8>) {
         let Some(session) = self.session.as_mut() else {
+            let _ = self.free_tx.send(buffer);
             return;
         };
         let next = session.feed.index + 1;
@@ -435,7 +448,11 @@ impl Controller {
             if let Ok(mut source) = Source::open(&item.path) {
                 let info = source.info();
                 if output.carries(&info.stream(session.dsd)) {
-                    source.continue_from(&session.feed.source);
+                    source.continue_from(&mut session.feed.source);
+                    self.send_tail(output, buffer);
+                    let Some(session) = self.session.as_mut() else {
+                        return;
+                    };
                     self.seq += 1;
                     session.upcoming.push_back(Entry {
                         seq: self.seq,
@@ -456,7 +473,54 @@ impl Controller {
         }
         session.feed.decoding = false;
         let generation = session.generation;
+        self.send_tail(output, buffer);
         self.to_writer(ToWriter::Drain { generation });
+    }
+
+    /// Queues what the converter still holds of the track that ended (its
+    /// filters' tail); returns the buffer to the pool when there is none.
+    fn send_tail(&mut self, output: OutputFormat, mut buffer: Vec<u8>) {
+        let Some(session) = self.session.as_mut() else {
+            let _ = self.free_tx.send(buffer);
+            return;
+        };
+        session.feed.source.tail(output.encoding, &mut buffer);
+        if buffer.is_empty() {
+            let _ = self.free_tx.send(buffer);
+            return;
+        }
+        let chunk = Chunk {
+            generation: session.generation,
+            seq: session.feed.seq,
+            start_frame: session.feed.next_frame,
+            frames: 0,
+            bytes: buffer,
+        };
+        self.to_writer(ToWriter::Chunk(chunk));
+    }
+
+    fn volume_changed(&mut self, device: &str, volume: HardwareVolume) {
+        let Some(session) = self.session.as_mut().filter(|s| s.device == device) else {
+            return;
+        };
+        let Some(mut output) = session.output.filter(|o| o.hardware_volume != volume) else {
+            return;
+        };
+        if matches!(output.encoding, Encoding::Dop(_)) && !volume.passes_dop() {
+            return self.fail(PlayerError {
+                kind: ErrorKind::Unsupported,
+                message: "Playback stopped: the DAC's volume moved during DoP, which turns \
+                          the DSD into noise. Set it back to 100% and play again."
+                    .into(),
+            });
+        }
+        output.hardware_volume = volume;
+        session.output = Some(output);
+        self.update(|status| {
+            if let Some(shown) = status.track.as_mut().and_then(|now| now.output.as_mut()) {
+                shown.hardware_volume = volume;
+            }
+        });
     }
 
     fn stop(&mut self) {
@@ -547,12 +611,13 @@ fn dop_allowed(encoding: Encoding, volume: HardwareVolume) -> Result<(), PlayerE
         (Encoding::Dop(_), HardwareVolume::Unknown) => {
             "DSD over DoP is only sent to a USB DAC whose volume Lyra can check. \
              This device is not one: if it does not decode DoP (built-in audio cannot), \
-             it would play loud noise. Lyra does not convert DSD to PCM."
+             it would play loud noise. To play DSD here, turn on \
+             “Convert DSD to PCM” in Settings (not bit-perfect)."
                 .to_owned()
         }
         (Encoding::Dop(_), HardwareVolume::Attenuated { centibels }) => format!(
             "DSD over DoP needs the DAC's volume at 0 dB; it is at {} dB. \
-             Raise it to maximum (for example in alsamixer) and play again.",
+             Raise it to 100% with Lyra's volume control under Output and play again.",
             format_db(centibels)
         ),
         _ => return Ok(()),

@@ -14,8 +14,8 @@ mod writer;
 
 pub use player::{POOL_SIZE, Player, QueueItem};
 pub use sink::{
-    AudioSink, DsdTransport, Encoding, HardwareVolume, OutputFormat, SinkError, SinkErrorKind,
-    StreamFormat, Transport,
+    AudioSink, DsdFallback, DsdPolicy, DsdTransport, Encoding, HardwareVolume, OutputFormat,
+    SinkError, SinkErrorKind, StreamFormat, Transport,
 };
 pub use source::SourceInfo;
 pub use status::{BitPerfect, ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus};

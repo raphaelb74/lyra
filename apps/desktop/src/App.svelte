@@ -18,11 +18,12 @@
   import PlayerBar from './lib/PlayerBar.svelte';
   import Playlists from './lib/Playlists.svelte';
   import QueueView from './lib/QueueView.svelte';
+  import Settings from './lib/Settings.svelte';
+  import VolumeControl from './lib/VolumeControl.svelte';
 
   const api = backend();
-  const laterViews = ['Settings'];
 
-  type View = 'library' | 'playlists' | 'now' | 'queue' | 'files';
+  type View = 'library' | 'playlists' | 'now' | 'queue' | 'files' | 'settings';
 
   const views: readonly { id: View; label: string }[] = [
     { id: 'library', label: 'Library' },
@@ -30,6 +31,7 @@
     { id: 'now', label: 'Now playing' },
     { id: 'queue', label: 'Queue' },
     { id: 'files', label: 'Files' },
+    { id: 'settings', label: 'Settings' },
   ];
 
   let connection = $state('Connecting to Rust…');
@@ -184,11 +186,6 @@
             onclick={() => (view = item.id)}>{item.label}</button
           >
         {/each}
-        {#each laterViews as later (later)}
-          <button type="button" disabled title="Not available yet"
-            >{later}</button
-          >
-        {/each}
       </nav>
       <section class="output" aria-labelledby="device-title">
         <div class="section-heading">
@@ -207,6 +204,12 @@
               {/each}
             </select>
             <small class="muted">{selectedDevice}</small>
+            <VolumeControl
+              {api}
+              device={selectedDevice}
+              {status}
+              onError={showError}
+            />
           {:else}
             <p class="muted">
               {devicesLoaded
@@ -252,6 +255,8 @@
         />
       {:else if view === 'now'}
         <NowPlaying {status} {details} {device} />
+      {:else if view === 'settings'}
+        <Settings {api} onError={showError} />
       {:else if view === 'queue'}
         <QueueView
           {api}

@@ -65,6 +65,27 @@ impl From<PlayerError> for IpcError {
     }
 }
 
+/// A card's hardware volume, for the in-app control.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeInfo {
+    /// 0–100 along the control's steps.
+    pub percent: u8,
+    pub decibels: Option<f64>,
+    /// USB DAC: below 0 dB the samples usually change (not bit-perfect).
+    pub usb: bool,
+    /// Why the volume cannot change now (DoP playing), if it cannot.
+    pub locked: Option<&'static str>,
+}
+
+/// A device's volume changed (event payload).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceVolume {
+    pub device: String,
+    pub volume: Option<VolumeInfo>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
@@ -128,7 +149,7 @@ pub struct Track {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Output {
-    /// `pcm`, `dop` or `native`.
+    /// `pcm`, `dop`, `native` or `converted` (DSD converted to PCM).
     pub transport: &'static str,
     /// ALSA format name, e.g. `S24_3LE` or `DSD_U32_BE`.
     pub format: &'static str,
@@ -195,6 +216,7 @@ impl From<&NowPlaying> for Track {
                     Transport::Pcm => "pcm",
                     Transport::Dop => "dop",
                     Transport::Native => "native",
+                    Transport::Converted => "converted",
                 },
                 format: alsa_format_name(output.encoding),
                 sample_rate: output.sample_rate,
@@ -232,7 +254,7 @@ fn state_name(state: PlaybackState) -> &'static str {
 
 fn alsa_format_name(encoding: Encoding) -> &'static str {
     let layout = match encoding {
-        Encoding::Pcm(layout) | Encoding::Dop(layout) => layout,
+        Encoding::Pcm(layout) | Encoding::Dop(layout) | Encoding::Converted(layout) => layout,
         Encoding::Dsd(layout) => return layout.name(),
     };
     match layout {

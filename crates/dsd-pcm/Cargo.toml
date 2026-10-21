@@ -1,0 +1,18 @@
+[package]
+name = "dsd-pcm"
+description = "Opt-in DSD to PCM conversion for devices without DSD support"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+format-dsd.workspace = true
+
+[lints]
+workspace = true

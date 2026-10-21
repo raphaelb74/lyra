@@ -22,9 +22,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use crate::controller::Controller;
-use crate::sink::{AudioSink, DsdTransport};
+use crate::sink::{AudioSink, DsdPolicy, HardwareVolume};
 use crate::status::{ErrorKind, PlaybackState, PlayerError, PlayerStatus};
 use crate::writer::{Writer, WriterEvent};
 
@@ -51,6 +52,8 @@ pub(crate) struct Shared {
     pub status: Mutex<PlayerStatus>,
     /// The queue, for [`Player::queue`]; replaced as a whole.
     pub queue: Mutex<Arc<[QueueItem]>>,
+    /// Silence before playback when the device's format changes, in ms.
+    pub resync_ms: AtomicU64,
 }
 
 impl Shared {
@@ -81,7 +84,7 @@ pub(crate) enum Command {
         items: Vec<QueueItem>,
         start: usize,
         device: String,
-        dsd: DsdTransport,
+        dsd: DsdPolicy,
     },
     Next,
     Previous,
@@ -93,6 +96,10 @@ pub(crate) enum Command {
     Stop,
     Seek {
         frame: u64,
+    },
+    VolumeChanged {
+        device: String,
+        volume: HardwareVolume,
     },
     Shutdown,
 }
@@ -126,6 +133,7 @@ impl Player {
             position: AtomicU64::new(0),
             status: Mutex::new(PlayerStatus::STOPPED),
             queue: Mutex::new(Arc::from([])),
+            resync_ms: AtomicU64::new(0),
         });
         let (inbox_tx, inbox_rx) = mpsc::channel();
         let (writer_tx, writer_rx) = mpsc::channel();
@@ -170,13 +178,8 @@ impl Player {
     }
 
     /// Plays one file on the ALSA device `device` (e.g. `hw:CARD=ONE,DEV=0`):
-    /// a queue of one. `dsd` chooses native DSD or DoP for DSD files.
-    pub fn play(
-        &self,
-        path: PathBuf,
-        device: String,
-        dsd: DsdTransport,
-    ) -> Result<(), PlayerError> {
+    /// a queue of one. `dsd` chooses how DSD files reach the device.
+    pub fn play(&self, path: PathBuf, device: String, dsd: DsdPolicy) -> Result<(), PlayerError> {
         self.play_queue(vec![QueueItem { path, id: None }], 0, device, dsd)
     }
 
@@ -187,7 +190,7 @@ impl Player {
         items: Vec<QueueItem>,
         start: usize,
         device: String,
-        dsd: DsdTransport,
+        dsd: DsdPolicy,
     ) -> Result<(), PlayerError> {
         if start >= items.len() {
             return Err(PlayerError {
@@ -227,8 +230,29 @@ impl Player {
         self.send(Command::Resume)
     }
 
+    /// Silence sent before playback whenever the device's format changes,
+    /// and on the first open: many DACs mute or play noise for a moment
+    /// while they switch between PCM rates or between PCM and DSD. Zero
+    /// (the default) sends none. Applies from the next open.
+    pub fn set_resync_delay(&self, delay: Duration) {
+        let ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX);
+        self.shared.resync_ms.store(ms, Ordering::Release);
+    }
+
     pub fn stop(&self) -> Result<(), PlayerError> {
         self.send(Command::Stop)
+    }
+
+    /// Reports `device`'s volume as it is now. The DAC's volume can change
+    /// during playback (the desktop's volume keys move it through
+    /// PipeWire): the bit-perfect verdict follows, and DoP stops at once,
+    /// before attenuation turns it into noise.
+    pub fn volume_changed(
+        &self,
+        device: String,
+        volume: HardwareVolume,
+    ) -> Result<(), PlayerError> {
+        self.send(Command::VolumeChanged { device, volume })
     }
 
     /// Moves to `frame` (source frames from the start of the current track).

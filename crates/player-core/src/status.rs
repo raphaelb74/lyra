@@ -130,6 +130,14 @@ impl NowPlaying {
     /// is refused), so the remaining question is the device's own volume.
     pub fn bit_perfect(&self) -> Option<BitPerfect> {
         let output = self.output?;
+        if let Encoding::Converted(_) = output.encoding {
+            return Some(BitPerfect::No {
+                reason: format!(
+                    "DSD is converted to PCM at {} Hz (conversion is on in Settings)",
+                    output.sample_rate
+                ),
+            });
+        }
         let exact = output.channels == self.source.channels()
             && match (self.source, output.encoding) {
                 (SourceInfo::Pcm(info), Encoding::Pcm(layout)) => {
@@ -179,6 +187,16 @@ pub struct PlayerStatus {
 }
 
 impl PlayerStatus {
+    /// Why the device volume must not change now, if it must not: DoP is
+    /// DSD dressed as PCM, and any attenuation turns it into noise.
+    pub fn volume_lock(&self) -> Option<&'static str> {
+        let output = self.track.as_ref()?.output?;
+        let active = !matches!(self.state, PlaybackState::Stopped | PlaybackState::Error);
+        (active && matches!(output.encoding, Encoding::Dop(_))).then_some(
+            "The volume stays at 0 dB during DoP playback: any change would turn the DSD into noise.",
+        )
+    }
+
     pub(crate) const STOPPED: Self = Self {
         state: PlaybackState::Stopped,
         track: None,
@@ -193,7 +211,7 @@ mod tests {
 
     use format_pcm::{Codec, SampleEncoding, StreamInfo};
 
-    use super::{BitPerfect, NowPlaying};
+    use super::{BitPerfect, NowPlaying, PlaybackState, PlayerStatus};
     use crate::sink::{Encoding, HardwareVolume, OutputFormat};
     use crate::source::SourceInfo;
 
@@ -241,5 +259,27 @@ mod tests {
             playing(HardwareVolume::Unknown).bit_perfect(),
             Some(BitPerfect::Unverified { .. })
         ));
+    }
+
+    #[test]
+    fn volume_is_locked_only_while_dop_plays() {
+        let status = |state, encoding| {
+            let mut track = playing(HardwareVolume::Unity);
+            if let Some(output) = &mut track.output {
+                output.encoding = encoding;
+            }
+            PlayerStatus {
+                state,
+                track: Some(track),
+                error: None,
+                queue_length: 1,
+            }
+        };
+        let dop = Encoding::Dop(SampleEncoding::S24In3Le);
+        let pcm = Encoding::Pcm(SampleEncoding::S24In3Le);
+        assert!(status(PlaybackState::Playing, dop).volume_lock().is_some());
+        assert!(status(PlaybackState::Paused, dop).volume_lock().is_some());
+        assert_eq!(status(PlaybackState::Stopped, dop).volume_lock(), None);
+        assert_eq!(status(PlaybackState::Playing, pcm).volume_lock(), None);
     }
 }

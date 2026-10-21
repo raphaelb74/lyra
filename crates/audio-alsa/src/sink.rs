@@ -101,7 +101,10 @@ impl AudioSink for AlsaSink {
         if base().is_err() {
             return Err(unsupported(format!("{channels} channels")));
         }
-        let output = OutputFormat::negotiate(stream, |encoding, rate| {
+        // Before negotiating: whether DoP would arrive intact decides
+        // between DoP and conversion when conversion is allowed.
+        let (hardware_volume, saved_volume) = volume::prepare(&card_control(device));
+        let output = OutputFormat::negotiate(stream, hardware_volume, |encoding, rate| {
             base().is_ok_and(|hw| {
                 hw.set_format(alsa_format(encoding)).is_ok() && hw.test_rate(rate).is_ok()
             })
@@ -148,10 +151,6 @@ impl AudioSink for AlsaSink {
             };
             (current.can_pause(), buffer)
         };
-
-        let mut output = output;
-        let (hardware_volume, saved_volume) = volume::prepare(&card_control(device));
-        output.hardware_volume = hardware_volume;
 
         self.stream = Some(Stream {
             pcm,
@@ -283,7 +282,7 @@ fn card_index(device: &str) -> Option<i32> {
 }
 
 /// Control name for the card of a `hw:` PCM name (`hw:CARD=ONE` / `hw:2`).
-fn card_control(device: &str) -> String {
+pub(crate) fn card_control(device: &str) -> String {
     match hw_part(device, "CARD", 0) {
         Some(card) if card.parse::<u32>().is_ok() => format!("hw:{card}"),
         Some(card) => format!("hw:CARD={card}"),

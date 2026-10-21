@@ -1,10 +1,11 @@
 //! Plays one file on one ALSA device and prints what the kernel negotiated.
 //!
-//! `cargo run -p audio-alsa --example play -- hw:CARD=ONE,DEV=0 a.flac [b.flac …] [auto|native|dop]`
+//! `cargo run -p audio-alsa --example play -- hw:CARD=ONE,DEV=0 a.flac [b.flac …] [auto|native|dop|convert]`
 //!
 //! Several files play as a queue, gaplessly where the format allows; each
 //! track change is printed. DSD files take an optional transport: `auto`
-//! (default: native DSD, else DoP), `native` or `dop`.
+//! (default: native DSD, else DoP), `native`, `dop`, or `convert` (auto, then
+//! conversion to PCM, not bit-perfect).
 //!
 //! While playing, prints `/proc/asound/<card>/pcm<dev>p/sub0/hw_params`: the
 //! format and rate the device is running at, independent of Lyra's own report.
@@ -15,22 +16,23 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use audio_alsa::{AlsaSink, list_playback_devices};
-use player_core::{DsdTransport, PlaybackState, Player, QueueItem};
+use player_core::{DsdFallback, DsdPolicy, DsdTransport, PlaybackState, Player, QueueItem};
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
-    let usage = "usage: play <hw:CARD=…,DEV=…> <file.flac|wav|dsf|dff>… [auto|native|dop]";
+    let usage = "usage: play <hw:CARD=…,DEV=…> <file.flac|wav|dsf|dff>… [auto|native|dop|convert]";
     let Some(device) = args.next() else {
         eprintln!("{usage}");
         return ExitCode::FAILURE;
     };
-    let mut dsd = DsdTransport::Auto;
+    let mut dsd = DsdPolicy::default();
     let mut items = Vec::new();
     for arg in args {
         match arg.as_str() {
-            "auto" => dsd = DsdTransport::Auto,
-            "native" => dsd = DsdTransport::Native,
-            "dop" => dsd = DsdTransport::Dop,
+            "auto" => dsd.transport = DsdTransport::Auto,
+            "native" => dsd.transport = DsdTransport::Native,
+            "dop" => dsd.transport = DsdTransport::Dop,
+            "convert" => dsd.fallback = DsdFallback::Convert { gain_db: 0 },
             path => items.push(QueueItem {
                 path: PathBuf::from(path),
                 id: None,

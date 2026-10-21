@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   "apps/desktop/src-tauri",
   "crates/audio-alsa",
+  "crates/dsd-pcm",
   "crates/format-dsd",
   "crates/format-pcm",
   "crates/library",
@@ -20,6 +21,7 @@ repository = "https://github.com/raphaelb74/lyra"
 # Shared versions: crates write `name = { workspace = true }`.
 [workspace.dependencies]
 # Workspace crates.
+dsd-pcm = { path = "crates/dsd-pcm", version = "0.1.0" }
 format-dsd = { path = "crates/format-dsd", version = "0.1.0" }
 format-pcm = { path = "crates/format-pcm", version = "0.1.0" }
 player-core = { path = "crates/player-core", version = "0.1.0" }
@@ -68,6 +70,11 @@ lossy_float_literal = "warn"
 [profile.dev.package."*"]
 opt-level = 2
 debug = false
+
+# DSD→PCM conversion runs in real time and is about 50× slower unoptimized:
+# a dev build would drop out constantly.
+[profile.dev.package.dsd-pcm]
+opt-level = 3
 
 [profile.release]
 opt-level = 3
