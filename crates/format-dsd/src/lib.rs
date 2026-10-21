@@ -1,4 +1,4 @@
-//! DSD file readers (DSF, DSDIFF/DFF) and DoP packing.
+//! DSD file readers (DSF, DSDIFF/DFF), DoP packing and native DSD layouts.
 //!
 //! Both readers produce the same layout: **DSD bytes, most significant bit
 //! first (oldest bit in bit 7), interleaved one byte per channel**. A "frame"
@@ -13,15 +13,20 @@ mod dff;
 pub mod dop;
 mod dsf;
 mod error;
+pub mod native;
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
 pub use error::DsdError;
+pub use native::{DsdLayout, NativePacker};
 
 /// DSD64 bit rate per channel (64 × 44.1 kHz).
 pub const DSD64_RATE: u32 = 2_822_400;
+
+/// DSD idle pattern: digital silence that keeps the DAC in DSD mode.
+pub const SILENCE: u8 = 0x69;
 
 /// Most channels read. Multichannel files open, so the player can refuse
 /// them with a clear reason when the DAC has fewer outputs.
@@ -47,18 +52,23 @@ pub struct DsdInfo {
 impl DsdInfo {
     /// 64 for DSD64, 128 for DSD128, … (of 44.1 or 48 kHz).
     pub fn multiple(&self) -> u32 {
-        let base = if self.dsd_rate.is_multiple_of(44_100) {
-            44_100
-        } else {
-            48_000
-        };
-        self.dsd_rate / base
+        multiple(self.dsd_rate)
     }
 
     /// Frames per second (bytes per channel per second).
     pub fn frame_rate(&self) -> u32 {
         self.dsd_rate / 8
     }
+}
+
+/// 64 for 2.8224 MHz (DSD64), 128 for 5.6448 MHz, … (of 44.1 or 48 kHz).
+pub fn multiple(dsd_rate: u32) -> u32 {
+    let base = if dsd_rate.is_multiple_of(44_100) {
+        44_100
+    } else {
+        48_000
+    };
+    dsd_rate / base
 }
 
 /// Any seekable byte source.

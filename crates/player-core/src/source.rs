@@ -1,29 +1,20 @@
-//! What the controller plays: PCM decoded from WAV/FLAC, or DSD from
-//! DSF/DFF carried as DoP. Both come out as left-justified `i32` samples for
-//! the PCM stream the device is opened with.
+//! What the controller plays: PCM decoded from WAV/FLAC, or DSD from DSF/DFF,
+//! packed into the byte layout the device was opened with.
 
 use std::path::Path;
 
-use format_dsd::dop::{self, DopPacker};
-use format_dsd::{DsdError, DsdInfo, DsdReader};
+use format_dsd::dop::DopPacker;
+use format_dsd::{DsdError, DsdInfo, DsdReader, NativePacker};
 use format_pcm::{Decoder, StreamInfo};
 
-use crate::sink::PcmStream;
-use crate::status::PlayerError;
+use crate::sink::{DsdTransport, Encoding, StreamFormat};
+use crate::status::{ErrorKind, PlayerError};
 
 /// The file being played, for display and policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceInfo {
     Pcm(StreamInfo),
     Dsd(DsdInfo),
-}
-
-/// How the source reaches the DAC.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Transport {
-    Pcm,
-    /// DSD in 24-bit PCM frames with alternating markers.
-    Dop,
 }
 
 impl SourceInfo {
@@ -50,37 +41,38 @@ impl SourceInfo {
         }
     }
 
-    pub fn transport(&self) -> Transport {
+    /// The stream the device must accept, exactly. `transport` only applies
+    /// to DSD.
+    pub fn stream(&self, transport: DsdTransport) -> StreamFormat {
         match self {
-            Self::Pcm(_) => Transport::Pcm,
-            Self::Dsd(_) => Transport::Dop,
-        }
-    }
-
-    /// The PCM stream the device must accept, exactly.
-    pub fn pcm_stream(&self) -> PcmStream {
-        match self {
-            Self::Pcm(info) => PcmStream {
+            Self::Pcm(info) => StreamFormat::Pcm {
                 sample_rate: info.sample_rate,
                 channels: info.channels,
                 bits_per_sample: info.bits_per_sample,
             },
-            Self::Dsd(info) => PcmStream {
-                sample_rate: dop::carrier_rate(info),
+            Self::Dsd(info) => StreamFormat::Dsd {
+                dsd_rate: info.dsd_rate,
                 channels: info.channels,
-                bits_per_sample: 24,
+                transport,
             },
         }
     }
 }
 
 pub(crate) enum Source {
-    Pcm(Decoder),
-    Dop {
+    Pcm {
+        decoder: Decoder,
+        /// Reused decode buffer.
+        samples: Vec<i32>,
+    },
+    Dsd {
         reader: DsdReader,
-        packer: DopPacker,
-        /// Reused DSD read buffer.
+        dop: DopPacker,
+        native: NativePacker,
+        /// Reused read buffer.
         bytes: Vec<u8>,
+        /// Reused DoP sample buffer.
+        samples: Vec<i32>,
         finished: bool,
     },
 }
@@ -89,74 +81,113 @@ impl Source {
     /// Opens by content: DSF/DFF first (cheap magic check), then WAV/FLAC.
     pub fn open(path: &Path) -> Result<Self, PlayerError> {
         match DsdReader::open(path) {
-            Ok(reader) => Ok(Self::Dop {
+            Ok(reader) => Ok(Self::Dsd {
                 reader,
-                packer: DopPacker::new(),
+                dop: DopPacker::new(),
+                native: NativePacker::new(),
                 bytes: Vec::new(),
+                samples: Vec::new(),
                 finished: false,
             }),
-            Err(DsdError::NotDsd) => Ok(Self::Pcm(Decoder::open(path)?)),
+            Err(DsdError::NotDsd) => Ok(Self::Pcm {
+                decoder: Decoder::open(path)?,
+                samples: Vec::new(),
+            }),
             Err(error) => Err(error.into()),
         }
     }
 
     pub fn info(&self) -> SourceInfo {
         match self {
-            Self::Pcm(decoder) => SourceInfo::Pcm(*decoder.info()),
-            Self::Dop { reader, .. } => SourceInfo::Dsd(*reader.info()),
+            Self::Pcm { decoder, .. } => SourceInfo::Pcm(*decoder.info()),
+            Self::Dsd { reader, .. } => SourceInfo::Dsd(*reader.info()),
         }
     }
 
-    /// Replaces `out` with the next samples. Returns the source frames they
-    /// cover, or `None` at the end.
-    pub fn next(&mut self, out: &mut Vec<i32>) -> Result<Option<u64>, PlayerError> {
+    /// Replaces `out` with the next audio in `encoding`. Returns the source
+    /// frames read for it, or `None` at the end.
+    pub fn next(
+        &mut self,
+        encoding: Encoding,
+        out: &mut Vec<u8>,
+    ) -> Result<Option<u64>, PlayerError> {
+        out.clear();
         match self {
-            Self::Pcm(decoder) => {
-                let more = decoder.decode_next(out)?;
-                let frames = out.len() / decoder.info().channels;
+            Self::Pcm { decoder, samples } => {
+                let Encoding::Pcm(layout) = encoding else {
+                    return Err(mismatch());
+                };
+                let more = decoder.decode_next(samples)?;
+                layout.pack(samples, out);
+                let frames = samples.len() / decoder.info().channels;
                 Ok(more.then_some(frames as u64))
             }
-            Self::Dop {
+            Self::Dsd {
                 reader,
-                packer,
+                dop,
+                native,
                 bytes,
+                samples,
                 finished,
             } => {
-                out.clear();
                 let channels = reader.info().channels;
+                let mut frames = 0;
+                // A pack can hold back a partial word; read until bytes come out.
                 while out.is_empty() {
                     if *finished {
                         return Ok(None);
                     }
-                    if reader.read_next(bytes)? {
-                        packer.pack(bytes, channels, out);
-                        if !out.is_empty() {
-                            return Ok(Some((bytes.len() / channels) as u64));
+                    *finished = !reader.read_next(bytes)?;
+                    frames += (bytes.len() / channels) as u64;
+                    match encoding {
+                        Encoding::Dop(layout) => {
+                            samples.clear();
+                            if *finished {
+                                dop.finish(channels, samples);
+                            } else {
+                                dop.pack(bytes, channels, samples);
+                            }
+                            layout.pack(samples, out);
                         }
-                    } else {
-                        *finished = true;
-                        packer.finish(channels, out);
+                        Encoding::Dsd(layout) => {
+                            if *finished {
+                                native.finish(layout, channels, out);
+                            } else {
+                                native.pack(layout, bytes, channels, out);
+                            }
+                        }
+                        Encoding::Pcm(_) => return Err(mismatch()),
                     }
                 }
-                Ok(Some(0))
+                Ok(Some(frames))
             }
         }
     }
 
     pub fn seek(&mut self, frame: u64) -> Result<(), PlayerError> {
         match self {
-            Self::Pcm(decoder) => Ok(decoder.seek(frame)?),
-            Self::Dop {
+            Self::Pcm { decoder, .. } => Ok(decoder.seek(frame)?),
+            Self::Dsd {
                 reader,
-                packer,
+                dop,
+                native,
                 finished,
                 ..
             } => {
                 reader.seek(frame)?;
-                packer.reset();
+                dop.reset();
+                native.reset();
                 *finished = false;
                 Ok(())
             }
         }
+    }
+}
+
+/// The negotiated layout cannot carry this source; negotiation prevents it.
+fn mismatch() -> PlayerError {
+    PlayerError {
+        kind: ErrorKind::Internal,
+        message: "the output format does not match the source".into(),
     }
 }

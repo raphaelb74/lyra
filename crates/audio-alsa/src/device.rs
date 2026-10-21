@@ -1,6 +1,8 @@
 use alsa::pcm::{Access, Format, HwParams};
 use alsa::{Ctl, Direction, PCM};
+use format_dsd::DsdLayout;
 use format_pcm::SampleEncoding;
+use player_core::Encoding;
 
 use crate::error::AlsaError;
 
@@ -43,30 +45,6 @@ impl Device {
     }
 }
 
-/// Native DSD sample layouts ALSA can expose.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum DsdFormat {
-    U8,
-    U16Le,
-    U16Be,
-    U32Le,
-    U32Be,
-}
-
-impl DsdFormat {
-    const ALL: [Self; 5] = [Self::U8, Self::U16Le, Self::U16Be, Self::U32Le, Self::U32Be];
-
-    fn alsa(self) -> Format {
-        match self {
-            Self::U8 => Format::DSDU8,
-            Self::U16Le => Format::DSDU16LE,
-            Self::U16Be => Format::DSDU16BE,
-            Self::U32Le => Format::DSDU32LE,
-            Self::U32Be => Format::DSDU32BE,
-        }
-    }
-}
-
 /// Rates the device accepts for one PCM layout.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PcmSupport {
@@ -82,7 +60,7 @@ pub struct Capabilities {
     pub pcm: Vec<PcmSupport>,
     /// Native DSD layouts with their ALSA rates. Descriptor evidence only;
     /// playback must still be verified.
-    pub dsd: Vec<(DsdFormat, Vec<u32>)>,
+    pub dsd: Vec<(DsdLayout, Vec<u32>)>,
 }
 
 impl Capabilities {
@@ -95,12 +73,29 @@ impl Capabilities {
     }
 }
 
-pub(crate) fn alsa_format(encoding: SampleEncoding) -> Format {
+pub(crate) fn alsa_format(encoding: Encoding) -> Format {
     match encoding {
+        Encoding::Pcm(layout) | Encoding::Dop(layout) => pcm_format(layout),
+        Encoding::Dsd(layout) => dsd_format(layout),
+    }
+}
+
+fn pcm_format(layout: SampleEncoding) -> Format {
+    match layout {
         SampleEncoding::S16Le => Format::S16LE,
         SampleEncoding::S24In3Le => Format::S243LE,
         SampleEncoding::S24In4Le => Format::S24LE,
         SampleEncoding::S32Le => Format::S32LE,
+    }
+}
+
+fn dsd_format(layout: DsdLayout) -> Format {
+    match layout {
+        DsdLayout::U8 => Format::DSDU8,
+        DsdLayout::U16Le => Format::DSDU16LE,
+        DsdLayout::U16Be => Format::DSDU16BE,
+        DsdLayout::U32Le => Format::DSDU32LE,
+        DsdLayout::U32Be => Format::DSDU32BE,
     }
 }
 
@@ -150,16 +145,16 @@ pub fn probe(device: &Device) -> Result<Capabilities, AlsaError> {
 
     let mut pcm_support = Vec::new();
     for encoding in ENCODINGS {
-        let rates = rates_with_format(&pcm, alsa_format(encoding)).map_err(fail)?;
+        let rates = rates_with_format(&pcm, pcm_format(encoding)).map_err(fail)?;
         if !rates.is_empty() {
             pcm_support.push(PcmSupport { encoding, rates });
         }
     }
     let mut dsd = Vec::new();
-    for format in DsdFormat::ALL {
-        let rates = rates_with_format(&pcm, format.alsa()).map_err(fail)?;
+    for layout in DsdLayout::ALL {
+        let rates = rates_with_format(&pcm, dsd_format(layout)).map_err(fail)?;
         if !rates.is_empty() {
-            dsd.push((format, rates));
+            dsd.push((layout, rates));
         }
     }
     Ok(Capabilities {

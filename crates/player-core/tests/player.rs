@@ -9,11 +9,12 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
+use format_dsd::DsdLayout;
 use format_pcm::SampleEncoding;
 use player_core::mock::{MockSink, SinkCall};
 use player_core::{
-    ErrorKind, HardwareVolume, OutputFormat, PlaybackState, Player, PlayerStatus, SinkError,
-    SinkErrorKind,
+    DsdTransport, Encoding, ErrorKind, HardwareVolume, OutputFormat, PlaybackState, Player,
+    PlayerStatus, SinkError, SinkErrorKind,
 };
 
 const DEVICE: &str = "hw:CARD=TEST,DEV=0";
@@ -83,7 +84,9 @@ fn plays_every_source_byte_through_the_states() {
         let sink = MockSink::new();
         let recorder = sink.recorder.clone();
         let (player, updates) = start(sink);
-        player.play(fixture(name), DEVICE.into()).unwrap();
+        player
+            .play(fixture(name), DEVICE.into(), DsdTransport::Auto)
+            .unwrap();
 
         let (status, seen) = wait_for(&updates, PlaybackState::Stopped);
         assert_eq!(
@@ -98,7 +101,7 @@ fn plays_every_source_byte_through_the_states() {
             "{name}"
         );
         let output = OutputFormat {
-            encoding,
+            encoding: Encoding::Pcm(encoding),
             sample_rate: rate,
             channels: 2,
             hardware_volume: HardwareVolume::None,
@@ -119,11 +122,11 @@ fn plays_every_source_byte_through_the_states() {
 #[test]
 fn zero_pads_into_a_wider_layout_when_needed() {
     let mut sink = MockSink::new();
-    sink.encodings = vec![SampleEncoding::S32Le];
+    sink.encodings = vec![Encoding::Pcm(SampleEncoding::S32Le)];
     let recorder = sink.recorder.clone();
     let (player, updates) = start(sink);
     player
-        .play(fixture("s16_44100.wav"), DEVICE.into())
+        .play(fixture("s16_44100.wav"), DEVICE.into(), DsdTransport::Auto)
         .unwrap();
     wait_for(&updates, PlaybackState::Stopped);
 
@@ -143,7 +146,7 @@ fn refuses_a_rate_the_device_lacks() {
     let recorder = sink.recorder.clone();
     let (player, updates) = start(sink);
     player
-        .play(fixture("s24_96000.wav"), DEVICE.into())
+        .play(fixture("s24_96000.wav"), DEVICE.into(), DsdTransport::Auto)
         .unwrap();
 
     let (status, _) = wait_for(&updates, PlaybackState::Error);
@@ -167,7 +170,7 @@ fn reports_a_busy_device() {
     ));
     let (player, updates) = start(sink);
     player
-        .play(fixture("s16_44100.wav"), DEVICE.into())
+        .play(fixture("s16_44100.wav"), DEVICE.into(), DsdTransport::Auto)
         .unwrap();
 
     let error = wait_for(&updates, PlaybackState::Error).0.error.unwrap();
@@ -178,7 +181,9 @@ fn reports_a_busy_device() {
 #[test]
 fn reports_a_missing_file() {
     let (player, updates) = start(MockSink::new());
-    player.play(fixture("missing.flac"), DEVICE.into()).unwrap();
+    player
+        .play(fixture("missing.flac"), DEVICE.into(), DsdTransport::Auto)
+        .unwrap();
     assert_eq!(
         wait_for(&updates, PlaybackState::Error)
             .0
@@ -196,7 +201,7 @@ fn pause_holds_output_and_resume_loses_nothing() {
     let recorder = sink.recorder.clone();
     let (player, updates) = start(sink);
     player
-        .play(fixture("s24_96000.wav"), DEVICE.into())
+        .play(fixture("s24_96000.wav"), DEVICE.into(), DsdTransport::Auto)
         .unwrap();
     wait_for(&updates, PlaybackState::Playing);
 
@@ -229,7 +234,7 @@ fn seek_discards_queued_audio_and_resumes_at_the_frame() {
     let recorder = sink.recorder.clone();
     let (player, updates) = start(sink);
     player
-        .play(fixture("s16_44100.wav"), DEVICE.into())
+        .play(fixture("s16_44100.wav"), DEVICE.into(), DsdTransport::Auto)
         .unwrap();
     wait_for(&updates, PlaybackState::Playing);
 
@@ -250,7 +255,7 @@ fn stop_releases_the_device() {
     let recorder = sink.recorder.clone();
     let (player, updates) = start(sink);
     player
-        .play(fixture("s24_96000.wav"), DEVICE.into())
+        .play(fixture("s24_96000.wav"), DEVICE.into(), DsdTransport::Auto)
         .unwrap();
     wait_for(&updates, PlaybackState::Playing);
 
@@ -305,13 +310,15 @@ fn dop_carries_every_dsd_bit_with_alternating_markers() {
         sink.hardware_volume = HardwareVolume::Unity;
         let recorder = sink.recorder.clone();
         let (player, updates) = start(sink);
-        player.play(dsd_fixture(name), DEVICE.into()).unwrap();
+        player
+            .play(dsd_fixture(name), DEVICE.into(), DsdTransport::Auto)
+            .unwrap();
 
         let (status, _) = wait_for(&updates, PlaybackState::Stopped);
         let output = status.track.unwrap().output.unwrap();
         assert_eq!(
             (output.encoding, output.sample_rate),
-            (SampleEncoding::S24In3Le, 176_400)
+            (Encoding::Dop(SampleEncoding::S24In3Le), 176_400)
         );
         drop(player);
 
@@ -344,7 +351,11 @@ fn dop_is_refused_unless_the_dac_volume_is_known_to_be_untouched() {
         let recorder = sink.recorder.clone();
         let (player, updates) = start(sink);
         player
-            .play(dsd_fixture("dsd64_stereo.dsf"), DEVICE.into())
+            .play(
+                dsd_fixture("dsd64_stereo.dsf"),
+                DEVICE.into(),
+                DsdTransport::Auto,
+            )
             .unwrap();
 
         let error = wait_for(&updates, PlaybackState::Error).0.error.unwrap();
@@ -359,4 +370,99 @@ fn dop_is_refused_unless_the_dac_volume_is_known_to_be_untouched() {
             );
         });
     }
+}
+
+/// Plays a DSD fixture to completion; returns the output and the bytes written.
+fn play_dsd(sink: MockSink, name: &str, dsd: DsdTransport) -> (OutputFormat, Vec<u8>) {
+    let recorder = sink.recorder.clone();
+    let (player, updates) = start(sink);
+    player.play(dsd_fixture(name), DEVICE.into(), dsd).unwrap();
+    let (status, _) = wait_for(&updates, PlaybackState::Stopped);
+    drop(player);
+    let output = status.track.unwrap().output.unwrap();
+    (output, recorder.with(|recording| recording.bytes.clone()))
+}
+
+/// The default mock plus one native DSD layout at its DSD64 rate.
+fn with_native(layout: DsdLayout) -> MockSink {
+    let mut sink = MockSink::new();
+    sink.encodings.push(Encoding::Dsd(layout));
+    sink.rates.push(layout.frame_rate(2_822_400));
+    sink
+}
+
+#[test]
+fn native_dsd_carries_every_dsd_bit_in_the_device_layout() {
+    let reference = dsd_reference();
+    for name in ["dsd64_stereo.dsf", "dsd64_stereo.dff"] {
+        let (output, bytes) = play_dsd(with_native(DsdLayout::U32Be), name, DsdTransport::Auto);
+        assert_eq!(
+            (output.encoding, output.sample_rate),
+            (Encoding::Dsd(DsdLayout::U32Be), 88_200),
+            "{name}"
+        );
+        // DSD_U32_BE stereo: 4 bytes of L, then 4 of R, oldest first.
+        let mut dsd = Vec::new();
+        for frame in bytes.as_chunks::<8>().0 {
+            for k in 0..4 {
+                dsd.extend_from_slice(&[frame[k], frame[4 + k]]);
+            }
+        }
+        // The last word is filled up with DSD silence, never PCM zeros.
+        let (music, padding) = dsd.split_at(reference.len().min(dsd.len()));
+        assert_same_bytes(music, &reference, name);
+        assert!(padding.len() < 8 && padding.iter().all(|&byte| byte == 0x69));
+    }
+}
+
+#[test]
+fn dsd_transport_choice_is_explicit() {
+    let device_with_both = || with_native(DsdLayout::U8);
+    let encoding = |sink, dsd| play_dsd(sink, "dsd64_stereo.dsf", dsd).0.encoding;
+    assert_eq!(
+        encoding(device_with_both(), DsdTransport::Dop),
+        Encoding::Dop(SampleEncoding::S24In3Le)
+    );
+    assert_eq!(
+        encoding(device_with_both(), DsdTransport::Native),
+        Encoding::Dsd(DsdLayout::U8)
+    );
+
+    // Native only, on a device without native DSD: refused, nothing written.
+    let sink = MockSink::new();
+    let recorder = sink.recorder.clone();
+    let (player, updates) = start(sink);
+    player
+        .play(
+            dsd_fixture("dsd64_stereo.dsf"),
+            DEVICE.into(),
+            DsdTransport::Native,
+        )
+        .unwrap();
+    let error = wait_for(&updates, PlaybackState::Error).0.error.unwrap();
+    assert_eq!(error.kind, ErrorKind::Unsupported);
+    assert!(
+        error.message.contains("DSD64 as native DSD"),
+        "{}",
+        error.message
+    );
+    drop(player);
+    recorder.with(|recording| {
+        assert!(
+            !recording
+                .calls
+                .iter()
+                .any(|call| matches!(call, SinkCall::Write { .. }))
+        );
+    });
+}
+
+#[test]
+fn native_dsd_plays_at_any_dac_volume() {
+    // The device is in a DSD format; there are no markers for a volume to break.
+    let mut sink = with_native(DsdLayout::U32Be);
+    sink.hardware_volume = HardwareVolume::Unknown;
+    let (output, bytes) = play_dsd(sink, "dsd64_stereo.dsf", DsdTransport::Auto);
+    assert_eq!(output.encoding, Encoding::Dsd(DsdLayout::U32Be));
+    assert_eq!(bytes.len(), dsd_reference().len().next_multiple_of(8));
 }

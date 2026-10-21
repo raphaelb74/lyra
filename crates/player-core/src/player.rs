@@ -2,8 +2,7 @@
 //!
 //! Two threads, no async runtime:
 //! - the **controller** owns the source (decoder or DSD reader), handles
-//!   commands, and packs audio
-//!   into a fixed pool of byte buffers;
+//!   commands, and packs audio into a fixed pool of byte buffers;
 //! - the **writer** owns the sink and only moves full buffers to it.
 //!
 //! The pool is the bounded buffer: the controller waits for an empty buffer
@@ -20,8 +19,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle, Thread};
 use std::time::Duration;
 
-use crate::sink::{AudioSink, HardwareVolume, OutputFormat};
-use crate::source::{Source, Transport};
+use crate::sink::{AudioSink, DsdTransport, Encoding, HardwareVolume, OutputFormat};
+use crate::source::Source;
 use crate::status::{ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus};
 use crate::writer::{Chunk, ToWriter, Writer, WriterEvent};
 
@@ -66,11 +65,17 @@ pub(crate) enum Inbox {
 
 #[derive(Debug)]
 pub(crate) enum Command {
-    Play { path: PathBuf, device: String },
+    Play {
+        path: PathBuf,
+        device: String,
+        dsd: DsdTransport,
+    },
     Pause,
     Resume,
     Stop,
-    Seek { frame: u64 },
+    Seek {
+        frame: u64,
+    },
     Shutdown,
 }
 
@@ -131,7 +136,6 @@ impl Player {
             shared: Arc::clone(&shared),
             on_change: Box::new(on_change),
             track: None,
-            samples: Vec::new(),
         };
         let controller = thread::Builder::new()
             .name("lyra-player".into())
@@ -148,8 +152,14 @@ impl Player {
     }
 
     /// Plays `path` on the ALSA device `device` (e.g. `hw:CARD=ONE,DEV=0`).
-    pub fn play(&self, path: PathBuf, device: String) -> Result<(), PlayerError> {
-        self.send(Command::Play { path, device })
+    /// `dsd` chooses native DSD or DoP for DSD files.
+    pub fn play(
+        &self,
+        path: PathBuf,
+        device: String,
+        dsd: DsdTransport,
+    ) -> Result<(), PlayerError> {
+        self.send(Command::Play { path, device, dsd })
     }
 
     pub fn pause(&self) -> Result<(), PlayerError> {
@@ -236,8 +246,6 @@ struct Controller {
     shared: Arc<Shared>,
     on_change: Box<dyn Fn(&PlayerStatus) + Send>,
     track: Option<Track>,
-    /// Reused decode buffer.
-    samples: Vec<i32>,
 }
 
 impl Controller {
@@ -276,7 +284,7 @@ impl Controller {
 
     fn command(&mut self, command: Command) {
         match command {
-            Command::Play { path, device } => self.load(path, device),
+            Command::Play { path, device, dsd } => self.load(path, device, dsd),
             Command::Pause => {
                 if self.track.is_some() {
                     self.shared.paused.store(true, Ordering::Release);
@@ -306,7 +314,7 @@ impl Controller {
         }
     }
 
-    fn load(&mut self, path: PathBuf, device: String) {
+    fn load(&mut self, path: PathBuf, device: String, dsd: DsdTransport) {
         self.close_track();
         self.shared.paused.store(false, Ordering::Release);
         self.shared.position.store(0, Ordering::Release);
@@ -335,7 +343,7 @@ impl Controller {
         self.to_writer(ToWriter::Open {
             generation,
             device,
-            stream: info.pcm_stream(),
+            stream: info.stream(dsd),
         });
         self.track = Some(Track {
             source,
@@ -384,9 +392,7 @@ impl Controller {
             WriterEvent::Opened {
                 result: Ok(output), ..
             } => {
-                if let Err(error) =
-                    dop_allowed(track.source.info().transport(), output.hardware_volume)
-                {
+                if let Err(error) = dop_allowed(output.encoding, output.hardware_volume) {
                     return self.fail(error);
                 }
                 track.output = Some(output);
@@ -428,10 +434,8 @@ impl Controller {
             // Writer busy or paused: check commands, then try again.
             Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return,
         };
-        match track.source.next(&mut self.samples) {
+        match track.source.next(output.encoding, &mut buffer) {
             Ok(Some(frames)) => {
-                buffer.clear();
-                output.encoding.pack(&self.samples, &mut buffer);
                 let chunk = Chunk {
                     generation: track.generation,
                     start_frame: track.next_frame,
@@ -501,16 +505,18 @@ impl Controller {
 /// DoP only reaches a DAC whose volume is known to be untouched. Attenuated
 /// DoP breaks the markers, and a device that does not decode DoP plays it as
 /// loud noise; a USB DAC at 0 dB (or without volume control) is the safe case.
-fn dop_allowed(transport: Transport, volume: HardwareVolume) -> Result<(), PlayerError> {
-    match (transport, volume) {
-        (Transport::Pcm, _) | (Transport::Dop, HardwareVolume::Unity | HardwareVolume::None) => {
-            Ok(())
-        }
-        (Transport::Dop, _) => Err(PlayerError {
+///
+/// Native DSD has no such risk: the device was opened in a DSD format.
+fn dop_allowed(encoding: Encoding, volume: HardwareVolume) -> Result<(), PlayerError> {
+    match (encoding, volume) {
+        (Encoding::Dop(_), HardwareVolume::Attenuated { .. } | HardwareVolume::Unknown) => {
+            Err(PlayerError {
             kind: ErrorKind::Unsupported,
-            message:
-                "DSD over DoP needs a USB DAC with its volume at 0 dB; this device's volume is not."
-                    .into(),
-        }),
+                message:
+                    "DSD over DoP needs a USB DAC with its volume at 0 dB; this device's volume is not."
+                        .into(),
+            })
+        }
+        _ => Ok(()),
     }
 }

@@ -9,8 +9,8 @@ use audio_alsa::Device;
 use format_dsd::Container;
 use format_pcm::{Codec, SampleEncoding};
 use player_core::{
-    BitPerfect, ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus, SourceInfo,
-    Transport,
+    BitPerfect, Encoding, ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus,
+    SourceInfo, Transport,
 };
 use serde::Serialize;
 
@@ -123,9 +123,9 @@ pub struct Track {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Output {
-    /// `pcm` or `dop`.
+    /// `pcm`, `dop` or `native`.
     pub transport: &'static str,
-    /// ALSA format name, e.g. `S24_3LE`.
+    /// ALSA format name, e.g. `S24_3LE` or `DSD_U32_BE`.
     pub format: &'static str,
     pub sample_rate: u32,
     pub channels: usize,
@@ -183,9 +183,10 @@ impl From<&NowPlaying> for Track {
                 .total_frames()
                 .map(|frames| frames_to_seconds(frames, source.frame_rate())),
             output: now.output.map(|output| Output {
-                transport: match source.transport() {
+                transport: match output.encoding.transport() {
                     Transport::Pcm => "pcm",
                     Transport::Dop => "dop",
+                    Transport::Native => "native",
                 },
                 format: alsa_format_name(output.encoding),
                 sample_rate: output.sample_rate,
@@ -221,8 +222,12 @@ fn state_name(state: PlaybackState) -> &'static str {
     }
 }
 
-fn alsa_format_name(encoding: SampleEncoding) -> &'static str {
-    match encoding {
+fn alsa_format_name(encoding: Encoding) -> &'static str {
+    let layout = match encoding {
+        Encoding::Pcm(layout) | Encoding::Dop(layout) => layout,
+        Encoding::Dsd(layout) => return layout.name(),
+    };
+    match layout {
         SampleEncoding::S16Le => "S16_LE",
         SampleEncoding::S24In3Le => "S24_3LE",
         SampleEncoding::S24In4Le => "S24_LE",

@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use format_pcm::SampleEncoding;
 
-use crate::sink::{AudioSink, HardwareVolume, OutputFormat, PcmStream, SinkError, SinkErrorKind};
+use crate::sink::{
+    AudioSink, Encoding, HardwareVolume, OutputFormat, SinkError, SinkErrorKind, StreamFormat,
+};
 
 /// Calls the sink received, in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,7 +51,7 @@ impl MockRecorder {
 #[derive(Debug)]
 pub struct MockSink {
     /// Layouts accepted, at any rate in `rates`.
-    pub encodings: Vec<SampleEncoding>,
+    pub encodings: Vec<Encoding>,
     pub rates: Vec<u32>,
     /// Returned by `open` when set (e.g. a busy device).
     pub open_error: Option<SinkError>,
@@ -61,10 +63,15 @@ pub struct MockSink {
 }
 
 impl MockSink {
-    /// A sink that accepts every layout at the usual rates, instantly.
+    /// A sink that accepts every PCM and DoP layout at the usual rates,
+    /// instantly. No native DSD: tests add it.
     pub fn new() -> Self {
+        let layouts = || SampleEncoding::lossless_for(0);
         Self {
-            encodings: SampleEncoding::lossless_for(0).collect(),
+            encodings: layouts()
+                .map(Encoding::Pcm)
+                .chain(layouts().map(Encoding::Dop))
+                .collect(),
             rates: vec![44_100, 48_000, 88_200, 96_000, 176_400, 192_000],
             open_error: None,
             write_delay: Duration::ZERO,
@@ -81,25 +88,19 @@ impl Default for MockSink {
 }
 
 impl AudioSink for MockSink {
-    fn open(&mut self, device: &str, stream: &PcmStream) -> Result<OutputFormat, SinkError> {
+    fn open(&mut self, device: &str, stream: &StreamFormat) -> Result<OutputFormat, SinkError> {
         if let Some(error) = &self.open_error {
             return Err(error.clone());
         }
-        let unsupported = || {
+        let mut format = OutputFormat::negotiate(stream, |encoding, rate| {
+            self.encodings.contains(&encoding) && self.rates.contains(&rate)
+        })
+        .ok_or_else(|| {
             SinkError::new(
                 SinkErrorKind::Unsupported,
-                format!(
-                    "{device} cannot play {} Hz / {} bit",
-                    stream.sample_rate, stream.bits_per_sample
-                ),
+                format!("{device} cannot play {stream}"),
             )
-        };
-        if !self.rates.contains(&stream.sample_rate) {
-            return Err(unsupported());
-        }
-        let mut format =
-            OutputFormat::negotiate(stream, |encoding| self.encodings.contains(&encoding))
-                .ok_or_else(unsupported)?;
+        })?;
         format.hardware_volume = self.hardware_volume;
         self.recorder.record(SinkCall::Open(format), None);
         Ok(format)
