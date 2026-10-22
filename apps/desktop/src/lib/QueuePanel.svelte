@@ -8,7 +8,9 @@
     type QueueEntry,
   } from './ipc';
   import { openMenu } from './menu.svelte';
+  import { DRAG_THRESHOLD, dropAfter, gapAt } from './reorder';
   import { rowEvents } from './rows';
+  import { tick } from 'svelte';
 
   interface Props {
     api: Backend;
@@ -24,6 +26,17 @@
   let entries = $state<QueueEntry[]>([]);
   /** The row a click selected; a double click plays. */
   let selected = $state<number | null>(null);
+  let scroller = $state<HTMLElement>();
+  let upNextList = $state<HTMLOListElement>();
+  /** A press on an Up next row; a drag once it moves (`gap` set). */
+  let drag = $state<{
+    from: number;
+    pointer: number;
+    startY: number;
+    gap: number | null;
+  } | null>(null);
+  /** The Up next row to focus once the queue reloads after a keyboard move. */
+  let refocus: number | null = null;
 
   const current = $derived(status.track?.queueIndex ?? null);
   /** Changes only when the queue does, not with every status event. */
@@ -46,7 +59,17 @@
   async function load(forRevision: number) {
     const list = await attempt(api.queue, onError);
 
-    if (forRevision === revision) entries = list ?? [];
+    if (forRevision !== revision) return;
+
+    entries = list ?? [];
+
+    if (refocus === null) return;
+
+    const row = refocus;
+
+    refocus = null;
+    await tick();
+    upNextList?.querySelectorAll<HTMLButtonElement>('.entry')[row]?.focus();
   }
 
   $effect(() => {
@@ -59,7 +82,78 @@
   }
 
   function moveNext(index: number) {
-    void attempt(() => api.queueMoveNext(index), onError);
+    void attempt(() => api.queueMove(index, null), onError);
+  }
+
+  /** Moves Up next row `from` into `gap`. */
+  function moveTo(from: number, gap: number) {
+    const index = upNext[from];
+    const after = dropAfter(upNext, from, gap);
+
+    if (index === undefined || after === undefined) return false;
+
+    void attempt(() => api.queueMove(index, after), onError);
+
+    return true;
+  }
+
+  function press(event: PointerEvent, from: number) {
+    if (event.button !== 0) return;
+
+    drag = { from, pointer: event.pointerId, startY: event.clientY, gap: null };
+  }
+
+  function dragMove(event: PointerEvent & { currentTarget: HTMLElement }) {
+    if (drag?.pointer !== event.pointerId) return;
+
+    if (drag.gap === null) {
+      if (Math.abs(event.clientY - drag.startY) < DRAG_THRESHOLD) return;
+
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+
+    // Near the pane's top or bottom edge, scroll to reach further rows.
+    const edge = scroller?.getBoundingClientRect();
+
+    if (edge && event.clientY < edge.top + 32) scroller?.scrollBy(0, -12);
+    else if (edge && event.clientY > edge.bottom - 32)
+      scroller?.scrollBy(0, 12);
+
+    const rows = [...(upNextList?.children ?? [])].map((row) =>
+      row.getBoundingClientRect(),
+    );
+
+    drag.gap = gapAt(rows, event.clientY);
+  }
+
+  function drop(event: PointerEvent) {
+    if (drag?.pointer !== event.pointerId) return;
+
+    if (drag.gap !== null) moveTo(drag.from, drag.gap);
+
+    drag = null;
+  }
+
+  /** Alt+↑ and Alt+↓ move the row; true when the key was handled. */
+  function moveByKey(event: KeyboardEvent, from: number) {
+    if (!event.altKey) return false;
+
+    const gap =
+      event.key === 'ArrowUp'
+        ? from - 1
+        : event.key === 'ArrowDown'
+          ? from + 2
+          : null;
+
+    if (gap === null) return false;
+
+    event.preventDefault();
+
+    if (gap >= 0 && gap <= upNext.length && moveTo(from, gap)) {
+      refocus = gap > from ? gap - 1 : gap;
+    }
+
+    return true;
   }
 
   function remove(index: number) {
@@ -115,7 +209,7 @@
     >
   </header>
 
-  <div class="scroll">
+  <div class="scroll" bind:this={scroller}>
     {#if playing}
       <h3 class="group-title">Now playing</h3>
       <div class="now">
@@ -153,23 +247,42 @@
       <h3 class="group-title">
         Up next <span class="num">{upNext.length}</span>
       </h3>
-      <ol>
+      <ol bind:this={upNextList} class:dragging={drag?.gap != null}>
         {#each upNext as index, order (index)}
           {@const entry = entries[index]}
+          {@const row = rowEvents(
+            () => (selected = index),
+            () => {
+              play(index);
+            },
+          )}
           {#if entry}
-            <li>
+            <li
+              data-drop={drag?.gap === order
+                ? 'above'
+                : drag?.gap === order + 1 && order === upNext.length - 1
+                  ? 'below'
+                  : undefined}
+            >
               <button
                 type="button"
                 class="entry"
                 title={entry.title}
+                aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                 disabled={status.track === null && device === ''}
                 data-selected={selected === index}
-                {...rowEvents(
-                  () => (selected = index),
-                  () => {
-                    play(index);
-                  },
-                )}
+                data-dragged={drag?.gap != null && drag.from === order}
+                onclick={row.onclick}
+                ondblclick={row.ondblclick}
+                onkeydown={(event) => {
+                  if (!moveByKey(event, order)) row.onkeydown(event);
+                }}
+                onpointerdown={(event) => {
+                  press(event, order);
+                }}
+                onpointermove={dragMove}
+                onpointerup={drop}
+                onpointercancel={() => (drag = null)}
                 oncontextmenu={(event) => {
                   menu(event, index);
                 }}
@@ -313,6 +426,33 @@
   }
   li {
     position: relative;
+  }
+  /* Where a dragged row will land: a line in the gap. */
+  li[data-drop]::before {
+    content: '';
+    position: absolute;
+    left: var(--space-2);
+    right: var(--space-2);
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+    z-index: 1;
+  }
+  li[data-drop='above']::before {
+    top: -1px;
+  }
+  li[data-drop='below']::before {
+    bottom: -1px;
+  }
+  .entry[data-dragged='true'] {
+    opacity: 0.5;
+  }
+  /* While dragging: no hover effects or row actions on the rows passed. */
+  .dragging {
+    cursor: grabbing;
+  }
+  .dragging li .actions {
+    display: none;
   }
   .entry {
     width: 100%;

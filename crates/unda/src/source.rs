@@ -199,7 +199,7 @@ impl Source {
                                         info.dsd_rate,
                                         output.sample_rate,
                                         channels,
-                                        f64::from(gain_db(dsd)),
+                                        f64::from(dsd.conversion_gain_db()),
                                     )
                                     .ok_or_else(no_converter)?,
                                 )),
@@ -285,13 +285,6 @@ impl Source {
                 Ok(())
             }
         }
-    }
-}
-
-fn gain_db(dsd: DsdPolicy) -> i8 {
-    match dsd.fallback {
-        DsdFallback::Convert { gain_db } => gain_db,
-        DsdFallback::Refuse => 0,
     }
 }
 

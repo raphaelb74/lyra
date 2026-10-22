@@ -44,7 +44,8 @@
     const items = focusable();
     const current = items.find((item) => item.ariaCurrent === 'true');
 
-    (current ?? items[0])?.focus();
+    // Nothing to focus inside: the panel itself, so Escape still closes it.
+    (current ?? items[0] ?? panel)?.focus();
   }
 
   function close() {

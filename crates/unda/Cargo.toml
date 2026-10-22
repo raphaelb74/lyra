@@ -1,5 +1,5 @@
 [package]
-name = "player-core"
+name = "unda"
 description = "Playback state machine, queue, and transport policy"
 version.workspace = true
 edition.workspace = true

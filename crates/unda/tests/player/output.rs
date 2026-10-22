@@ -1,9 +1,9 @@
 //! The device around the music: live volume changes and format-change silence.
 
 use format_dsd::DsdLayout;
-use player_core::mock::{MockSink, SinkCall};
-use player_core::{BitPerfect, DsdTransport, HardwareVolume, PlaybackState};
 use std::time::Duration;
+use unda::mock::{MockSink, SinkCall};
+use unda::{BitPerfect, DsdTransport, HardwareVolume, PlaybackState};
 
 use crate::{
     DEVICE, assert_same_bytes, dsd_fixture, fixture, reference, refuse, start, wait_for,

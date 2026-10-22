@@ -123,7 +123,7 @@ Behaviour, not implementation details.
 - Gapless: two same-format converted tracks join without a discontinuity larger than the signal itself.
 - Channels stay independent: a tone on one channel leaves the other quiet.
 
-**Policy tests** (extending those in `crates/player-core/src/sink.rs`):
+**Policy tests** (extending those in `crates/unda/src/sink.rs`):
 
 - With **Refuse**, a DSD stream on a PCM-only device is still refused (the existing test keeps passing unchanged).
 - With **Convert**, native is chosen when the device takes it, then DoP, then converted PCM; the converted candidate is the highest rate the mock accepts.
@@ -147,7 +147,7 @@ If DSD512 misses its target, the next step is per-channel parallelism, decided f
 
 ## Where the code goes
 
-A new pure-computation crate, `crates/dsd-pcm`, with no I/O and no ALSA dependency. This keeps `format-dsd` about files and packing, matches the way `format-pcm` is separate, and lets the signal tests run without a device. The new `Source` branch in `player-core` calls it. This needs a workspace manifest change at implementation time, so it needs approval then.
+A new pure-computation crate, `crates/dsd-pcm`, with no I/O and no ALSA dependency. This keeps `format-dsd` about files and packing, matches the way `format-pcm` is separate, and lets the signal tests run without a device. The new `Source` branch in `unda` calls it. This needs a workspace manifest change at implementation time, so it needs approval then.
 
 ## Spec changes
 
@@ -174,7 +174,7 @@ When this is implemented, update `docs/SPECIFICATION.md`:
 
 ## As built
 
-Code: `crates/dsd-pcm` (pure computation, no dependencies), the `Encoding::Converted` / `Transport::Converted` path in `player-core`, and the Settings view.
+Code: `crates/dsd-pcm` (pure computation, no dependencies), the `Encoding::Converted` / `Transport::Converted` path in `unda`, and the Settings view.
 
 ### Changes from the proposal
 

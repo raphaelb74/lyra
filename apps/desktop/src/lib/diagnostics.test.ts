@@ -36,9 +36,21 @@ describe('diagnostics', () => {
     );
   });
 
-  it('lists accepted rates in kilohertz', () => {
+  it('names accepted formats for people', () => {
     expect(supportLabel({ format: 'DSD_U32_BE', rates: [88200, 176400] })).toBe(
-      'DSD_U32_BE: 88.2, 176.4 kHz',
+      'Native DSD: DSD64, DSD128',
+    );
+    expect(supportLabel({ format: 'DSD_U8', rates: [352800] })).toBe(
+      'Native DSD: DSD64',
+    );
+    expect(supportLabel({ format: 'S32_LE', rates: [44100, 384000] })).toBe(
+      'PCM 32-bit: 44.1, 384 kHz',
+    );
+    expect(supportLabel({ format: 'S24_3LE', rates: [96000] })).toBe(
+      'PCM 24-bit: 96 kHz',
+    );
+    expect(supportLabel({ format: 'S24_LE', rates: [96000] })).toBe(
+      'PCM 24-bit in 32-bit: 96 kHz',
     );
   });
 
@@ -82,6 +94,8 @@ describe('diagnostics', () => {
         format: 'DSD_U32_BE',
         sampleRate: 88200,
         channels: 2,
+        hardwareVolume: 'none',
+        hardwareDb: null,
       },
       {
         channelsMin: 2,
@@ -99,6 +113,8 @@ describe('diagnostics', () => {
     );
     expect(report).toContain('Handed over by: pipewire');
     expect(report).toContain('USB stream:\nAltset = 4');
-    expect(report).toContain('Accepts (2–2 channels):\nS16_LE: 44.1, 48 kHz');
+    expect(report).toContain(
+      'Accepts (2–2 channels):\nPCM 16-bit: 44.1, 48 kHz (S16_LE)',
+    );
   });
 });

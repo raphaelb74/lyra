@@ -290,9 +290,11 @@ impl Player {
         })
     }
 
-    /// Moves queue entry `index` to play next. The playing track stays.
-    pub fn move_next(&self, index: usize) -> Result<(), PlayerError> {
-        self.send(Command::Edit(Edit::MoveNext(index)))
+    /// Moves queue entry `index` to play right after entry `after`, or next
+    /// when `after` is `None`. The playing track and the one decoded after
+    /// it stay where they are.
+    pub fn move_entry(&self, index: usize, after: Option<usize>) -> Result<(), PlayerError> {
+        self.send(Command::Edit(Edit::Move { from: index, after }))
     }
 
     /// Removes queue entry `index`; the playing track cannot be removed.

@@ -7,7 +7,7 @@ members = [
   "crates/format-dsd",
   "crates/format-pcm",
   "crates/library",
-  "crates/player-core",
+  "crates/unda",
 ]
 
 [workspace.package]
@@ -24,7 +24,7 @@ repository = "https://github.com/raphaelb74/lyra"
 dsd-pcm = { path = "crates/dsd-pcm", version = "0.1.0" }
 format-dsd = { path = "crates/format-dsd", version = "0.1.0" }
 format-pcm = { path = "crates/format-pcm", version = "0.1.0" }
-player-core = { path = "crates/player-core", version = "0.1.0" }
+unda = { path = "crates/unda", version = "0.1.0" }
 audio-alsa = { path = "crates/audio-alsa", version = "0.1.0" }
 library = { path = "crates/library", version = "0.1.0" }
 # Third party.

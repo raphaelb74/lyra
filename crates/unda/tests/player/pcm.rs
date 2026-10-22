@@ -1,12 +1,12 @@
 //! PCM playback: exact bytes, states, refusals, pause, seek, stop.
 
 use format_pcm::SampleEncoding;
-use player_core::mock::{MockSink, SinkCall};
-use player_core::{
+use std::time::Duration;
+use unda::mock::{MockSink, SinkCall};
+use unda::{
     DsdTransport, Encoding, ErrorKind, HardwareVolume, OutputFormat, PlaybackState, PlayerStatus,
     Repeat, SinkError, SinkErrorKind,
 };
-use std::time::Duration;
 
 use crate::{DEVICE, assert_same_bytes, fixture, reference, refuse, start, wait_for};
 

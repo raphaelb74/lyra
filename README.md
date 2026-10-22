@@ -50,7 +50,7 @@ Run every check with `scripts/check.sh`.
 
 ```text
 apps/desktop/          Svelte UI (no audio) and Tauri adapter (src-tauri/)
-crates/player-core     playback engine: controller and writer threads, state, native/DoP policy
+crates/unda     playback engine: controller and writer threads, state, native/DoP policy
 crates/audio-alsa      ALSA device discovery, exact-format output, DAC volume
 crates/format-pcm      WAV/FLAC decoding to exact integer samples
 crates/format-dsd      DSF/DFF parsing, DoP and native DSD packing

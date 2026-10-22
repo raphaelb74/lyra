@@ -20,6 +20,7 @@
     device: DeviceInfo | undefined;
     onCheck: () => void;
     onOpenDiagnostics: () => void;
+    onOpenLicences: () => void;
     onError: (message: string) => void;
   }
 
@@ -31,6 +32,7 @@
     device,
     onCheck,
     onOpenDiagnostics,
+    onOpenLicences,
     onError,
   }: Props = $props();
 
@@ -261,13 +263,20 @@
         <h4>{appInfo === null ? 'Lyra' : `Lyra ${appInfo.version}`}</h4>
         <p class="muted" data-testid="backend-status">
           {connected
-            ? `Audio engine connected · ${appInfo?.platform ?? ''}`
-            : 'Audio engine not connected'}
+            ? `UNDA engine connected · ${appInfo?.platform ?? ''}`
+            : 'UNDA engine not connected'}
         </p>
       </div>
       <button type="button" class="small" disabled={checking} onclick={onCheck}
         >{checking ? 'Checking…' : 'Check'}</button
       >
+    </div>
+    <div class="setting">
+      <div class="setting-text">
+        <h4>Licences</h4>
+        <p class="muted">The open-source components Lyra is built on.</p>
+      </div>
+      <button type="button" class="small" onclick={onOpenLicences}>Open</button>
     </div>
   </div>
 </section>

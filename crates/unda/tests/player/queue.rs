@@ -1,11 +1,11 @@
 //! The queue: gapless continuation, reopening on format change, navigation.
 
 use format_pcm::SampleEncoding;
-use player_core::mock::{MockSink, SinkCall};
-use player_core::{DsdTransport, Encoding, HardwareVolume, PlaybackState, PlayerStatus, Repeat};
 use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, Instant};
+use unda::mock::{MockSink, SinkCall};
+use unda::{DsdTransport, Encoding, HardwareVolume, PlaybackState, PlayerStatus, Repeat};
 
 use crate::{
     DEVICE, assert_same_bytes, dsd_fixture, fixture, opens, queue, reference, refuse, start,
@@ -168,7 +168,7 @@ fn shuffle_keeps_the_playing_track_and_off_restores_the_order() {
     player.pause().unwrap();
     let (status, _) = wait_for(&updates, PlaybackState::Paused);
     let playing = status.track.map(|track| track.index).unwrap();
-    let ids = |player: &player_core::Player| -> Vec<i64> {
+    let ids = |player: &unda::Player| -> Vec<i64> {
         player.queue().iter().filter_map(|item| item.id).collect()
     };
     let given = ids(&player);
@@ -275,7 +275,7 @@ fn the_queue_can_be_edited_while_it_plays() {
     player.pause().unwrap();
     let (status, _) = wait_for(&updates, PlaybackState::Paused);
     let playing = status.track.and_then(|track| track.id).unwrap();
-    let ids = |player: &player_core::Player| -> Vec<i64> {
+    let ids = |player: &unda::Player| -> Vec<i64> {
         player.queue().iter().filter_map(|item| item.id).collect()
     };
     let mut revision = status.queue_revision;
@@ -293,7 +293,7 @@ fn the_queue_can_be_edited_while_it_plays() {
     changed(&updates);
     assert_eq!(ids(&player).last(), Some(&4));
     let at = ids(&player).iter().position(|&id| id == 4).unwrap();
-    player.move_next(at).unwrap();
+    player.move_entry(at, None).unwrap();
     changed(&updates);
     let order = ids(&player);
     let here = order.iter().position(|&id| id == playing).unwrap();

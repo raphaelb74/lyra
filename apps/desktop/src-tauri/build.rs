@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "skip_to",
             "set_shuffle",
             "enqueue_tracks",
-            "queue_move_next",
+            "queue_move",
             "queue_remove",
             "clear_queue",
             "set_repeat",

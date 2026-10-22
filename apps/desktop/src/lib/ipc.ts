@@ -66,7 +66,20 @@ export interface Output {
   format: string;
   sampleRate: number;
   channels: number;
+  /** The device's own volume; `unity` is 0 dB, `unknown` has no dB scale. */
+  hardwareVolume: 'none' | 'unity' | 'attenuated' | 'unknown';
+  /** Set when `attenuated`. */
+  hardwareDb: number | null;
 }
+
+/** One thing UNDA does to the samples on their way to the device. */
+export type Step =
+  /** PCM in a wider sample format, extra low bits zero: lossless. */
+  | { kind: 'padded'; fromBits: number; toBits: number }
+  /** DSD in PCM frames with DoP markers: lossless for a DoP DAC. */
+  | { kind: 'dopPacked' }
+  /** DSD converted to PCM with this gain: not bit-perfect. */
+  | { kind: 'converted'; gainDb: number };
 
 export interface Track {
   /** Library track id; null for a dropped file. */
@@ -85,6 +98,8 @@ export interface Track {
   channels: number;
   durationSeconds: number | null;
   output: Output | null;
+  /** In order; empty when the samples go as read. */
+  processing: Step[];
   bitPerfect: Verdict | null;
 }
 
@@ -412,8 +427,9 @@ export function backend(
     /** After the playing track (`next`) or at the end; plays them when nothing plays. */
     enqueue: (trackIds: number[], next: boolean, device: string) =>
       run('enqueue_tracks', isNothing, { trackIds, next, device }),
-    queueMoveNext: (index: number) =>
-      run('queue_move_next', isNothing, { index }),
+    /** Entry `index` plays right after entry `after`; next when null. */
+    queueMove: (index: number, after: number | null) =>
+      run('queue_move', isNothing, { index, after }),
     queueRemove: (index: number) => run('queue_remove', isNothing, { index }),
     clearQueue: () => run('clear_queue', isNothing),
     setShuffle: (on: boolean) => run('set_shuffle', isNothing, { on }),

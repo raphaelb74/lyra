@@ -17,7 +17,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use audio_alsa::{AlsaSink, list_playback_devices};
-use player_core::{DsdFallback, DsdPolicy, DsdTransport, PlaybackState, Player, QueueItem};
+use unda::{DsdFallback, DsdPolicy, DsdTransport, PlaybackState, Player, QueueItem};
 
 const USAGE: &str =
     "usage: play <hw:CARD=…,DEV=…> <file.flac|wav|dsf|dff>… [auto|native|dop|convert] [seconds=N]";
