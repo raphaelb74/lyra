@@ -158,6 +158,7 @@ describe('display formatting', () => {
       hardwareVolume: 'none',
       hardwareDb: null,
     } as const;
+
     const at = (sampleRate: number) => ({
       ...flac,
       output: { ...pcm, sampleRate },
