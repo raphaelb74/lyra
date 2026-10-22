@@ -1,7 +1,7 @@
 <script lang="ts">
   import { clock, formatBadge } from './format';
   import Icon from './Icon.svelte';
-  import { addToPlaylist, openMenu } from './menu.svelte';
+  import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
   import {
     attempt,
     type Backend,
@@ -171,6 +171,12 @@
                       play(index);
                     },
                   },
+                  ...queueActions(
+                    api,
+                    () => Promise.resolve([entry.track.id]),
+                    device,
+                    onError,
+                  ),
                   addToPlaylist(
                     api,
                     () => Promise.resolve([entry.track.id]),

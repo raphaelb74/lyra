@@ -183,6 +183,43 @@ export const icons = {
     ],
     ['circle', { cx: '16', cy: '7', r: '5' }],
   ],
+  shuffle: [
+    ['path', { d: 'm18 14 4 4-4 4' }],
+    ['path', { d: 'm18 2 4 4-4 4' }],
+    [
+      'path',
+      { d: 'M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-8.6a4 4 0 0 1 3.3-1.7H22' },
+    ],
+    ['path', { d: 'M2 6h1.972a4 4 0 0 1 3.6 2.2' }],
+    ['path', { d: 'M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45' }],
+  ],
+  repeat: [
+    ['path', { d: 'm17 2 4 4-4 4' }],
+    ['path', { d: 'M3 11v-1a4 4 0 0 1 4-4h14' }],
+    ['path', { d: 'm7 22-4-4 4-4' }],
+    ['path', { d: 'M21 13v1a4 4 0 0 1-4 4H3' }],
+  ],
+  'repeat-1': [
+    ['path', { d: 'm17 2 4 4-4 4' }],
+    ['path', { d: 'M3 11v-1a4 4 0 0 1 4-4h14' }],
+    ['path', { d: 'm7 22-4-4 4-4' }],
+    ['path', { d: 'M21 13v1a4 4 0 0 1-4 4H3' }],
+    ['path', { d: 'M11 10h1v4' }],
+  ],
+  'list-start': [
+    ['path', { d: 'M3 5h6' }],
+    ['path', { d: 'M3 12h13' }],
+    ['path', { d: 'M3 19h13' }],
+    ['path', { d: 'm16 8-3-3 3-3' }],
+    ['path', { d: 'M21 19V7a2 2 0 0 0-2-2h-6' }],
+  ],
+  'list-end': [
+    ['path', { d: 'M16 5H3' }],
+    ['path', { d: 'M16 12H3' }],
+    ['path', { d: 'M9 19H3' }],
+    ['path', { d: 'm16 16-3 3 3 3' }],
+    ['path', { d: 'M21 5v12a2 2 0 0 1-2 2h-6' }],
+  ],
 } as const satisfies Record<string, readonly IconPart[]>;
 
 export type IconName = keyof typeof icons;

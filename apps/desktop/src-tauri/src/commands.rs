@@ -4,6 +4,7 @@
 // Tauri injects `State` and arguments by value.
 #![expect(clippy::needless_pass_by_value, reason = "Tauri command signature")]
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -14,9 +15,10 @@ use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::ipc::{
-    ART_URL, AlbumInfo, AppInfo, ArtistInfo, CapabilitiesInfo, DeviceInfo, DiagnosticsInfo,
-    FolderInfo, IpcError, LibraryTrack, PlaylistEntry, PlaylistInfo, QueueEntry, ScanStatus,
-    Status, TrackDetails, VolumeInfo, file_name, frames_to_seconds, ms_to_seconds,
+    AlbumInfo, AppInfo, ArtistInfo, CapabilitiesInfo, DeviceInfo, DiagnosticsInfo, FolderInfo,
+    IpcError, LibraryTrack, PlaylistEntry, PlaylistInfo, QueueEntry, RepeatMode, ScanStatus,
+    Status, TrackDetails, VolumeInfo, art_url, file_name, frames_to_seconds, ms_to_seconds,
+    thumb_url,
 };
 use crate::settings::Settings;
 
@@ -84,6 +86,63 @@ impl AppState {
 
     fn library(&self) -> MutexGuard<'_, Library> {
         locked(&self.library)
+    }
+
+    /// Title, album and artwork of a library track.
+    pub fn track_details(&self, track_id: i64) -> Result<Option<TrackDetails>, IpcError> {
+        let library = self.library();
+        let Some(track) = library
+            .track(track_id)
+            .map_err(|error| library_error(&error))?
+        else {
+            return Ok(None);
+        };
+        let album = library
+            .album(track.album_id)
+            .map_err(|error| library_error(&error))?;
+        Ok(Some(TrackDetails {
+            title: track.title,
+            artist: track.artist,
+            album_id: track.album_id,
+            year: album.as_ref().and_then(|album| album.year),
+            art: art_url(album.as_ref().and_then(|album| album.art.as_deref())),
+            thumb: thumb_url(album.as_ref().and_then(|album| album.art.as_deref())),
+            album: album.map(|album| album.title),
+        }))
+    }
+
+    /// Moves playback to `seconds` into the current track.
+    pub fn seek(&self, seconds: f64) -> Result<(), IpcError> {
+        if !seconds.is_finite() || seconds < 0.0 {
+            return Err(IpcError::invalid_request(
+                "Seek position must be zero or more seconds.",
+            ));
+        }
+        let Some(rate) = self
+            .player
+            .status()
+            .track
+            .map(|track| track.source.frame_rate())
+        else {
+            return Err(IpcError::invalid_request("Nothing is playing."));
+        };
+        self.player
+            .seek(seconds_to_frames(seconds, rate))
+            .map_err(IpcError::from)
+    }
+
+    /// Seconds of the current track handed to the device.
+    pub fn position(&self) -> f64 {
+        let rate = self
+            .player
+            .status()
+            .track
+            .map_or(0, |track| track.source.frame_rate());
+        if rate == 0 {
+            0.0
+        } else {
+            frames_to_seconds(self.player.position(), rate)
+        }
     }
 
     /// Adds a folder the user chose (dropped or picked) and scans it.
@@ -228,27 +287,62 @@ pub fn play_tracks(
     state: State<'_, AppState>,
 ) -> Result<(), IpcError> {
     let device = hardware_device(device)?;
-    let items = {
-        let library = state.library();
-        let mut items = Vec::with_capacity(track_ids.len());
-        for id in track_ids {
-            let track = library
-                .track(id)
-                .map_err(|error| library_error(&error))?
-                .ok_or_else(|| {
-                    IpcError::invalid_request("A track is no longer in the library. Rescan.")
-                })?;
-            items.push(QueueItem {
-                path: track.path,
-                id: Some(id),
-            });
-        }
-        items
-    };
+    let items = queue_items(&state, track_ids)?;
     state
         .player
         .play_queue(items, start, device, state.settings().dsd_policy())
         .map_err(IpcError::from)
+}
+
+/// Adds library tracks after the playing one (`next`) or at the end of the
+/// queue; plays them on `device` when nothing plays.
+#[tauri::command(async)]
+pub fn enqueue_tracks(
+    track_ids: Vec<i64>,
+    next: bool,
+    device: String,
+    state: State<'_, AppState>,
+) -> Result<(), IpcError> {
+    let device = hardware_device(device)?;
+    let items = queue_items(&state, track_ids)?;
+    state
+        .player
+        .enqueue(items, next, device, state.settings().dsd_policy())
+        .map_err(IpcError::from)
+}
+
+#[tauri::command]
+pub fn queue_move_next(index: usize, state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.player.move_next(index).map_err(IpcError::from)
+}
+
+#[tauri::command]
+pub fn queue_remove(index: usize, state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.player.remove(index).map_err(IpcError::from)
+}
+
+#[tauri::command]
+pub fn clear_queue(state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.player.clear_queue().map_err(IpcError::from)
+}
+
+/// Queue entries for library tracks, in the given order.
+fn queue_items(state: &AppState, track_ids: Vec<i64>) -> Result<Vec<QueueItem>, IpcError> {
+    let library = state.library();
+    let mut items = Vec::with_capacity(track_ids.len());
+    for id in track_ids {
+        let track = library
+            .track(id)
+            .map_err(|error| library_error(&error))?
+            .ok_or_else(|| {
+                IpcError::invalid_request("A track is no longer in the library. Rescan.")
+            })?;
+        items.push(QueueItem {
+            path: track.path,
+            id: Some(id),
+        });
+    }
+    Ok(items)
 }
 
 #[tauri::command]
@@ -262,8 +356,22 @@ pub fn previous(state: State<'_, AppState>) -> Result<(), IpcError> {
 }
 
 #[tauri::command]
-pub fn skip_to(index: usize, state: State<'_, AppState>) -> Result<(), IpcError> {
-    state.player.skip_to(index).map_err(IpcError::from)
+pub fn set_shuffle(on: bool, state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.player.set_shuffle(on).map_err(IpcError::from)
+}
+
+#[tauri::command]
+pub fn set_repeat(mode: RepeatMode, state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.player.set_repeat(mode.into()).map_err(IpcError::from)
+}
+
+#[tauri::command]
+pub fn skip_to(index: usize, device: String, state: State<'_, AppState>) -> Result<(), IpcError> {
+    let device = hardware_device(device)?;
+    state
+        .player
+        .skip_to(index, device, state.settings().dsd_policy())
+        .map_err(IpcError::from)
 }
 
 /// The queue, described from the library where possible.
@@ -272,23 +380,39 @@ pub fn get_queue(state: State<'_, AppState>) -> Result<Vec<QueueEntry>, IpcError
     let queue = state.player.queue();
     let library = state.library();
     let mut entries = Vec::with_capacity(queue.len());
+    // Covers by album: a queue is mostly whole albums.
+    let mut covers: HashMap<i64, Option<String>> = HashMap::new();
     for item in queue.iter() {
         let track = match item.id {
             Some(id) => library.track(id).map_err(|error| library_error(&error))?,
             None => None,
         };
         entries.push(match track {
-            Some(track) => QueueEntry {
-                track_id: Some(track.id),
-                duration_seconds: track.duration_ms.map(ms_to_seconds),
-                title: track.title,
-                artist: Some(track.artist),
-            },
+            Some(track) => {
+                let art = if let Some(art) = covers.get(&track.album_id) {
+                    art.clone()
+                } else {
+                    let album = library
+                        .album(track.album_id)
+                        .map_err(|error| library_error(&error))?;
+                    let art = thumb_url(album.and_then(|album| album.art).as_deref());
+                    covers.insert(track.album_id, art.clone());
+                    art
+                };
+                QueueEntry {
+                    track_id: Some(track.id),
+                    duration_seconds: track.duration_ms.map(ms_to_seconds),
+                    title: track.title,
+                    artist: Some(track.artist),
+                    art,
+                }
+            }
             None => QueueEntry {
                 track_id: None,
                 title: file_name(&item.path),
                 artist: None,
                 duration_seconds: None,
+                art: None,
             },
         });
     }
@@ -301,27 +425,7 @@ pub fn track_details(
     track_id: i64,
     state: State<'_, AppState>,
 ) -> Result<Option<TrackDetails>, IpcError> {
-    let library = state.library();
-    let Some(track) = library
-        .track(track_id)
-        .map_err(|error| library_error(&error))?
-    else {
-        return Ok(None);
-    };
-    let album = library
-        .album(track.album_id)
-        .map_err(|error| library_error(&error))?;
-    Ok(Some(TrackDetails {
-        title: track.title,
-        artist: track.artist,
-        album_id: track.album_id,
-        year: album.as_ref().and_then(|album| album.year),
-        art: album
-            .as_ref()
-            .and_then(|album| album.art.as_ref())
-            .map(|name| format!("{ART_URL}{name}")),
-        album: album.map(|album| album.title),
-    }))
+    state.track_details(track_id)
 }
 
 #[tauri::command(async)]
@@ -414,23 +518,7 @@ pub fn stop(state: State<'_, AppState>) -> Result<(), IpcError> {
 
 #[tauri::command]
 pub fn seek(seconds: f64, state: State<'_, AppState>) -> Result<(), IpcError> {
-    if !seconds.is_finite() || seconds < 0.0 {
-        return Err(IpcError::invalid_request(
-            "Seek position must be zero or more seconds.",
-        ));
-    }
-    let Some(rate) = state
-        .player
-        .status()
-        .track
-        .map(|track| track.source.frame_rate())
-    else {
-        return Err(IpcError::invalid_request("Nothing is playing."));
-    };
-    state
-        .player
-        .seek(seconds_to_frames(seconds, rate))
-        .map_err(IpcError::from)
+    state.seek(seconds)
 }
 
 #[tauri::command]
@@ -441,16 +529,7 @@ pub fn get_status(state: State<'_, AppState>) -> Status {
 /// Seconds of the current track handed to the device.
 #[tauri::command]
 pub fn get_position(state: State<'_, AppState>) -> f64 {
-    let rate = state
-        .player
-        .status()
-        .track
-        .map_or(0, |track| track.source.frame_rate());
-    if rate == 0 {
-        0.0
-    } else {
-        frames_to_seconds(state.player.position(), rate)
-    }
+    state.position()
 }
 
 #[expect(

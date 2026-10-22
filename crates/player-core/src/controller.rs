@@ -8,6 +8,7 @@ use std::thread::Thread;
 use std::time::Duration;
 
 use crate::dop;
+use crate::order::{Edit, Moved, Queue, Repeat, following};
 use crate::player::{Command, Inbox, QueueItem, Shared};
 use crate::sink::{DsdPolicy, Encoding, HardwareVolume, OutputFormat};
 use crate::source::{Source, SourceInfo};
@@ -22,7 +23,7 @@ const RESTART_AFTER_SECONDS: u64 = 3;
 
 /// A queue being played on one device.
 struct Session {
-    items: Arc<[QueueItem]>,
+    queue: Queue,
     device: String,
     dsd: DsdPolicy,
     generation: u64,
@@ -39,6 +40,18 @@ struct Session {
     /// Entry to open once the device drains: the next track needs another
     /// format, so it cannot follow gaplessly.
     after_drain: Option<usize>,
+}
+
+impl Session {
+    /// Positions already playing or decoded, in play order: queue changes
+    /// keep them where they are.
+    fn committed(&self) -> Vec<usize> {
+        let mut committed = vec![self.shown.index];
+        committed.extend(self.upcoming.iter().map(|entry| entry.index));
+        committed.push(self.feed.entry.index);
+        committed.dedup();
+        committed
+    }
 }
 
 struct Feed {
@@ -73,6 +86,11 @@ pub(crate) struct Controller {
     /// Device and format last opened: the pre-roll is only needed when it
     /// changes (or on the first open, when the DAC's state is unknown).
     last_format: Option<(String, Encoding, u32)>,
+    /// Kept across queues, like the listener's choice in the player bar.
+    shuffle: bool,
+    repeat: Repeat,
+    /// Bumped whenever the queue changes; published in the status.
+    queue_revision: u64,
 }
 
 impl Controller {
@@ -96,6 +114,9 @@ impl Controller {
             session: None,
             seq: 0,
             last_format: None,
+            shuffle: false,
+            repeat: Repeat::Off,
+            queue_revision: 0,
         }
     }
 
@@ -141,47 +162,65 @@ impl Controller {
                 start,
                 device,
                 dsd,
+            } => self.play_queue(items, start, device, dsd),
+            Command::Enqueue {
+                items,
+                next,
+                device,
+                dsd,
             } => {
-                self.update(|status| {
-                    *status = PlayerStatus {
-                        state: PlaybackState::Loading,
-                        queue_length: items.len(),
-                        ..PlayerStatus::STOPPED
-                    }
-                });
-                self.begin(Arc::from(items), start, 0, device, dsd);
+                if self.session.is_some() {
+                    self.edit(Edit::Add { items, next });
+                } else if !items.is_empty() {
+                    // Nothing playing: the tracks become the queue.
+                    self.play_queue(items, 0, device, dsd);
+                }
             }
+            Command::Edit(edit) => self.edit(edit),
             Command::Next => {
-                if let Some((items, index, device, dsd)) = self.current() {
-                    if index + 1 < items.len() {
-                        self.begin(items, index + 1, 0, device, dsd);
-                    } else {
-                        self.stop();
+                if let Some((queue, index, device, dsd)) = self.current() {
+                    match following(index, queue.len(), self.repeat, true) {
+                        Some(next) => self.begin(queue, next, 0, device, dsd),
+                        None => self.stop(),
                     }
                 }
             }
             Command::Previous => {
-                if let Some((items, index, device, dsd)) = self.current() {
-                    let restart = index == 0 || self.played_seconds() >= RESTART_AFTER_SECONDS;
-                    let target = if restart { index } else { index - 1 };
-                    self.begin(items, target, 0, device, dsd);
+                if let Some((queue, index, device, dsd)) = self.current() {
+                    let first = index == 0 && self.repeat == Repeat::Off;
+                    let restart = first || self.played_seconds() >= RESTART_AFTER_SECONDS;
+                    let target = match index {
+                        _ if restart => index,
+                        0 => queue.len() - 1,
+                        _ => index - 1,
+                    };
+                    self.begin(queue, target, 0, device, dsd);
                 }
             }
-            Command::SkipTo { index } => {
-                if let Some((items, _, device, dsd)) = self.current()
-                    && index < items.len()
-                {
-                    self.begin(items, index, 0, device, dsd);
+            Command::SkipTo { index, device, dsd } => {
+                if let Some((queue, _, device, dsd)) = self.current() {
+                    if index < queue.len() {
+                        self.begin(queue, index, 0, device, dsd);
+                    }
+                } else if index < self.shared_queue().len() {
+                    // Stopped: the stored queue plays again from `index`.
+                    self.begin(
+                        Queue::from_items(self.shared_queue()),
+                        index,
+                        0,
+                        device,
+                        dsd,
+                    );
                 }
             }
             Command::Seek { frame } => {
                 // Restarting the shown track at `frame` also covers a seek
                 // just after a gapless boundary, when the decoder is already
                 // in the next track.
-                if let Some((items, index, device, dsd)) = self.current()
+                if let Some((queue, index, device, dsd)) = self.current()
                     && self.session.as_ref().is_some_and(|s| s.output.is_some())
                 {
-                    self.begin(items, index, frame, device, dsd);
+                    self.begin(queue, index, frame, device, dsd);
                 }
             }
             Command::Pause => {
@@ -205,15 +244,17 @@ impl Controller {
             }
             Command::Stop => self.stop(),
             Command::VolumeChanged { device, volume } => self.volume_changed(&device, volume),
+            Command::SetShuffle(on) => self.set_shuffle(on),
+            Command::SetRepeat(repeat) => self.set_repeat(repeat),
             Command::Shutdown => {}
         }
     }
 
     /// The queue, shown entry, device and DSD policy of the session.
-    fn current(&self) -> Option<(Arc<[QueueItem]>, usize, String, DsdPolicy)> {
+    fn current(&self) -> Option<(Queue, usize, String, DsdPolicy)> {
         self.session.as_ref().map(|session| {
             (
-                Arc::clone(&session.items),
+                session.queue.clone(),
                 session.shown.index,
                 session.device.clone(),
                 session.dsd,
@@ -232,15 +273,8 @@ impl Controller {
 
     /// Starts queue entry `index` at `frame`. Keeps the device open when its
     /// format carries the track (fast skip and seek); otherwise reopens it.
-    fn begin(
-        &mut self,
-        items: Arc<[QueueItem]>,
-        index: usize,
-        frame: u64,
-        device: String,
-        dsd: DsdPolicy,
-    ) {
-        let Some(item) = items.get(index).cloned() else {
+    fn begin(&mut self, queue: Queue, index: usize, frame: u64, device: String, dsd: DsdPolicy) {
+        let Some(item) = queue.items.get(index).cloned() else {
             return self.stop();
         };
         let source = match open_at(&item, frame) {
@@ -269,7 +303,7 @@ impl Controller {
             .shared
             .queue
             .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Arc::clone(&items);
+            .unwrap_or_else(PoisonError::into_inner) = Arc::clone(&queue.items);
         if reuse.is_none() {
             self.to_writer(ToWriter::Open {
                 generation,
@@ -286,17 +320,14 @@ impl Controller {
             PlaybackState::Negotiating
         };
         let now = now_playing(&item, &entry, &device, reuse);
-        let length = items.len();
-        self.update(|status| {
-            *status = PlayerStatus {
-                state,
-                track: Some(now),
-                error: None,
-                queue_length: length,
-            };
-        });
+        let fresh = PlayerStatus {
+            state,
+            track: Some(now),
+            ..self.fresh_status(queue.len())
+        };
+        self.update(|status| *status = fresh);
         self.session = Some(Session {
-            items,
+            queue,
             device,
             dsd,
             generation,
@@ -366,7 +397,7 @@ impl Controller {
                 }
                 if let Some(entry) = reached {
                     session.shown = entry;
-                    let item = session.items[entry.index].clone();
+                    let item = session.queue.items[entry.index].clone();
                     let now = now_playing(&item, &entry, &session.device, session.output);
                     self.update(|status| status.track = Some(now));
                 }
@@ -377,12 +408,9 @@ impl Controller {
             WriterEvent::Drained { .. } => {
                 if let Some(index) = session.after_drain {
                     // The next track needs another format: reopen for it.
-                    let (items, device, dsd) = (
-                        Arc::clone(&session.items),
-                        session.device.clone(),
-                        session.dsd,
-                    );
-                    self.begin(items, index, 0, device, dsd);
+                    let (queue, device, dsd) =
+                        (session.queue.clone(), session.device.clone(), session.dsd);
+                    self.begin(queue, index, 0, device, dsd);
                 } else {
                     self.close_session();
                     self.update(|status| status.state = PlaybackState::Stopped);
@@ -437,18 +465,24 @@ impl Controller {
         let Some(session) = self.session.as_mut() else {
             return self.recycle(buffer);
         };
-        let next = session.feed.entry.index + 1;
-        let continuation = session
-            .items
-            .get(next)
-            // A file that fails to open is reported when its turn comes.
-            .and_then(|item| Source::open(&item.path).ok())
-            .filter(|source| output.carries(&source.info().stream(session.dsd)));
+        let after = following(
+            session.feed.entry.index,
+            session.queue.len(),
+            self.repeat,
+            false,
+        );
+        // A file that fails to open is reported when its turn comes.
+        let continuation = after
+            .and_then(|next| {
+                Some((
+                    next,
+                    Source::open(&session.queue.items.get(next)?.path).ok()?,
+                ))
+            })
+            .filter(|(_, source)| output.carries(&source.info().stream(session.dsd)));
 
-        let Some(mut source) = continuation else {
-            if next < session.items.len() {
-                session.after_drain = Some(next);
-            }
+        let Some((next, mut source)) = continuation else {
+            session.after_drain = after;
             session.feed.decoding = false;
             let generation = session.generation;
             self.send_tail(output, buffer);
@@ -494,6 +528,143 @@ impl Controller {
         self.to_writer(ToWriter::Chunk(chunk));
     }
 
+    fn play_queue(&mut self, items: Vec<QueueItem>, start: usize, device: String, dsd: DsdPolicy) {
+        self.queue_revision += 1;
+        let fresh = PlayerStatus {
+            state: PlaybackState::Loading,
+            ..self.fresh_status(items.len())
+        };
+        self.update(|status| *status = fresh);
+        let mut queue = Queue::new(items);
+        let mut start = start;
+        if self.shuffle {
+            // The chosen track first, then the rest in random order.
+            queue = queue.shuffled(&[start]).0;
+            start = 0;
+        }
+        self.begin(queue, start, 0, device, dsd);
+    }
+
+    fn set_shuffle(&mut self, on: bool) {
+        if self.shuffle == on {
+            return;
+        }
+        self.shuffle = on;
+        if let Some(session) = &self.session {
+            let (queue, moved) = if on {
+                session.queue.shuffled(&session.committed())
+            } else {
+                session.queue.unshuffled()
+            };
+            self.reorder(queue, &moved);
+        } else {
+            self.update(|status| status.shuffle = on);
+        }
+    }
+
+    /// Changes the queue. Without a session it edits the stored queue (for
+    /// the Queue view), which plays when the listener picks an entry.
+    fn edit(&mut self, edit: Edit) {
+        let Some(session) = &self.session else {
+            let stored = Queue::from_items(self.shared_queue());
+            if let Some((queue, _)) = stored.edited(edit, &[], self.shuffle) {
+                self.store_queue(&queue);
+                self.publish_queue(queue.len(), None);
+            }
+            return;
+        };
+        if let Some((queue, moved)) = session
+            .queue
+            .edited(edit, &session.committed(), self.shuffle)
+        {
+            self.reorder(queue, &moved);
+        }
+    }
+
+    /// Puts `queue` in place of the session's; `moved` maps old positions to
+    /// new ones and keeps every started or decoded entry.
+    fn reorder(&mut self, queue: Queue, moved: &Moved) {
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+        let at = |index: usize| moved.get(index).copied().flatten().unwrap_or(index);
+        session.queue = queue;
+        session.shown.index = at(session.shown.index);
+        session.feed.entry.index = at(session.feed.entry.index);
+        for entry in &mut session.upcoming {
+            entry.index = at(entry.index);
+        }
+        let (queue, shown) = (session.queue.clone(), session.shown.index);
+        self.store_queue(&queue);
+        self.publish_queue(queue.len(), Some(shown));
+        self.plan_after_drain();
+    }
+
+    fn shared_queue(&self) -> Arc<[QueueItem]> {
+        Arc::clone(
+            &self
+                .shared
+                .queue
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        )
+    }
+
+    /// Keeps `queue` for [`crate::Player::queue`]; the status follows with
+    /// [`Self::publish_queue`].
+    fn store_queue(&mut self, queue: &Queue) {
+        self.queue_revision += 1;
+        *self
+            .shared
+            .queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Arc::clone(&queue.items);
+    }
+
+    /// One status change for a changed queue: its length and revision, the
+    /// modes, and where the shown track is now.
+    fn publish_queue(&self, length: usize, shown: Option<usize>) {
+        let (revision, shuffle, repeat) = (self.queue_revision, self.shuffle, self.repeat);
+        self.update(|status| {
+            status.queue_length = length;
+            status.queue_revision = revision;
+            status.shuffle = shuffle;
+            status.repeat = repeat;
+            if let (Some(index), Some(track)) = (shown, &mut status.track) {
+                track.index = index;
+            }
+        });
+    }
+
+    /// A stopped status that keeps the modes and the queue's revision.
+    fn fresh_status(&self, queue_length: usize) -> PlayerStatus {
+        PlayerStatus {
+            queue_length,
+            shuffle: self.shuffle,
+            repeat: self.repeat,
+            queue_revision: self.queue_revision,
+            ..PlayerStatus::STOPPED
+        }
+    }
+
+    fn set_repeat(&mut self, repeat: Repeat) {
+        self.repeat = repeat;
+        self.plan_after_drain();
+        self.update(|status| status.repeat = repeat);
+    }
+
+    /// After a change of order or repeat while the last decoded track plays
+    /// out, picks again what opens once the device drains.
+    fn plan_after_drain(&mut self) {
+        let repeat = self.repeat;
+        if let Some(session) = self.session.as_mut()
+            && !session.feed.decoding
+        {
+            session.after_drain =
+                following(session.feed.entry.index, session.queue.len(), repeat, false);
+        }
+    }
+
     fn volume_changed(&mut self, device: &str, volume: HardwareVolume) {
         let Some(session) = self.session.as_mut().filter(|s| s.device == device) else {
             return;
@@ -522,18 +693,8 @@ impl Controller {
     fn stop(&mut self) {
         self.close_session();
         self.shared.position.store(0, Ordering::Release);
-        let length = self
-            .shared
-            .queue
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .len();
-        self.update(|status| {
-            *status = PlayerStatus {
-                queue_length: length,
-                ..PlayerStatus::STOPPED
-            }
-        });
+        let fresh = self.fresh_status(self.shared_queue().len());
+        self.update(|status| *status = fresh);
     }
 
     /// Invalidates queued audio and releases the device.

@@ -33,9 +33,30 @@ const VIEWS: readonly Action[] = [
   'queue',
 ];
 
+function mediaAction(key: string): Action | null {
+  switch (key) {
+    case 'MediaPlayPause':
+      return 'toggle';
+    case 'MediaTrackNext':
+      return 'next';
+    case 'MediaTrackPrevious':
+      return 'previous';
+    case 'MediaStop':
+      return 'stop';
+    default:
+      return null;
+  }
+}
+
 /** What a key press does, or null to leave it to the focused control. */
 export function actionFor(keys: Keys): Action | null {
   const { key, ctrlKey, shiftKey, altKey, metaKey } = keys;
+
+  // Media keys reach the window when the desktop does not take them for
+  // MPRIS (src-tauri/src/mpris.rs).
+  const media = mediaAction(key);
+
+  if (media !== null) return media;
 
   if (altKey || metaKey) return null;
 

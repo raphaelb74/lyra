@@ -134,6 +134,35 @@
     color: var(--text);
   }
 
+  /* A toggle that is on (shuffle, repeat, queue): accent and a dot. */
+  button.icon[aria-pressed] {
+    position: relative;
+  }
+
+  button.icon[aria-pressed='true'],
+  button.icon[aria-pressed='true']:hover:not(:disabled) {
+    color: var(--accent);
+  }
+
+  button.icon[aria-pressed='true']::after {
+    content: '';
+    position: absolute;
+    bottom: 2px;
+    left: calc(50% - 2px);
+    width: 4px;
+    height: 4px;
+    border-radius: var(--radius-round);
+    background: currentColor;
+  }
+
+  /* An icon before the label; the label stays on one line. */
+  button.with-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    white-space: nowrap;
+  }
+
   button.small {
     padding: var(--space-1) var(--space-3);
     font-size: var(--type-caption);

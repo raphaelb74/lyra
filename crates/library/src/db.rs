@@ -79,6 +79,12 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX playlist_items_order ON playlist_items (playlist_id, position);
     CREATE INDEX playlist_items_track ON playlist_items (track_id);
     ",
+    // 3: genre. Tracks already scanned are read again by the next scan,
+    // which fills it in.
+    "
+    ALTER TABLE tracks ADD COLUMN genre TEXT;
+    UPDATE tracks SET mtime_ns = -1;
+    ",
 ];
 
 /// Shown when a file has no artist tag.
@@ -156,6 +162,10 @@ pub struct Album {
     /// (DSD bit rate for DSD) and its codec.
     pub best_rate: u32,
     pub best_codec: String,
+    /// The genre most of its tracks carry.
+    pub genre: Option<String>,
+    /// Sum of the track lengths that are known.
+    pub duration_ms: Option<u64>,
 }
 
 /// An album artist.
@@ -409,7 +419,13 @@ impl Library {
 const ALBUM_COLUMNS: &str = "SELECT albums.id, albums.title, artists.name, albums.year,
         albums.art, COUNT(tracks.id), MAX(tracks.sample_rate),
         (SELECT codec FROM tracks AS best WHERE best.album_id = albums.id
-         ORDER BY best.sample_rate DESC LIMIT 1)
+         ORDER BY best.sample_rate DESC LIMIT 1),
+        (SELECT genre FROM tracks AS tagged
+         WHERE tagged.album_id = albums.id AND tagged.genre IS NOT NULL
+             -- Placeholders some rippers write; they say nothing.
+             AND lower(tagged.genre) NOT IN ('other', 'music', 'unknown', 'genre')
+         GROUP BY tagged.genre ORDER BY COUNT(*) DESC LIMIT 1),
+        SUM(tracks.duration_ms)
     FROM albums
     JOIN artists ON artists.id = albums.artist_id
     JOIN tracks ON tracks.album_id = albums.id";
@@ -424,6 +440,10 @@ fn album_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
         tracks: row.get(5)?,
         best_rate: row.get(6)?,
         best_codec: row.get(7)?,
+        genre: row.get(8)?,
+        duration_ms: row
+            .get::<_, Option<i64>>(9)?
+            .and_then(|ms| u64::try_from(ms).ok()),
     })
 }
 

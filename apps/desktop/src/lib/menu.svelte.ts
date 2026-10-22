@@ -57,6 +57,40 @@ export function replaceItems(items: MenuItem[]) {
   if (menu.open !== null) menu.open = { ...menu.open, items };
 }
 
+/** "Play next" and "Add to queue"; when nothing plays, they play the tracks. */
+export function queueActions(
+  api: Backend,
+  /** The tracks, loaded only when an action is chosen. */
+  tracks: () => Promise<number[]>,
+  device: string,
+  onError: (message: string) => void,
+): MenuItem[] {
+  async function enqueue(next: boolean) {
+    const ids = await attempt(tracks, onError);
+
+    if (ids !== undefined && ids.length > 0) {
+      await attempt(() => api.enqueue(ids, next, device), onError);
+    }
+  }
+
+  const disabled = device === '';
+
+  return [
+    {
+      label: 'Play next',
+      icon: 'list-start',
+      disabled,
+      run: () => void enqueue(true),
+    },
+    {
+      label: 'Add to queue',
+      icon: 'list-end',
+      disabled,
+      run: () => void enqueue(false),
+    },
+  ];
+}
+
 /** "Add to playlist…": lists the playlists in the menu, and a field for a new one. */
 export function addToPlaylist(
   api: Backend,

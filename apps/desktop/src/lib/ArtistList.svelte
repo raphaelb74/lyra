@@ -2,7 +2,7 @@
   import AlbumGrid from './AlbumGrid.svelte';
   import Icon from './Icon.svelte';
   import { attempt, type Album, type Artist, type Backend } from './ipc';
-  import { openMenu } from './menu.svelte';
+  import { openMenu, queueActions } from './menu.svelte';
 
   interface Props {
     api: Backend;
@@ -55,15 +55,19 @@
     if (current?.id === id) albums = found ?? [];
   }
 
-  /** Plays every album of the artist, oldest first. */
+  /** Every track of the artist, album by album, oldest first. */
+  async function artistTrackIds(id: number): Promise<number[]> {
+    const found = await api.artistAlbums(id);
+
+    const parts = await Promise.all(
+      found.map((album) => api.albumTracks(album.id)),
+    );
+
+    return parts.flat().map((track) => track.id);
+  }
+
   async function playArtist(id: number) {
-    const parts = await attempt(async () => {
-      const found = await api.artistAlbums(id);
-
-      return Promise.all(found.map((album) => api.albumTracks(album.id)));
-    }, onError);
-
-    const ids = (parts ?? []).flat().map((track) => track.id);
+    const ids = (await attempt(() => artistTrackIds(id), onError)) ?? [];
 
     if (ids.length > 0) {
       void attempt(() => api.playTracks(ids, 0, device), onError);
@@ -123,6 +127,12 @@
                   disabled: device === '',
                   run: () => void playArtist(artist.id),
                 },
+                ...queueActions(
+                  api,
+                  () => artistTrackIds(artist.id),
+                  device,
+                  onError,
+                ),
               ]);
             }}
           >

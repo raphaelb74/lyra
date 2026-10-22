@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  albumFormats,
+  albumLength,
+  isHiRes,
   clock,
   formatBadge,
   outputLabel,
@@ -148,5 +151,40 @@ describe('display formatting', () => {
     [-3, '0:00'],
   ])('formats %d s as %s', (seconds, text) => {
     expect(clock(seconds)).toBe(text);
+  });
+});
+
+describe('album details', () => {
+  const pcm = (bits: number, rate: number) => ({
+    codec: 'flac',
+    sampleRate: rate,
+    bitsPerSample: bits,
+    dsdMultiple: null,
+  });
+
+  const dsd = {
+    codec: 'dsf',
+    sampleRate: 2822400,
+    bitsPerSample: 1,
+    dsdMultiple: 64,
+  };
+
+  it('lists each format once, highest first', () => {
+    expect(
+      albumFormats([pcm(16, 44100), pcm(24, 96000), pcm(16, 44100)]),
+    ).toEqual(['FLAC 24/96', 'FLAC 16/44.1']);
+    expect(albumFormats([dsd, dsd])).toEqual(['DSD64']);
+  });
+
+  it('calls anything above CD quality hi-res', () => {
+    expect(isHiRes(pcm(16, 44100))).toBe(false);
+    expect(isHiRes(pcm(24, 44100))).toBe(true);
+    expect(isHiRes(pcm(16, 96000))).toBe(true);
+    expect(isHiRes(dsd)).toBe(true);
+  });
+
+  it('gives the length in minutes, then hours', () => {
+    expect(albumLength(39 * 60 + 20)).toBe('39 min');
+    expect(albumLength(72 * 60)).toBe('1 h 12 min');
   });
 });

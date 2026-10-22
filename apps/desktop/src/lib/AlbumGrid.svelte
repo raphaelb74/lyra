@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { formatBadge } from './format';
   import Icon from './Icon.svelte';
   import type { Album } from './ipc';
 
@@ -25,12 +24,13 @@
           onMenu?.(event, album);
         }}
       >
-        {#if album.art}
+        {#if album.thumb}
           <img
             class="art"
-            src={album.art}
+            src={album.thumb}
             alt=""
             loading="lazy"
+            decoding="async"
             width="200"
             height="200"
           />
@@ -40,8 +40,11 @@
           >
         {/if}
         <strong class="truncate">{album.title}</strong>
-        <small class="truncate">{album.artist}</small>
-        <small class="badge num">{formatBadge(album)}</small>
+        <small class="truncate"
+          >{album.artist}{album.year === null
+            ? ''
+            : ` · ${String(album.year)}`}</small
+        >
       </button>
     </li>
   {/each}
@@ -91,10 +94,5 @@
     color: var(--text-secondary);
     font-size: var(--type-small);
     line-height: var(--leading-small);
-  }
-  .badge {
-    color: var(--text-muted);
-    font-size: var(--type-caption);
-    line-height: var(--leading-caption);
   }
 </style>

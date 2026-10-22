@@ -70,6 +70,8 @@ const STATES: readonly string[] = [
   'error',
 ];
 
+const REPEATS: readonly string[] = ['off', 'all', 'one'];
+
 export function isAppInfo(value: JsonValue): value is JsonValue & AppInfo {
   return (
     isRecord(value) &&
@@ -245,7 +247,10 @@ function isAlbum(value: JsonValue): value is JsonValue & Album {
     isText(value.artist) &&
     isNullableNumber(value.year) &&
     isNullableText(value.art) &&
-    isNumber(value.trackCount)
+    isNullableText(value.thumb) &&
+    isNumber(value.trackCount) &&
+    isNullableText(value.genre) &&
+    isNullableNumber(value.durationSeconds)
   );
 }
 
@@ -351,7 +356,8 @@ function isQueueEntry(value: JsonValue): value is JsonValue & QueueEntry {
     isNullableNumber(value.trackId) &&
     isText(value.title) &&
     isNullableText(value.artist) &&
-    isNullableNumber(value.durationSeconds)
+    isNullableNumber(value.durationSeconds) &&
+    isNullableText(value.art)
   );
 }
 
@@ -370,7 +376,8 @@ export function isTrackDetails(
       isNullableText(value.album) &&
       isNumber(value.albumId) &&
       isNullableNumber(value.year) &&
-      isNullableText(value.art))
+      isNullableText(value.art) &&
+      isNullableText(value.thumb))
   );
 }
 
@@ -394,7 +401,12 @@ export function isStatus(value: JsonValue): value is JsonValue & PlayerStatus {
     STATES.includes(value.state) &&
     (value.track === null || isTrack(value.track)) &&
     (value.error === null || isIpcError(value.error)) &&
-    isNumber(value.queueLength)
+    isNumber(value.queueLength) &&
+    isNumber(value.queueRevision) &&
+    typeof value.hasNext === 'boolean' &&
+    typeof value.shuffle === 'boolean' &&
+    isText(value.repeat) &&
+    REPEATS.includes(value.repeat)
   );
 }
 

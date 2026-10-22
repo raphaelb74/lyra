@@ -110,7 +110,11 @@ export interface Album extends SourceFormat {
   year: number | null;
   /** `lyra-art://` URL of the cover, or null. */
   art: string | null;
+  /** A small copy of the cover, for the grid. */
+  thumb: string | null;
   trackCount: number;
+  genre: string | null;
+  durationSeconds: number | null;
 }
 
 /** Mirrors Rust's `LibraryTrack`. */
@@ -174,7 +178,17 @@ export interface PlayerStatus {
   track: Track | null;
   error: { code: string; message: string } | null;
   queueLength: number;
+  /** The queue plays in shuffled order (the Queue view shows that order). */
+  shuffle: boolean;
+  repeat: Repeat;
+  /** Changes whenever the queue does; the queue pane reloads on it. */
+  queueRevision: number;
+  /** Next has a track to go to (a later entry, or the start when repeating). */
+  hasNext: boolean;
 }
+
+/** What plays after a track ends: stop at the end, the queue again, the track again. */
+export type Repeat = 'off' | 'all' | 'one';
 
 /** Mirrors Rust's `QueueEntry`. */
 export interface QueueEntry {
@@ -182,6 +196,8 @@ export interface QueueEntry {
   title: string;
   artist: string | null;
   durationSeconds: number | null;
+  /** Album cover URL. */
+  art: string | null;
 }
 
 /** Mirrors Rust's `TrackDetails`: library data for Now Playing. */
@@ -192,6 +208,8 @@ export interface TrackDetails {
   albumId: number;
   year: number | null;
   art: string | null;
+  /** A small copy of the cover, for the player bar. */
+  thumb: string | null;
 }
 
 /** Errors raised in the UI itself, plus the `code`s Rust sends. */
@@ -388,7 +406,18 @@ export function backend(
       run('play_tracks', isNothing, { trackIds, start, device }),
     next: () => run('next', isNothing),
     previous: () => run('previous', isNothing),
-    skipTo: (index: number) => run('skip_to', isNothing, { index }),
+    /** Plays queue entry `index`; a stopped queue starts again on `device`. */
+    skipTo: (index: number, device: string) =>
+      run('skip_to', isNothing, { index, device }),
+    /** After the playing track (`next`) or at the end; plays them when nothing plays. */
+    enqueue: (trackIds: number[], next: boolean, device: string) =>
+      run('enqueue_tracks', isNothing, { trackIds, next, device }),
+    queueMoveNext: (index: number) =>
+      run('queue_move_next', isNothing, { index }),
+    queueRemove: (index: number) => run('queue_remove', isNothing, { index }),
+    clearQueue: () => run('clear_queue', isNothing),
+    setShuffle: (on: boolean) => run('set_shuffle', isNothing, { on }),
+    setRepeat: (mode: Repeat) => run('set_repeat', isNothing, { mode }),
     queue: () => run('get_queue', isQueue),
     trackDetails: (trackId: number) =>
       run<TrackDetails | null>('track_details', isTrackDetails, { trackId }),

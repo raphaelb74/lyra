@@ -69,17 +69,15 @@
 <div class="add" bind:this={container}>
   <button
     type="button"
-    class={text === undefined ? 'icon' : 'small'}
+    class={text === undefined ? 'icon' : 'with-icon'}
     aria-label={label}
     aria-expanded={open}
     title={label}
     onclick={() => {
       void toggle();
     }}
-    >{#if text === undefined}<Icon
-        name="plus"
-        size={16}
-      />{:else}{text}{/if}</button
+    ><Icon name="plus" size={16} />{#if text !== undefined}<span>{text}</span
+      >{/if}</button
   >
   {#if added}
     <span class="confirm" role="status">{added}</span>

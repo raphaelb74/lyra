@@ -1,9 +1,15 @@
 <script lang="ts">
   import AddToPlaylist from './AddToPlaylist.svelte';
-  import { clock, formatBadge } from './format';
+  import {
+    albumFormats,
+    albumLength,
+    clock,
+    formatBadge,
+    isHiRes,
+  } from './format';
   import Icon from './Icon.svelte';
   import { attempt, type Album, type Backend, type LibraryTrack } from './ipc';
-  import { addToPlaylist, openMenu } from './menu.svelte';
+  import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
 
   interface Props {
     album: Album;
@@ -33,11 +39,40 @@
     });
   });
 
+  const formats = $derived(albumFormats(tracks));
+  const hiRes = $derived(tracks.some(isHiRes));
+  /** `1973 · Rock · 10 tracks, 38 min`. */
+  const facts = $derived(
+    [
+      album.year === null ? null : String(album.year),
+      album.genre,
+      `${String(album.trackCount)} ${album.trackCount === 1 ? 'track' : 'tracks'}${
+        album.durationSeconds === null
+          ? ''
+          : `, ${albumLength(album.durationSeconds)}`
+      }`,
+    ]
+      .filter((fact) => fact !== null)
+      .join(' · '),
+  );
+
   /** Plays the album from `index`, so it continues through the rest. */
   function play(index: number) {
     const ids = tracks.map((t) => t.id);
 
     void attempt(() => api.playTracks(ids, index, device), onError);
+  }
+
+  /** Turns shuffle on and starts from a random track. */
+  function shuffle() {
+    const ids = tracks.map((t) => t.id);
+    const start = Math.floor(Math.random() * ids.length);
+
+    void attempt(async () => {
+      await api.setShuffle(true);
+
+      return api.playTracks(ids, start, device);
+    }, onError);
   }
 
   function number(track: LibraryTrack): string {
@@ -57,23 +92,32 @@
     {:else}
       <div class="art" aria-hidden="true"><Icon name="disc-3" size={48} /></div>
     {/if}
-    <div>
+    <div class="details">
       <h3 id="album-title">{album.title}</h3>
-      <p>
-        {album.artist}{album.year === null ? '' : ` · ${String(album.year)}`}
-      </p>
-      <p class="muted num">
-        {album.trackCount}
-        {album.trackCount === 1 ? 'track' : 'tracks'} · {formatBadge(album)}
-      </p>
+      <p class="artist">{album.artist}</p>
+      <p class="muted num">{facts}</p>
+      {#if formats.length > 0}
+        <ul class="badges" aria-label="Formats">
+          {#if hiRes}<li class="hi-res">Hi-Res</li>{/if}
+          {#each formats as format (format)}
+            <li class="num">{format}</li>
+          {/each}
+        </ul>
+      {/if}
       <div class="actions">
         <button
           type="button"
-          class="primary"
+          class="primary with-icon"
           disabled={tracks.length === 0 || device === ''}
           onclick={() => {
             play(0);
-          }}>Play album</button
+          }}><Icon name="play" size={16} />Play</button
+        >
+        <button
+          type="button"
+          class="with-icon"
+          disabled={tracks.length === 0 || device === ''}
+          onclick={shuffle}><Icon name="shuffle" size={16} />Shuffle</button
         >
         <AddToPlaylist
           {api}
@@ -110,6 +154,12 @@
                   play(index);
                 },
               },
+              ...queueActions(
+                api,
+                () => Promise.resolve([track.id]),
+                device,
+                onError,
+              ),
               'separator',
               addToPlaylist(api, () => Promise.resolve([track.id]), onError),
             ]);
@@ -141,8 +191,10 @@
 </section>
 
 <style>
+  /* The details go under the cover when the view is narrow (queue open). */
   header {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--space-5);
     align-items: flex-end;
     margin: var(--space-4) 0 var(--space-5);
@@ -161,7 +213,40 @@
     margin: var(--space-1) 0;
     color: var(--text-secondary);
   }
+  header .artist {
+    color: var(--text);
+    font-size: var(--type-title);
+    line-height: var(--leading-title);
+  }
+  /* Format tags: a quiet outline; Hi-Res in the accent colour. */
+  .badges {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: var(--space-3) 0 0;
+    padding: 0;
+  }
+  .badges li {
+    padding: var(--space-0) var(--space-2);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-s);
+    color: var(--text-secondary);
+    font-size: var(--type-caption);
+    line-height: var(--leading-caption);
+    font-weight: var(--weight-medium);
+    letter-spacing: 0.04em;
+  }
+  .badges .hi-res {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .details {
+    flex: 1 1 320px;
+    min-width: 0;
+  }
   .actions {
+    flex-wrap: wrap;
     margin-top: var(--space-3);
   }
   .rows {

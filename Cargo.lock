@@ -1862,8 +1862,10 @@ name = "lyra-desktop"
 version = "0.1.0"
 dependencies = [
  "audio-alsa",
+ "dbus",
  "format-dsd",
  "format-pcm",
+ "gdk-pixbuf",
  "library",
  "player-core",
  "serde",

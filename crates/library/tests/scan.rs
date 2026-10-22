@@ -40,6 +40,8 @@ fn id3_tag(title: &str, track: u32, with_cover: bool) -> Vec<u8> {
     tag.set_album("Aladdin Sane");
     tag.set_track(track);
     tag.set_year(1973);
+    // ID3v1 genre 17, written the old numeric way.
+    tag.set_genre("(17)");
     if with_cover {
         tag.add_frame(id3::frame::Picture {
             mime_type: "image/jpeg".into(),
@@ -140,6 +142,8 @@ fn scans_tags_formats_and_artwork() {
     );
     let bowie = &albums[0];
     assert_eq!((bowie.year, bowie.best_codec.as_str()), (Some(1973), "dsf"));
+    assert_eq!(bowie.genre.as_deref(), Some("Rock"));
+    assert!(bowie.duration_ms.is_some_and(|ms| ms > 0));
     let tones = &albums[1];
     assert_eq!(
         (tones.best_rate, tones.best_codec.as_str()),

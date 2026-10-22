@@ -4,7 +4,7 @@ use format_pcm::SampleEncoding;
 use player_core::mock::{MockSink, SinkCall};
 use player_core::{
     DsdTransport, Encoding, ErrorKind, HardwareVolume, OutputFormat, PlaybackState, PlayerStatus,
-    SinkError, SinkErrorKind,
+    Repeat, SinkError, SinkErrorKind,
 };
 use std::time::Duration;
 
@@ -231,6 +231,9 @@ fn stop_releases_the_device() {
             track: None,
             error: None,
             queue_length: 1,
+            shuffle: false,
+            repeat: Repeat::Off,
+            queue_revision: 1, // the one queue played
         }
     );
     assert_eq!(player.position(), 0);

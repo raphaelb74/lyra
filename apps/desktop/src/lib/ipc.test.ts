@@ -69,6 +69,10 @@ const status = {
   },
   error: null,
   queueLength: 3,
+  shuffle: false,
+  repeat: 'off',
+  queueRevision: 1,
+  hasNext: true,
 };
 
 describe('playback commands', () => {
@@ -122,7 +126,10 @@ describe('playback commands', () => {
       artist: 'David Bowie',
       year: 1973,
       art: 'lyra-art://localhost/1-1.jpg',
+      thumb: 'lyra-art://localhost/thumb/1-1.jpg',
       trackCount: 10,
+      genre: 'Rock',
+      durationSeconds: 2496,
       codec: 'dsf',
       sampleRate: 2822400,
       dsdMultiple: 64,

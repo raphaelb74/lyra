@@ -2,7 +2,7 @@
   import AddToPlaylist from './AddToPlaylist.svelte';
   import { clock, formatBadge } from './format';
   import { attempt, type Backend, type LibraryTrack } from './ipc';
-  import { addToPlaylist, openMenu } from './menu.svelte';
+  import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
 
   interface Props {
     api: Backend;
@@ -93,6 +93,12 @@
                 play(index);
               },
             },
+            ...queueActions(
+              api,
+              () => Promise.resolve([track.id]),
+              device,
+              onError,
+            ),
             {
               label: 'Go to album',
               icon: 'disc-3',

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { isTauri } from '@tauri-apps/api/core';
   import { onMount, tick } from 'svelte';
+  import { cubicOut } from 'svelte/easing';
+  import { slide } from 'svelte/transition';
 
   import {
     BackendError,
@@ -9,6 +11,7 @@
     type AppInfo,
     type DeviceInfo,
     type PlayerStatus,
+    type Repeat,
     type TrackDetails,
   } from './lib/ipc';
   import { onStatus } from './lib/events';
@@ -16,7 +19,7 @@
   import NowPlaying from './lib/NowPlaying.svelte';
   import PlayerBar from './lib/PlayerBar.svelte';
   import Playlists from './lib/Playlists.svelte';
-  import QueueView from './lib/QueueView.svelte';
+  import QueuePanel from './lib/QueuePanel.svelte';
   import Diagnostics from './lib/Diagnostics.svelte';
   import Settings from './lib/Settings.svelte';
   import type { IconName } from './assets/icons/lucide';
@@ -26,6 +29,7 @@
   import TitleBar from './lib/TitleBar.svelte';
   import DevicePicker from './lib/DevicePicker.svelte';
   import VolumeControl from './lib/VolumeControl.svelte';
+  import { readFlag, writeFlag } from './lib/storage';
 
   const api = backend();
 
@@ -34,7 +38,6 @@
     | 'artists'
     | 'tracks'
     | 'playlists'
-    | 'queue'
     | 'settings'
     /* Opened from the player bar and from Settings, not the sidebar. */
     | 'now'
@@ -45,8 +48,9 @@
     { id: 'artists', label: 'Artists', icon: 'mic-vocal' },
     { id: 'tracks', label: 'Tracks', icon: 'audio-lines' },
     { id: 'playlists', label: 'Playlists', icon: 'list-music' },
-    { id: 'queue', label: 'Queue', icon: 'list-ordered' },
   ];
+
+  const QUEUE_OPEN_KEY = 'lyra.queue.open';
 
   let appInfo = $state<AppInfo | null>(null);
   /** Why the audio engine cannot be reached; null while it can. */
@@ -61,6 +65,10 @@
     track: null,
     error: null,
     queueLength: 0,
+    shuffle: false,
+    repeat: 'off',
+    queueRevision: 0,
+    hasNext: false,
   });
   let position = $state(0);
   let actionError = $state<string | null>(null);
@@ -68,6 +76,8 @@
   /** Where Now Playing and Diagnostics go back to. */
   let back = $state<View>('albums');
   let details = $state<TrackDetails | null>(null);
+  /** The queue pane on the right, remembered between launches. */
+  let queueOpen = $state(readFlag(QUEUE_OPEN_KEY));
 
   const device = $derived(devices.find((d) => d.name === selectedDevice));
   const libraryId = $derived(status.track?.libraryId ?? null);
@@ -105,6 +115,26 @@
     } finally {
       devicesLoaded = true;
     }
+  }
+
+  function setQueueOpen(open: boolean) {
+    queueOpen = open;
+    writeFlag(QUEUE_OPEN_KEY, open);
+  }
+
+  /** The panel slide follows --dur-panel, which is 0 with reduced motion. */
+  function panelMotion() {
+    const token = getComputedStyle(document.documentElement)
+      .getPropertyValue('--dur-panel')
+      .trim();
+
+    const amount = parseFloat(token) || 0;
+
+    return {
+      axis: 'x' as const,
+      duration: token.endsWith('ms') ? amount : amount * 1000,
+      easing: cubicOut,
+    };
   }
 
   /** Opens a view that has a way back (Now Playing, Diagnostics). */
@@ -161,6 +191,9 @@
         break;
       case 'ignore':
         break;
+      case 'queue':
+        setQueueOpen(!queueOpen);
+        break;
       default:
         view = action;
     }
@@ -171,6 +204,7 @@
 
     if (event.key === 'Escape') {
       if (view === 'now' || view === 'diagnostics') view = back;
+      else if (queueOpen) setQueueOpen(false);
 
       return;
     }
@@ -272,9 +306,6 @@
           >
             <Icon name={item.icon} size={18} />
             <span class="label">{item.label}</span>
-            {#if item.id === 'queue' && status.queueLength > 0}
-              <span class="count num">{status.queueLength}</span>
-            {/if}
           </button>
         {/each}
       </nav>
@@ -337,7 +368,7 @@
           }}
           onError={showError}
         />
-      {:else if view === 'diagnostics'}
+      {:else}
         <Diagnostics
           {api}
           {device}
@@ -345,15 +376,21 @@
           onBack={() => (view = 'settings')}
           onError={showError}
         />
-      {:else}
-        <QueueView
-          {api}
-          current={status.track?.queueIndex ?? null}
-          queueLength={status.queueLength}
-          onError={showError}
-        />
       {/if}
     </main>
+    {#if queueOpen}
+      <div class="queue-pane" transition:slide={panelMotion()}>
+        <QueuePanel
+          {api}
+          {status}
+          device={selectedDevice}
+          onClose={() => {
+            setQueueOpen(false);
+          }}
+          onError={showError}
+        />
+      </div>
+    {/if}
   </div>
   <PlayerBar
     {status}
@@ -372,12 +409,28 @@
     onStop={() => {
       void command(api.stop);
     }}
+    onShuffle={(on: boolean) => {
+      void command(() => api.setShuffle(on));
+    }}
+    onRepeat={(mode: Repeat) => {
+      void command(() => api.setRepeat(mode));
+    }}
     onSeek={(seconds: number) => {
       position = seconds;
       void command(() => api.seek(seconds));
     }}
   >
     {#snippet output()}
+      <button
+        type="button"
+        class="icon"
+        aria-label="Queue"
+        aria-pressed={queueOpen}
+        title="Queue (Ctrl+5)"
+        onclick={() => {
+          setQueueOpen(!queueOpen);
+        }}><Icon name="list-ordered" size={18} /></button
+      >
       {#if selectedDevice !== ''}
         <VolumeControl
           {api}
@@ -402,6 +455,8 @@
     --sidebar-width: 232px;
 
     display: grid;
+    /* Never wider than the window, whatever a view holds. */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
     height: 100dvh;
   }
@@ -459,10 +514,6 @@
   .label {
     flex: 1;
   }
-  .count {
-    font-size: var(--type-caption);
-    color: var(--text-muted);
-  }
   main {
     flex: 1;
     display: flex;
@@ -475,6 +526,13 @@
   /* Views flow top to bottom; one may fill the height (Artists). */
   main > :global(*) {
     flex-shrink: 0;
+  }
+  /* Fixed inner width: the pane slides in without its text reflowing. */
+  .queue-pane {
+    --queue-width: 340px;
+
+    flex-shrink: 0;
+    overflow: hidden;
   }
   .engine {
     display: flex;
@@ -502,11 +560,6 @@
       overflow: hidden;
       clip-path: inset(50%);
       white-space: nowrap;
-    }
-    .count {
-      position: absolute;
-      top: var(--space-0);
-      right: var(--space-1);
     }
     main {
       padding: var(--space-2) var(--space-5) var(--space-6);

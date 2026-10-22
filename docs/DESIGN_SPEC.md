@@ -159,7 +159,7 @@ That is 7 sizes, down from 12. Only two weights are visible in practice: 450 and
 │ ≡ Tracks     │  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘            │
 │ ♫ Playlists  │  Title   Title   …                                    │
 │              │  Artist  Artist                                       │
-│ ☰ Queue   12 │                                                       │
+│              │                                                       │
 │              │                                                       │
 │              │                                                       │
 │ ⚙ Settings   │                                                       │
@@ -171,7 +171,7 @@ That is 7 sizes, down from 12. Only two weights are visible in practice: 450 and
 
 **Sidebar (208 px; 64 px icon rail below 1000 px window width):**
 - Albums, Artists, Tracks and Playlists become direct items. The Library tabs go away, which removes a level and the faulty tab pattern.
-- Queue shows its length.
+- The queue is not a sidebar item: it is a pane on the right (see below).
 - Settings is pinned to the bottom.
 - The sidebar no longer carries the device, volume or backend status.
 
@@ -216,7 +216,9 @@ There is no dialog component: removing a folder or playlist keeps the two-click 
   - Format indicator.
   - Device picker: the card name and a chevron, opening a popover that lists devices with "USB" and the active output.
   - Volume slider (hidden when the device has no hardware volume), with its value on hover as "−12.5 dB" or "64 %".
-  - Queue button.
+  - Queue button: opens or closes the queue pane (also Ctrl+5); accent and a dot while open.
+- **Shuffle and repeat** flank previous and next; on, they turn accent with a dot. Repeat cycles off, all, one.
+- **Time:** the length after the seek bar switches to time left on click, remembered between launches.
 - **Below 1100 px:** "Artist — Album" collapses to the artist, and the volume shrinks to an icon button with a popover slider.
 - **Announcements:** a visually hidden `aria-live="polite"` region announces "Playing *title*", "Paused" and errors. It does not announce position ticks.
 
@@ -271,7 +273,8 @@ These are vertical stages joined by a hairline. Each stage states a fact the bac
   - The search field sits in the view header, and `/` or Ctrl+F focuses it.
   - The 500-row cap becomes windowed rendering: a fixed 40 px row height makes a small hand-written virtual list possible, about 60 lines and no dependency.
   - This is done only if A07 shows the cap is a problem. Otherwise the "showing 500 of N, refine your search" note stays.
-- **Playlists and Queue:** the shared rows. Up, down and remove appear as row actions on hover or focus, and Alt+↑ / Alt+↓ moves the focused row.
+- **Playlists:** the shared rows. Up, down and remove appear as row actions on hover or focus, and Alt+↑ / Alt+↓ moves the focused row.
+- **Queue pane:** 340 px on the right, sliding in over `--dur-panel` and pushing the view; open state remembered. "Now playing" with its cover, then "Up next" in play order (wrapping when repeating all), with covers. Row actions on hover or focus: Play next and Remove; the same plus Play in the right-click menu. Clear keeps only the playing track. Albums, artists and tracks get "Play next" and "Add to queue" in their right-click menus; when nothing plays, they start playback. Later: drag to reorder.
 
 ### Settings
 
@@ -299,7 +302,8 @@ Groups, in order:
 | Ctrl+↑ / Ctrl+↓ | Volume ±5 (existing) |
 | Ctrl+. | Stop |
 | / or Ctrl+F | Search tracks |
-| Ctrl+1…5 | Albums, Artists, Tracks, Playlists, Queue |
+| Ctrl+1…4 | Albums, Artists, Tracks, Playlists |
+| Ctrl+5 | Open or close the queue pane |
 | Ctrl+R, F5, Ctrl+P | Ignored: no reload or print in a music player |
 | Ctrl+, | Settings |
 | Escape | Close popover / leave Now Playing |

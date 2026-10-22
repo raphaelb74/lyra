@@ -37,6 +37,13 @@ describe('keyboard shortcuts', () => {
     expect(actionFor(press(',', { ctrlKey: true }))).toBe('settings');
   });
 
+  it('obey the keyboard media keys', () => {
+    expect(actionFor(press('MediaPlayPause'))).toBe('toggle');
+    expect(actionFor(press('MediaTrackNext'))).toBe('next');
+    expect(actionFor(press('MediaTrackPrevious'))).toBe('previous');
+    expect(actionFor(press('MediaStop'))).toBe('stop');
+  });
+
   it('swallow browser reload and print', () => {
     expect(actionFor(press('F5'))).toBe('ignore');
     expect(actionFor(press('r', { ctrlKey: true }))).toBe('ignore');

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
 
   import AlbumGrid from './AlbumGrid.svelte';
   import AlbumView from './AlbumView.svelte';
@@ -8,7 +8,7 @@
   import { onLibraryChanged, onLibraryNotice, onScanStatus } from './events';
   import { scanText } from './format';
   import { attempt, type Album, type Backend, type ScanStatus } from './ipc';
-  import { addToPlaylist, openMenu } from './menu.svelte';
+  import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
 
   interface Props {
     /** Chosen in the sidebar. */
@@ -60,15 +60,32 @@
     version += 1;
   }
 
-  function showAlbum(album: Album) {
+  /** Where the list was scrolled when an album opened; restored on Back. */
+  let listScroll = 0;
+
+  /** The app's scrolling area: the main view. */
+  function scroller(): HTMLElement | null {
+    return document.querySelector('main');
+  }
+
+  async function showAlbum(album: Album) {
+    listScroll = scroller()?.scrollTop ?? 0;
     opened = { album, from: section };
+    await tick();
+    scroller()?.scrollTo({ top: 0 });
+  }
+
+  async function closeAlbum() {
+    opened = null;
+    await tick();
+    scroller()?.scrollTo({ top: listScroll });
   }
 
   /** Opens an album by id, e.g. from a track's menu. */
   function showAlbumById(id: number) {
     const album = albums.find((candidate) => candidate.id === id);
 
-    if (album) showAlbum(album);
+    if (album) void showAlbum(album);
   }
 
   async function albumTrackIds(album: Album): Promise<number[]> {
@@ -87,12 +104,11 @@
             onError,
           ),
       },
+      ...queueActions(api, () => albumTrackIds(album), device, onError),
       {
         label: 'Open album',
         icon: 'disc-3',
-        run: () => {
-          showAlbum(album);
-        },
+        run: () => void showAlbum(album),
       },
       'separator',
       addToPlaylist(api, () => albumTrackIds(album), onError),
@@ -135,7 +151,7 @@
     {device}
     {playingId}
     {onError}
-    onBack={() => (opened = null)}
+    onBack={closeAlbum}
   />
 {:else}
   <section

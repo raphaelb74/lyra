@@ -16,6 +16,45 @@ export function formatBadge(format: SourceFormat): string {
   return `${format.codec.toUpperCase()} ${kilohertz(format.sampleRate)}`;
 }
 
+/** A track's source format with its bit depth (1 for DSD). */
+type TrackFormat = SourceFormat & { bitsPerSample: number };
+
+/** `DSD64`, or `FLAC 24/96` with the bit depth. */
+export function formatLabel(format: TrackFormat): string {
+  if (format.dsdMultiple !== null) return `DSD${String(format.dsdMultiple)}`;
+
+  return `${format.codec.toUpperCase()} ${String(format.bitsPerSample)}/${kilohertz(format.sampleRate)}`;
+}
+
+/** Above CD quality: DSD, more than 16 bits or more than 48 kHz. */
+export function isHiRes(format: TrackFormat): boolean {
+  return (
+    format.dsdMultiple !== null ||
+    format.bitsPerSample > 16 ||
+    format.sampleRate > 48000
+  );
+}
+
+/** Each format of an album's tracks once, highest rate first. */
+export function albumFormats(tracks: readonly TrackFormat[]): string[] {
+  const sorted = [...tracks].sort(
+    (a, b) =>
+      b.sampleRate * Math.max(1, b.bitsPerSample) -
+      a.sampleRate * Math.max(1, a.bitsPerSample),
+  );
+
+  return [...new Set(sorted.map(formatLabel))];
+}
+
+/** Album length: `42 min`, `1 h 12 min`. */
+export function albumLength(seconds: number): string {
+  const minutes = Math.round(seconds / 60);
+
+  if (minutes < 60) return `${String(minutes)} min`;
+
+  return `${String(Math.floor(minutes / 60))} h ${String(minutes % 60)} min`;
+}
+
 /**
  * `S24_3LE · 96 kHz`, `DoP · S24_3LE · 176.4 kHz`,
  * `Native DSD · DSD_U32_BE · 88.2 kHz`, `DSD converted to PCM · S32_LE · 88.2 kHz`.
