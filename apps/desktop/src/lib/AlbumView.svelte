@@ -7,6 +7,7 @@
     formatBadge,
     isHiRes,
   } from './format';
+  import FormatLogo from './FormatLogo.svelte';
   import Icon from './Icon.svelte';
   import { attempt, type Album, type Backend, type LibraryTrack } from './ipc';
   import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
@@ -45,6 +46,14 @@
 
   const formats = $derived(albumFormats(tracks));
   const hiRes = $derived(tracks.some(isHiRes));
+  /** Format logos for the families among the tracks (WAV has none). */
+  const logos = $derived(
+    (['dsd', 'flac'] as const).filter((family) =>
+      tracks.some((track) =>
+        family === 'dsd' ? track.dsdMultiple !== null : track.codec === 'flac',
+      ),
+    ),
+  );
   /** `1973 · Rock · 10 tracks, 38 min`. */
   const facts = $derived(
     [
@@ -101,12 +110,15 @@
       <p class="artist">{album.artist}</p>
       <p class="muted num">{facts}</p>
       {#if formats.length > 0}
-        <ul class="badges" aria-label="Formats">
-          {#if hiRes}<li class="hi-res">Hi-Res</li>{/if}
-          {#each formats as format (format)}
-            <li class="num">{format}</li>
-          {/each}
-        </ul>
+        <div class="formats">
+          {#each logos as logo (logo)}<FormatLogo format={logo} />{/each}
+          <ul class="badges" aria-label="Formats">
+            {#if hiRes}<li class="hi-res">Hi-Res</li>{/if}
+            {#each formats as format (format)}
+              <li class="num">{format}</li>
+            {/each}
+          </ul>
+        </div>
       {/if}
       <div class="actions">
         <button
@@ -226,13 +238,21 @@
     font-size: var(--type-title);
     line-height: var(--leading-title);
   }
-  /* Format tags: a quiet outline; Hi-Res in the accent colour. */
+  /* Format logos, then tags: a quiet outline; Hi-Res in the accent colour. */
+  .formats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+    color: var(--text-secondary);
+  }
   .badges {
     list-style: none;
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
-    margin: var(--space-3) 0 0;
+    margin: 0;
     padding: 0;
   }
   .badges li {
