@@ -6,6 +6,7 @@
     supportLabel,
   } from './diagnostics';
   import { outputLabel } from './format';
+  import Icon from './Icon.svelte';
   import {
     attempt,
     type Backend,
@@ -20,10 +21,11 @@
     /** Selected output device; undefined when none. */
     device: DeviceInfo | undefined;
     status: PlayerStatus;
+    onBack: () => void;
     onError: (message: string) => void;
   }
 
-  const { api, device, status, onError }: Props = $props();
+  const { api, device, status, onBack, onError }: Props = $props();
 
   /** How often the live figures are read while this view is open. */
   const REFRESH_MS = 1000;
@@ -102,6 +104,9 @@
   }
 </script>
 
+<button type="button" class="back" onclick={onBack}
+  ><Icon name="chevron-left" size={16} />Settings</button
+>
 <section aria-labelledby="diagnostics-title">
   <div class="heading">
     <h3 id="diagnostics-title">Diagnostics</h3>

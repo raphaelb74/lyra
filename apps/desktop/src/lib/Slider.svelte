@@ -127,6 +127,16 @@
     opacity: 1;
   }
 
+  /* After a click the slider stays thin until hovered again. */
+  :global(:root[data-input='pointer'])
+    .slider:focus-visible:not(:hover, :active) {
+    --track: 2px;
+  }
+  :global(:root[data-input='pointer'])
+    .slider:focus-visible:not(:hover, :active)::-webkit-slider-thumb {
+    opacity: 0;
+  }
+
   /* Firefox, for the browser preview only. */
   .slider::-moz-range-track {
     height: var(--track);

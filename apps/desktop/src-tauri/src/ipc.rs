@@ -463,6 +463,8 @@ pub struct ArtistInfo {
     pub name: String,
     pub album_count: u32,
     pub track_count: u32,
+    /// `lyra-art://` URL of a cover standing in for a photo, or null.
+    pub art: Option<String>,
 }
 
 impl From<Artist> for ArtistInfo {
@@ -472,6 +474,7 @@ impl From<Artist> for ArtistInfo {
             name: artist.name,
             album_count: artist.albums,
             track_count: artist.tracks,
+            art: artist.art.map(|name| format!("{ART_URL}{name}")),
         }
     }
 }

@@ -6,9 +6,11 @@
   interface Props {
     albums: Album[];
     onOpen: (album: Album) => void;
+    /** Right click (or the Menu key) on an album. */
+    onMenu?: (event: MouseEvent, album: Album) => void;
   }
 
-  const { albums, onOpen }: Props = $props();
+  const { albums, onOpen, onMenu }: Props = $props();
 </script>
 
 <ul class="grid">
@@ -18,6 +20,9 @@
         type="button"
         onclick={() => {
           onOpen(album);
+        }}
+        oncontextmenu={(event) => {
+          onMenu?.(event, album);
         }}
       >
         {#if album.art}

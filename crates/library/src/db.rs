@@ -165,6 +165,9 @@ pub struct Artist {
     pub name: String,
     pub albums: u32,
     pub tracks: u32,
+    /// Artwork file name of the artist's latest album with a cover: the
+    /// library has no artist photos.
+    pub art: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -346,10 +349,13 @@ impl Library {
             .optional()?)
     }
 
-    /// Album artists with their album and track counts, by name.
+    /// Album artists with their album and track counts and a cover, by name.
     pub fn artists(&self) -> Result<Vec<Artist>, LibraryError> {
         let mut statement = self.conn.prepare(
-            "SELECT artists.id, artists.name, COUNT(DISTINCT albums.id), COUNT(tracks.id)
+            "SELECT artists.id, artists.name, COUNT(DISTINCT albums.id), COUNT(tracks.id),
+                    (SELECT latest.art FROM albums AS latest
+                     WHERE latest.artist_id = artists.id AND latest.art IS NOT NULL
+                     ORDER BY latest.year DESC, latest.title LIMIT 1)
              FROM artists
              JOIN albums ON albums.artist_id = artists.id
              JOIN tracks ON tracks.album_id = albums.id
@@ -362,6 +368,7 @@ impl Library {
                 name: row.get(1)?,
                 albums: row.get(2)?,
                 tracks: row.get(3)?,
+                art: row.get(4)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)

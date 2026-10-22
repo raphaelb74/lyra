@@ -3,6 +3,7 @@
   import { clock, formatBadge } from './format';
   import Icon from './Icon.svelte';
   import { attempt, type Album, type Backend, type LibraryTrack } from './ipc';
+  import { addToPlaylist, openMenu } from './menu.svelte';
 
   interface Props {
     album: Album;
@@ -98,6 +99,20 @@
           title={device === '' ? 'Choose an output device first' : undefined}
           onclick={() => {
             play(index);
+          }}
+          oncontextmenu={(event) => {
+            openMenu(event, [
+              {
+                label: 'Play',
+                icon: 'play',
+                disabled: device === '',
+                run: () => {
+                  play(index);
+                },
+              },
+              'separator',
+              addToPlaylist(api, () => Promise.resolve([track.id]), onError),
+            ]);
           }}
         >
           <span class="meta end">{number(track)}</span>

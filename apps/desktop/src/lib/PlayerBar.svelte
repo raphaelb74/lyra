@@ -13,6 +13,8 @@
     details: TrackDetails | null;
     /** Volume and output device, on the right of the transport. */
     output: Snippet;
+    /** Shows Now Playing. */
+    onOpen: () => void;
     onToggle: () => void;
     onPrevious: () => void;
     onNext: () => void;
@@ -25,6 +27,7 @@
     position,
     details,
     output,
+    onOpen,
     onToggle,
     onPrevious,
     onNext,
@@ -65,13 +68,19 @@
 </script>
 
 <footer aria-label="Player">
-  <div class="now">
+  <button
+    type="button"
+    class="now"
+    aria-label={title === null ? 'Now playing' : `Now playing: ${title}`}
+    title="Now playing"
+    onclick={onOpen}
+  >
     {#if details?.art}
       <img class="art" src={details.art} alt="" width="48" height="48" />
     {:else}
-      <div class="art" aria-hidden="true"><Icon name="disc-3" /></div>
+      <span class="art" aria-hidden="true"><Icon name="disc-3" /></span>
     {/if}
-    <div class="track">
+    <span class="track">
       {#if title !== null}
         <strong class="truncate">{title}</strong>
         {#if details}
@@ -83,8 +92,8 @@
         <strong>Nothing playing</strong>
         <small class="truncate">Choose an album to start</small>
       {/if}
-    </div>
-  </div>
+    </span>
+  </button>
 
   <div class="transport">
     <div class="controls">
@@ -176,12 +185,18 @@
     align-items: center;
     gap: var(--space-3);
     min-width: 0;
+    padding: var(--space-1);
+    margin-left: calc(-1 * var(--space-1));
+    border: 0;
+    text-align: left;
+    font-weight: var(--weight-regular);
   }
   .art {
     width: 48px;
     height: 48px;
   }
   .track {
+    min-width: 0;
     display: grid;
     gap: var(--space-0);
     min-width: 0;

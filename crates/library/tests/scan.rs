@@ -332,6 +332,10 @@ fn artists_and_all_tracks() {
     let albums = library.artist_albums(artists[0].id).unwrap();
     assert_eq!(albums.len(), 1);
     assert_eq!(albums[0].title, "Aladdin Sane");
+    assert_eq!(
+        artists[0].art, albums[0].art,
+        "the artist shows its album's cover"
+    );
 
     let tracks = library.tracks().unwrap();
     assert_eq!(tracks.len(), 4);

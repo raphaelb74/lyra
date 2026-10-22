@@ -39,7 +39,8 @@
 <header class="titlebar">
   <div class="side" data-tauri-drag-region>
     <span class="wordmark" data-tauri-drag-region
-      ><span class="mark" aria-hidden="true">♮</span> Lyra</span
+      ><span class="mark" aria-hidden="true" data-tauri-drag-region>♮</span
+      ><span class="name" data-tauri-drag-region>Lyra</span></span
     >
   </div>
   <div class="main" data-tauri-drag-region>
@@ -122,8 +123,15 @@
     background: var(--danger-surface);
     color: var(--danger);
   }
-  @media (max-width: 650px) {
+  .name {
+    margin-left: var(--space-2);
+  }
+  @media (max-width: 1000px) {
     .side {
+      justify-content: center;
+      padding: 0;
+    }
+    .name {
       display: none;
     }
   }

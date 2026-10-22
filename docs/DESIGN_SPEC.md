@@ -300,8 +300,11 @@ Groups, in order:
 | Ctrl+. | Stop |
 | / or Ctrl+F | Search tracks |
 | Ctrl+1…5 | Albums, Artists, Tracks, Playlists, Queue |
+| Ctrl+R, F5, Ctrl+P | Ignored: no reload or print in a music player |
 | Ctrl+, | Settings |
 | Escape | Close popover / leave Now Playing |
+
+Space works even when a button or slider has focus; text fields keep their keys. Right click opens Lyra's own menu (`menu.svelte.ts`, `ContextMenu.svelte`); the webview's menu is off outside text fields. Focus rings show after keyboard use only.
 
 They are handled in one `shortcuts.ts` with a pure `actionFor(event)` that unit tests cover. MPRIS and media keys stay in M5.
 

@@ -7,14 +7,18 @@
     status: PlayerStatus;
     details: TrackDetails | null;
     device: DeviceInfo | undefined;
+    onBack: () => void;
   }
 
-  const { status, details, device }: Props = $props();
+  const { status, details, device, onBack }: Props = $props();
 
   const track = $derived(status.track);
   const signal = $derived(track === null ? null : playbackLabel(track));
 </script>
 
+<button type="button" class="back" onclick={onBack}
+  ><Icon name="chevron-left" size={16} />Back</button
+>
 <section class="now" aria-labelledby="now-title">
   {#if track}
     {#if details?.art}
@@ -62,6 +66,9 @@
 </section>
 
 <style>
+  .back {
+    margin-bottom: var(--space-4);
+  }
   .now {
     display: flex;
     gap: var(--space-6);

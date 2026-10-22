@@ -134,6 +134,8 @@ export interface Artist {
   name: string;
   albumCount: number;
   trackCount: number;
+  /** `lyra-art://` URL of a cover standing in for a photo, or null. */
+  art: string | null;
 }
 
 /** Mirrors Rust's `PlaylistInfo`. */

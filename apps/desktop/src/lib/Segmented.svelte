@@ -93,6 +93,9 @@
     outline: var(--focus-ring);
     outline-offset: 1px;
   }
+  :global(:root[data-input='pointer']) label:has(input:focus-visible) {
+    outline: none;
+  }
   label:has(input:disabled) {
     cursor: default;
   }

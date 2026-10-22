@@ -8,8 +8,11 @@
   import { onLibraryChanged, onLibraryNotice, onScanStatus } from './events';
   import { scanText } from './format';
   import { attempt, type Album, type Backend, type ScanStatus } from './ipc';
+  import { addToPlaylist, openMenu } from './menu.svelte';
 
   interface Props {
+    /** Chosen in the sidebar. */
+    section: 'albums' | 'artists' | 'tracks';
     api: Backend;
     /** Selected output device; empty when none. */
     device: string;
@@ -18,7 +21,7 @@
     onError: (message: string) => void;
   }
 
-  const { api, device, playingId, onError }: Props = $props();
+  const { section, api, device, playingId, onError }: Props = $props();
 
   let albums = $state<Album[]>([]);
   let hasFolders = $state(false);
@@ -26,17 +29,16 @@
   let scan = $state<ScanStatus | null>(null);
   /** A sentence about the last drop, e.g. a file instead of a folder. */
   let notice = $state<string | null>(null);
-  let openAlbum = $state<Album | null>(null);
-  type Tab = 'albums' | 'artists' | 'tracks';
+  /** The album opened, and the section it was opened from. */
+  let opened = $state<{ album: Album; from: Props['section'] } | null>(null);
 
-  const tabs: readonly { id: Tab; label: string }[] = [
-    { id: 'albums', label: 'Albums' },
-    { id: 'artists', label: 'Artists' },
-    { id: 'tracks', label: 'Tracks' },
-  ];
+  /** Shown only in its own section: another sidebar choice leaves it. */
+  const openAlbum = $derived(opened?.from === section ? opened.album : null);
+  const titles = { albums: 'Albums', artists: 'Artists', tracks: 'Tracks' };
 
-  let tab = $state<Tab>('albums');
-  /** Bumped whenever the library changes, so every tab reloads. */
+  /** Artist chosen in the Artists view; kept while an album is open. */
+  let artistId = $state<number | null>(null);
+  /** Bumped whenever the library changes, so every view reloads. */
   let version = $state(0);
 
   async function reload() {
@@ -51,13 +53,50 @@
     }
 
     // An open album may be gone or changed: keep it only if still there.
-    openAlbum = albums.find((a) => a.id === openAlbum?.id) ?? null;
+    const album = albums.find((a) => a.id === opened?.album.id);
+
+    opened = album && opened ? { album, from: opened.from } : null;
     loaded = true;
     version += 1;
   }
 
   function showAlbum(album: Album) {
-    openAlbum = album;
+    opened = { album, from: section };
+  }
+
+  /** Opens an album by id, e.g. from a track's menu. */
+  function showAlbumById(id: number) {
+    const album = albums.find((candidate) => candidate.id === id);
+
+    if (album) showAlbum(album);
+  }
+
+  async function albumTrackIds(album: Album): Promise<number[]> {
+    return (await api.albumTracks(album.id)).map((track) => track.id);
+  }
+
+  function albumMenu(event: MouseEvent, album: Album) {
+    openMenu(event, [
+      {
+        label: 'Play',
+        icon: 'play',
+        disabled: device === '',
+        run: () =>
+          void attempt(
+            async () => api.playTracks(await albumTrackIds(album), 0, device),
+            onError,
+          ),
+      },
+      {
+        label: 'Open album',
+        icon: 'disc-3',
+        run: () => {
+          showAlbum(album);
+        },
+      },
+      'separator',
+      addToPlaylist(api, () => albumTrackIds(album), onError),
+    ]);
   }
 
   onMount(() => {
@@ -96,20 +135,19 @@
     {device}
     {playingId}
     {onError}
-    onBack={() => (openAlbum = null)}
+    onBack={() => (opened = null)}
   />
 {:else}
-  <section aria-label="Library">
-    <div class="tabs" role="tablist" aria-label="Browse by">
-      {#each tabs as item (item.id)}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === item.id}
-          onclick={() => (tab = item.id)}>{item.label}</button
-        >
-      {/each}
-      <span class="muted num">{albums.length} albums</span>
+  <section
+    class="library"
+    class:fill={section === 'artists'}
+    aria-label={titles[section]}
+  >
+    <div class="heading">
+      <h2>{titles[section]}</h2>
+      {#if section === 'albums' && albums.length > 0}
+        <span class="muted num">{albums.length} albums</span>
+      {/if}
     </div>
     {#if notice !== null || scan?.running}
       <p class="muted scanning" role="status">
@@ -132,41 +170,42 @@
           {/if}
         </div>
       {/if}
-    {:else if tab === 'albums'}
-      <AlbumGrid {albums} onOpen={showAlbum} />
-    {:else if tab === 'artists'}
-      <ArtistList {api} {version} onOpenAlbum={showAlbum} {onError} />
+    {:else if section === 'albums'}
+      <AlbumGrid {albums} onOpen={showAlbum} onMenu={albumMenu} />
+    {:else if section === 'artists'}
+      <ArtistList
+        {api}
+        {device}
+        {version}
+        selectedId={artistId}
+        onSelect={(id: number) => (artistId = id)}
+        onOpenAlbum={showAlbum}
+        onAlbumMenu={albumMenu}
+        {onError}
+      />
     {:else}
-      <TrackList {api} {device} {playingId} {version} {onError} />
+      <TrackList
+        {api}
+        {device}
+        {playingId}
+        {version}
+        onOpenAlbum={showAlbumById}
+        {onError}
+      />
     {/if}
   </section>
 {/if}
 
 <style>
-  .tabs {
+  /* The Artists view's two panes fill the height and scroll on their own. */
+  .fill {
+    flex: 1;
+    min-height: 0;
     display: flex;
-    align-items: center;
-    gap: var(--space-1);
-    margin-bottom: var(--space-5);
-    border-bottom: 1px solid var(--line);
+    flex-direction: column;
   }
-  .tabs button {
-    border: 0;
-    border-bottom: 2px solid transparent;
-    border-radius: 0;
-    padding: var(--space-2) var(--space-3);
-    color: var(--text-secondary);
-  }
-  .tabs button:hover:not(:disabled) {
-    background: transparent;
-    color: var(--text);
-  }
-  .tabs [aria-selected='true'] {
-    color: var(--text);
-    border-bottom-color: var(--accent);
-  }
-  .tabs .muted {
-    margin-left: auto;
+  .fill .heading {
+    margin-bottom: var(--space-3);
   }
   .scanning {
     margin: 0 0 var(--space-4);

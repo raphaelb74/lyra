@@ -2,6 +2,7 @@
   import AddToPlaylist from './AddToPlaylist.svelte';
   import { clock, formatBadge } from './format';
   import { attempt, type Backend, type LibraryTrack } from './ipc';
+  import { addToPlaylist, openMenu } from './menu.svelte';
 
   interface Props {
     api: Backend;
@@ -9,10 +10,12 @@
     playingId: number | null;
     /** Changes when the library changed; reloads the list. */
     version: number;
+    onOpenAlbum: (id: number) => void;
     onError: (message: string) => void;
   }
 
-  const { api, device, playingId, version, onError }: Props = $props();
+  const { api, device, playingId, version, onOpenAlbum, onError }: Props =
+    $props();
 
   /** Rows rendered at once; refine the search to see others. */
   const SHOWN = 500;
@@ -79,6 +82,27 @@
         disabled={device === ''}
         onclick={() => {
           play(index);
+        }}
+        oncontextmenu={(event) => {
+          openMenu(event, [
+            {
+              label: 'Play',
+              icon: 'play',
+              disabled: device === '',
+              run: () => {
+                play(index);
+              },
+            },
+            {
+              label: 'Go to album',
+              icon: 'disc-3',
+              run: () => {
+                onOpenAlbum(track.albumId);
+              },
+            },
+            'separator',
+            addToPlaylist(api, () => Promise.resolve([track.id]), onError),
+          ]);
         }}
       >
         <span class="title">{track.title}</span>

@@ -1,15 +1,38 @@
 <script lang="ts">
-  import { attempt, type Backend, type Settings } from './ipc';
+  import {
+    attempt,
+    type AppInfo,
+    type Backend,
+    type DeviceInfo,
+    type Settings,
+  } from './ipc';
   import LibraryFolders from './LibraryFolders.svelte';
   import Segmented from './Segmented.svelte';
   import type { Option } from './segmented';
 
   interface Props {
     api: Backend;
+    /** Name and version; null until the audio engine answers. */
+    appInfo: AppInfo | null;
+    connected: boolean;
+    checking: boolean;
+    /** Selected output device, for its diagnostics. */
+    device: DeviceInfo | undefined;
+    onCheck: () => void;
+    onOpenDiagnostics: () => void;
     onError: (message: string) => void;
   }
 
-  const { api, onError }: Props = $props();
+  const {
+    api,
+    appInfo,
+    connected,
+    checking,
+    device,
+    onCheck,
+    onOpenDiagnostics,
+    onError,
+  }: Props = $props();
 
   const transports: Option<Settings['dsdTransport']>[] = [
     {
@@ -210,6 +233,43 @@
   {:else}
     <p class="muted">Loading settings…</p>
   {/if}
+
+  <h3 class="group-title">Output</h3>
+  <div class="panel">
+    <div class="setting">
+      <div class="setting-text">
+        <h4>Diagnostics</h4>
+        <p class="muted">
+          {device === undefined
+            ? 'Choose an output device first.'
+            : `Buffer, dropouts and driver details for ${device.label}.`}
+        </p>
+      </div>
+      <button
+        type="button"
+        class="small"
+        disabled={device === undefined}
+        onclick={onOpenDiagnostics}>Open</button
+      >
+    </div>
+  </div>
+
+  <h3 class="group-title">About</h3>
+  <div class="panel about">
+    <div class="setting">
+      <div class="setting-text">
+        <h4>{appInfo === null ? 'Lyra' : `Lyra ${appInfo.version}`}</h4>
+        <p class="muted" data-testid="backend-status">
+          {connected
+            ? `Audio engine connected · ${appInfo?.platform ?? ''}`
+            : 'Audio engine not connected'}
+        </p>
+      </div>
+      <button type="button" class="small" disabled={checking} onclick={onCheck}
+        >{checking ? 'Checking…' : 'Check'}</button
+      >
+    </div>
+  </div>
 </section>
 
 <style>

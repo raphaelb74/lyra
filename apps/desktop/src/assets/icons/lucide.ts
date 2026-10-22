@@ -152,6 +152,37 @@ export const icons = {
     ['path', { d: 'M18 6 6 18' }],
     ['path', { d: 'm6 6 12 12' }],
   ],
+  'audio-lines': [
+    ['path', { d: 'M2 10v3' }],
+    ['path', { d: 'M6 6v11' }],
+    ['path', { d: 'M10 3v18' }],
+    ['path', { d: 'M14 8v7' }],
+    ['path', { d: 'M18 5v13' }],
+    ['path', { d: 'M22 10v3' }],
+  ],
+  'list-ordered': [
+    ['path', { d: 'M11 5h10' }],
+    ['path', { d: 'M11 12h10' }],
+    ['path', { d: 'M11 19h10' }],
+    ['path', { d: 'M4 4h1v5' }],
+    ['path', { d: 'M4 9h2' }],
+    ['path', { d: 'M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02' }],
+  ],
+  'mic-vocal': [
+    [
+      'path',
+      {
+        d: 'm11 7.601-5.994 8.19a1 1 0 0 0 .1 1.298l.817.818a1 1 0 0 0 1.314.087L15.09 12',
+      },
+    ],
+    [
+      'path',
+      {
+        d: 'M16.5 21.174C15.5 20.5 14.372 20 13 20c-2.058 0-3.928 2.356-6 2-2.072-.356-2.775-3.369-1.5-4.5',
+      },
+    ],
+    ['circle', { cx: '16', cy: '7', r: '5' }],
+  ],
 } as const satisfies Record<string, readonly IconPart[]>;
 
 export type IconName = keyof typeof icons;

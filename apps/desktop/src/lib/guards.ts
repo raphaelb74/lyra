@@ -282,7 +282,8 @@ function isArtist(value: JsonValue): value is JsonValue & Artist {
     isNumber(value.id) &&
     isText(value.name) &&
     isNumber(value.albumCount) &&
-    isNumber(value.trackCount)
+    isNumber(value.trackCount) &&
+    isNullableText(value.art)
   );
 }
 

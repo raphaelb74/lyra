@@ -1,6 +1,7 @@
 <script lang="ts">
   import { clock, formatBadge } from './format';
   import Icon from './Icon.svelte';
+  import { addToPlaylist, openMenu } from './menu.svelte';
   import {
     attempt,
     type Backend,
@@ -159,6 +160,31 @@
               disabled={device === ''}
               onclick={() => {
                 play(index);
+              }}
+              oncontextmenu={(event) => {
+                openMenu(event, [
+                  {
+                    label: 'Play',
+                    icon: 'play',
+                    disabled: device === '',
+                    run: () => {
+                      play(index);
+                    },
+                  },
+                  addToPlaylist(
+                    api,
+                    () => Promise.resolve([entry.track.id]),
+                    onError,
+                  ),
+                  'separator',
+                  {
+                    label: 'Remove from playlist',
+                    icon: 'x',
+                    danger: true,
+                    run: () =>
+                      void change(() => api.removeFromPlaylist(entry.entryId)),
+                  },
+                ]);
               }}
             >
               <span class="meta end">{index + 1}</span>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { clock } from './format';
   import { attempt, type Backend, type QueueEntry } from './ipc';
+  import { openMenu } from './menu.svelte';
 
   interface Props {
     api: Backend;
@@ -45,6 +46,15 @@
             aria-current={index === current ? 'true' : undefined}
             onclick={() => {
               void attempt(() => api.skipTo(index), onError);
+            }}
+            oncontextmenu={(event) => {
+              openMenu(event, [
+                {
+                  label: 'Play from here',
+                  icon: 'play',
+                  run: () => void attempt(() => api.skipTo(index), onError),
+                },
+              ]);
             }}
           >
             <span class="meta end">{index + 1}</span>
