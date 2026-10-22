@@ -113,6 +113,8 @@ describe('diagnostics', () => {
     );
     expect(report).toContain('Handed over by: pipewire');
     expect(report).toContain('USB stream:\nAltset = 4');
-    expect(report).toContain('Accepts (2–2 channels):\nS16_LE: 44.1, 48 kHz');
+    expect(report).toContain(
+      'Accepts (2–2 channels):\nPCM 16-bit: 44.1, 48 kHz (S16_LE)',
+    );
   });
 });
