@@ -31,6 +31,7 @@ pub struct Scanned {
     pub track: Option<u32>,
     pub disc: Option<u32>,
     pub year: Option<i32>,
+    pub genre: Option<String>,
     /// `flac`, `wav`, `dsf` or `dff`.
     pub codec: &'static str,
     /// PCM sample rate, or DSD bit rate per channel.
@@ -135,6 +136,7 @@ fn apply_standard(scanned: &mut Scanned, tag: StandardTag) {
         StandardTag::Artist(value) => set(&mut scanned.artist, &value),
         StandardTag::Album(value) => set(&mut scanned.album, &value),
         StandardTag::AlbumArtist(value) => set(&mut scanned.album_artist, &value),
+        StandardTag::Genre(value) => set(&mut scanned.genre, &value),
         StandardTag::TrackNumber(number) => {
             scanned.track = scanned.track.or(u32::try_from(number).ok());
         }
@@ -242,6 +244,8 @@ fn apply_id3(scanned: &mut Scanned, tag: &id3::Tag) {
     scanned.artist = tag.artist().and_then(text);
     scanned.album = tag.album().and_then(text);
     scanned.album_artist = tag.album_artist().and_then(text);
+    // ID3 genres may be numeric ("(17)"); this gives the name.
+    scanned.genre = tag.genre_parsed().as_deref().and_then(text);
     scanned.track = tag.track();
     scanned.disc = tag.disc();
     scanned.year = tag

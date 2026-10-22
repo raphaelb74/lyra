@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use alsa::pcm::{Access, HwParams, State};
 use alsa::{PCM, ValueOr};
-use player_core::{AudioSink, OutputFormat, SinkError, SinkErrorKind, StreamFormat};
+use player_core::{AudioSink, Encoding, OutputFormat, SinkError, SinkErrorKind, StreamFormat};
 
 use crate::device::{alsa_format, open};
 use crate::diagnostics::SinkStats;
@@ -12,10 +12,16 @@ use crate::error::{AlsaError, errno, find_holder};
 use crate::reserve::Reservation;
 use crate::volume::{self, SavedVolume};
 
-/// Device buffer. Long enough to ride out scheduling hiccups on a busy
-/// desktop; seek and stop drop it, so it adds no control latency.
-const BUFFER_US: u32 = 250_000;
-const PERIOD_US: u32 = BUFFER_US / 4;
+/// Periods in the device buffer.
+const PERIODS: u32 = 4;
+/// Longest period, as a fraction of a second: with [`PERIODS`] the buffer is
+/// 125–250 ms, long enough to ride out scheduling hiccups on a busy
+/// desktop. Seek and stop drop it, so it adds no control latency.
+const PERIODS_PER_SECOND: u32 = 16;
+/// Native DSD warm-up (see [`AlsaSink::warm_up`]): idle pattern played, then
+/// a pause before the real open.
+const WARM_UP_SILENCE: Duration = Duration::from_millis(100);
+const WARM_UP_PAUSE: Duration = Duration::from_millis(150);
 /// Longest single wait for buffer space before re-checking the device.
 const WAIT_MS: u32 = 100;
 /// Longest wait for the sound server to close a card it handed over.
@@ -128,9 +134,10 @@ impl AlsaSink {
             // Exact rate only: a refused rate is an error, never a resample.
             hw.set_rate(output.sample_rate, ValueOr::Nearest)
                 .map_err(fail)?;
-            hw.set_period_time_near(PERIOD_US, ValueOr::Nearest)
+            let period = period_frames(output.sample_rate);
+            hw.set_period_size_near(period, ValueOr::Nearest)
                 .map_err(fail)?;
-            hw.set_buffer_time_near(BUFFER_US, ValueOr::Nearest)
+            hw.set_buffer_size_near(period * alsa::pcm::Frames::from(PERIODS))
                 .map_err(fail)?;
             pcm.hw_params(&hw).map_err(fail)?;
         }
@@ -214,9 +221,39 @@ impl AlsaSink {
     }
 }
 
+impl AlsaSink {
+    /// Plays a moment of DSD idle pattern on the open stream and closes it,
+    /// keeping the card.
+    ///
+    /// Some USB DACs (the iFi USB Audio SE, see docs/hardware) sometimes
+    /// stay in PCM mode when a native DSD stream starts after a mode change,
+    /// and play the DSD as loud hiss; nothing on the host side shows it.
+    /// Stopping and playing again always worked: the DAC is already in DSD
+    /// at that rate. Opening twice does the same on the first play.
+    fn warm_up(&mut self, output: OutputFormat) {
+        let frames =
+            usize::try_from(u128::from(output.sample_rate) * WARM_UP_SILENCE.as_millis() / 1000)
+                .unwrap_or(0);
+        let mut bytes = Vec::new();
+        output.encoding.silence(output.channels, frames, &mut bytes);
+        // Errors are moot: the real open follows, and reports its own.
+        if self.write(&bytes).is_ok() {
+            let _ = self.drain();
+        }
+        self.stream = None;
+        std::thread::sleep(WARM_UP_PAUSE);
+    }
+}
+
 impl AudioSink for AlsaSink {
     fn open(&mut self, device: &str, stream: &StreamFormat) -> Result<OutputFormat, SinkError> {
-        let result = self.open_stream(device, stream);
+        let mut result = self.open_stream(device, stream);
+        if let Ok(output) = result
+            && matches!(output.encoding, Encoding::Dsd(_))
+        {
+            self.warm_up(output);
+            result = self.open_stream(device, stream);
+        }
         if result.is_err() {
             // Nothing is playing: the sound server may have the card back.
             self.stats.closed();
@@ -371,9 +408,21 @@ fn hw_part<'a>(device: &'a str, key: &str, position: usize) -> Option<&'a str> {
     by_key.or_else(|| parts.nth(position).filter(|part| !part.contains('=')))
 }
 
+/// Frames per period at `rate`: the largest power of two up to 1/16 s.
+///
+/// A whole power of two keeps every period a multiple of 128 bytes for any
+/// sample layout. Sized by time instead (5513 frames at 88.2 kHz), periods
+/// are odd; Intel HD Audio controllers can then lose their DMA position,
+/// which plays the music under loud static until the stream restarts.
+fn period_frames(rate: u32) -> alsa::pcm::Frames {
+    let most = (rate / PERIODS_PER_SECOND).max(64);
+    let frames = 1_u32 << most.ilog2();
+    alsa::pcm::Frames::from(frames)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{card_control, device_number, hw_part};
+    use super::{card_control, device_number, hw_part, period_frames};
 
     #[test]
     fn parses_hw_names() {
@@ -384,5 +433,22 @@ mod tests {
         assert_eq!(hw_part("plughw:ONE", "CARD", 0), None);
         assert_eq!(card_control("hw:CARD=ONE,DEV=0"), "hw:CARD=ONE");
         assert_eq!(card_control("hw:2,0"), "hw:2");
+    }
+
+    #[test]
+    fn periods_are_powers_of_two_up_to_a_sixteenth_of_a_second() {
+        // 88.2 kHz: 5512 frames by time, 4096 here (46 ms).
+        assert_eq!(period_frames(88_200), 4096);
+        assert_eq!(period_frames(44_100), 2048);
+        assert_eq!(period_frames(48_000), 2048);
+        assert_eq!(period_frames(192_000), 8192);
+        // DSD512 as native DSD_U32: 705.6 kHz frames.
+        assert_eq!(period_frames(705_600), 32_768);
+        for rate in [32_000, 44_100, 96_000, 176_400, 352_800] {
+            let frames = period_frames(rate);
+            // A multiple of 128 bytes even for the smallest frame (2 bytes).
+            assert_eq!((frames * 2) % 128, 0, "{rate}");
+            assert!(frames * 16 <= i64::from(rate) && frames * 32 > i64::from(rate));
+        }
     }
 }

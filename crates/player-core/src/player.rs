@@ -25,6 +25,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::controller::Controller;
+use crate::order::{Edit, Repeat};
 use crate::sink::{AudioSink, DsdPolicy, HardwareVolume};
 use crate::status::{ErrorKind, PlaybackState, PlayerError, PlayerStatus};
 use crate::writer::{Writer, WriterEvent};
@@ -126,10 +127,21 @@ pub(crate) enum Command {
         device: String,
         dsd: DsdPolicy,
     },
+    /// Adds tracks to the queue, or plays them when nothing plays.
+    Enqueue {
+        items: Vec<QueueItem>,
+        next: bool,
+        device: String,
+        dsd: DsdPolicy,
+    },
+    Edit(Edit),
     Next,
     Previous,
     SkipTo {
         index: usize,
+        /// Where a stopped queue plays.
+        device: String,
+        dsd: DsdPolicy,
     },
     Pause,
     Resume,
@@ -141,6 +153,8 @@ pub(crate) enum Command {
         device: String,
         volume: HardwareVolume,
     },
+    SetShuffle(bool),
+    SetRepeat(Repeat),
     Shutdown,
 }
 
@@ -247,7 +261,8 @@ impl Player {
         })
     }
 
-    /// Plays the next queue entry; stops after the last.
+    /// Plays the next queue entry; after the last, stops or (repeating)
+    /// starts again.
     pub fn next(&self) -> Result<(), PlayerError> {
         self.send(Command::Next)
     }
@@ -258,9 +273,53 @@ impl Player {
         self.send(Command::Previous)
     }
 
-    /// Plays queue entry `index`.
-    pub fn skip_to(&self, index: usize) -> Result<(), PlayerError> {
-        self.send(Command::SkipTo { index })
+    /// Adds tracks to play after the current one (`next`) or at the end of
+    /// the queue. When nothing plays, they play now on `device`.
+    pub fn enqueue(
+        &self,
+        items: Vec<QueueItem>,
+        next: bool,
+        device: String,
+        dsd: DsdPolicy,
+    ) -> Result<(), PlayerError> {
+        self.send(Command::Enqueue {
+            items,
+            next,
+            device,
+            dsd,
+        })
+    }
+
+    /// Moves queue entry `index` to play next. The playing track stays.
+    pub fn move_next(&self, index: usize) -> Result<(), PlayerError> {
+        self.send(Command::Edit(Edit::MoveNext(index)))
+    }
+
+    /// Removes queue entry `index`; the playing track cannot be removed.
+    pub fn remove(&self, index: usize) -> Result<(), PlayerError> {
+        self.send(Command::Edit(Edit::Remove(index)))
+    }
+
+    /// Removes every queue entry but the playing track.
+    pub fn clear_queue(&self) -> Result<(), PlayerError> {
+        self.send(Command::Edit(Edit::Clear))
+    }
+
+    /// Plays queue entry `index`. A stopped queue starts again from it on
+    /// `device`; while playing, the current device stays.
+    pub fn skip_to(&self, index: usize, device: String, dsd: DsdPolicy) -> Result<(), PlayerError> {
+        self.send(Command::SkipTo { index, device, dsd })
+    }
+
+    /// Shuffles the queue, keeping the playing track; off restores the
+    /// order it was given. Stays on for the next queues played.
+    pub fn set_shuffle(&self, on: bool) -> Result<(), PlayerError> {
+        self.send(Command::SetShuffle(on))
+    }
+
+    /// What plays after a track ends; stays for the next queues played.
+    pub fn set_repeat(&self, repeat: Repeat) -> Result<(), PlayerError> {
+        self.send(Command::SetRepeat(repeat))
     }
 
     pub fn pause(&self) -> Result<(), PlayerError> {

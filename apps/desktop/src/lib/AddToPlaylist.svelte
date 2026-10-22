@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { attempt, type Backend, type Playlist } from './ipc';
 
   interface Props {
@@ -68,16 +69,18 @@
 <div class="add" bind:this={container}>
   <button
     type="button"
-    class="trigger"
+    class={text === undefined ? 'icon' : 'with-icon'}
     aria-label={label}
     aria-expanded={open}
     title={label}
     onclick={() => {
       void toggle();
-    }}>{text ?? '+'}</button
+    }}
+    ><Icon name="plus" size={16} />{#if text !== undefined}<span>{text}</span
+      >{/if}</button
   >
   {#if added}
-    <span class="added" role="status">{added}</span>
+    <span class="confirm" role="status">{added}</span>
   {/if}
   {#if open}
     <div class="menu">
@@ -96,7 +99,9 @@
           maxlength="200"
           bind:value={name}
         />
-        <button type="submit" disabled={name.trim() === ''}>Create</button>
+        <button type="submit" class="small" disabled={name.trim() === ''}
+          >Create</button
+        >
       </form>
     </div>
   {/if}
@@ -107,67 +112,43 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
   }
-  .trigger {
-    padding: 4px 10px;
-    font-size: 13px;
-    border-color: var(--border);
-    background: transparent;
-    white-space: nowrap;
-  }
-  .added {
-    color: var(--accent);
-    font-size: 12px;
+  .confirm {
     white-space: nowrap;
   }
   .menu {
     position: absolute;
     right: 0;
-    top: calc(100% + 4px);
+    top: calc(100% + var(--space-1));
     z-index: 10;
     min-width: 220px;
     max-height: 320px;
     overflow-y: auto;
     display: grid;
-    gap: 2px;
-    padding: 6px;
+    gap: var(--space-0);
+    padding: var(--space-1);
     background: var(--surface-raised);
-    border: 1px solid var(--border-strong);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgb(0 0 0 / 40%);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-m);
+    box-shadow: var(--shadow-pop);
   }
   .menu > button {
     text-align: left;
     border: 0;
-    background: transparent;
-    padding: 8px 10px;
-    font-size: 13px;
-  }
-  .menu > button:hover,
-  .menu > button:focus-visible {
-    background: var(--surface-selected);
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--type-small);
+    font-weight: var(--weight-regular);
   }
   form {
     display: flex;
-    gap: 6px;
-    padding-top: 6px;
-    border-top: 1px solid var(--border);
-    margin-top: 4px;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--line);
+    margin-top: var(--space-1);
   }
   input {
     flex: 1;
     min-width: 0;
-    font: inherit;
-    font-size: 13px;
-    color: inherit;
-    background: var(--surface);
-    border: 1px solid var(--border-strong);
-    border-radius: 6px;
-    padding: 6px 8px;
-  }
-  form button {
-    padding: 4px 10px;
-    font-size: 12px;
   }
 </style>

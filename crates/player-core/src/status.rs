@@ -5,6 +5,7 @@ use format_dsd::DsdError;
 use format_pcm::DecodeError;
 
 use crate::dop;
+use crate::order::{Repeat, following};
 use crate::sink::{Encoding, HardwareVolume, OutputFormat, SinkError, SinkErrorKind};
 use crate::source::SourceInfo;
 
@@ -185,6 +186,12 @@ pub struct PlayerStatus {
     pub error: Option<PlayerError>,
     /// Entries in the queue ([`crate::Player::queue`] lists them).
     pub queue_length: usize,
+    /// The queue plays in shuffled order.
+    pub shuffle: bool,
+    pub repeat: Repeat,
+    /// Changes whenever the queue does (order, entries), so a view of it
+    /// knows to reload.
+    pub queue_revision: u64,
 }
 
 impl PlayerStatus {
@@ -196,11 +203,22 @@ impl PlayerStatus {
         (active && dop::is_dop(&track.output?)).then_some(dop::VOLUME_LOCKED)
     }
 
+    /// Next has somewhere to go: a later entry, or the start again when
+    /// repeating.
+    pub fn has_next(&self) -> bool {
+        self.track.as_ref().is_some_and(|track| {
+            following(track.index, self.queue_length, self.repeat, true).is_some()
+        })
+    }
+
     pub(crate) const STOPPED: Self = Self {
         state: PlaybackState::Stopped,
         track: None,
         error: None,
         queue_length: 0,
+        shuffle: false,
+        repeat: Repeat::Off,
+        queue_revision: 0,
     };
 }
 
@@ -210,7 +228,7 @@ mod tests {
 
     use format_pcm::{Codec, SampleEncoding, StreamInfo};
 
-    use super::{BitPerfect, NowPlaying, PlaybackState, PlayerStatus};
+    use super::{BitPerfect, NowPlaying, PlaybackState, PlayerStatus, Repeat};
     use crate::sink::{Encoding, HardwareVolume, OutputFormat};
     use crate::source::SourceInfo;
 
@@ -272,6 +290,9 @@ mod tests {
                 track: Some(track),
                 error: None,
                 queue_length: 1,
+                shuffle: false,
+                repeat: Repeat::Off,
+                queue_revision: 0,
             }
         };
         let dop = Encoding::Dop(SampleEncoding::S24In3Le);

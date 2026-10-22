@@ -1,14 +1,16 @@
 mod commands;
 mod ipc;
+mod mpris;
 mod settings;
+mod thumbs;
 mod volume_watch;
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use audio_alsa::AlsaSink;
 use commands::{AppState, LIBRARY_CHANGED_EVENT, LIBRARY_NOTICE_EVENT, is_playable};
-use ipc::{DroppedFile, ScanReport, ScanStatus, Status, file_name};
+use ipc::{ScanReport, ScanStatus, Status, THUMB_PATH};
 use library::{Library, ScanEvent, Scanner};
 use player_core::Player;
 use tauri::http::{Response, StatusCode, header};
@@ -16,48 +18,53 @@ use tauri::{AppHandle, DragDropEvent, Emitter, Manager, RunEvent, WindowEvent};
 
 /// Event carrying a [`Status`] after every playback state change.
 const STATUS_EVENT: &str = "player-status";
-/// Event carrying the playable [`DroppedFile`]s of a drop (possibly none).
-const DROP_EVENT: &str = "files-dropped";
 /// Event carrying a [`ScanStatus`] while a scan runs and when it ends.
 const SCAN_EVENT: &str = "scan-status";
+
+/// Starts the engine, the library and the desktop integrations.
+fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let handle = app.handle().clone();
+    let sink = AlsaSink::new();
+    let sink_stats = sink.stats();
+    // Status changes also go to MPRIS (the desktop's media keys).
+    let (notify_mpris, mpris_updates) = mpsc::channel();
+    let player = Player::new(sink, move |status| {
+        // A closed window has nobody to notify.
+        let _ = handle.emit(STATUS_EVENT, Status::from(status));
+        let _ = notify_mpris.send(());
+    })?;
+    let db = app.path().app_data_dir()?.join("library.db");
+    let art_dir = app.path().app_cache_dir()?.join("artwork");
+    let library = Library::open(&db)?;
+    let has_folders = !library.folders()?.is_empty();
+    let scan_status = Arc::new(Mutex::new(ScanStatus::default()));
+    let scanner = Scanner::new(db, art_dir.clone(), {
+        let handle = app.handle().clone();
+        let scan_status = Arc::clone(&scan_status);
+        move |event| on_scan_event(&handle, &scan_status, event)
+    });
+    app.manage(AppState::new(
+        player,
+        sink_stats,
+        library,
+        scanner.clone(),
+        scan_status,
+        art_dir,
+        app.path().app_config_dir()?.join("settings.json"),
+    ));
+    volume_watch::spawn(app.handle().clone())?;
+    mpris::spawn(app.handle().clone(), mpris_updates)?;
+    // Pick up changes made while Lyra was closed.
+    if has_folders {
+        scanner.request();
+    }
+    Ok(())
+}
 
 pub fn run() -> tauri::Result<()> {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            let handle = app.handle().clone();
-            let sink = AlsaSink::new();
-            let sink_stats = sink.stats();
-            let player = Player::new(sink, move |status| {
-                // A closed window has nobody to notify.
-                let _ = handle.emit(STATUS_EVENT, Status::from(status));
-            })?;
-            let db = app.path().app_data_dir()?.join("library.db");
-            let art_dir = app.path().app_cache_dir()?.join("artwork");
-            let library = Library::open(&db)?;
-            let has_folders = !library.folders()?.is_empty();
-            let scan_status = Arc::new(Mutex::new(ScanStatus::default()));
-            let scanner = Scanner::new(db, art_dir.clone(), {
-                let handle = app.handle().clone();
-                let scan_status = Arc::clone(&scan_status);
-                move |event| on_scan_event(&handle, &scan_status, event)
-            });
-            app.manage(AppState::new(
-                player,
-                sink_stats,
-                library,
-                scanner.clone(),
-                scan_status,
-                art_dir,
-                app.path().app_config_dir()?.join("settings.json"),
-            ));
-            volume_watch::spawn(app.handle().clone())?;
-            // Pick up changes made while Lyra was closed.
-            if has_folders {
-                scanner.request();
-            }
-            Ok(())
-        })
+        .setup(setup)
         .register_asynchronous_uri_scheme_protocol("lyra-art", |context, request, responder| {
             let art_dir = context.app_handle().state::<AppState>().art_dir.clone();
             let name = request.uri().path().trim_start_matches('/').to_owned();
@@ -73,11 +80,16 @@ pub fn run() -> tauri::Result<()> {
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
             commands::list_devices,
-            commands::play,
             commands::play_tracks,
             commands::next,
             commands::previous,
             commands::skip_to,
+            commands::set_shuffle,
+            commands::enqueue_tracks,
+            commands::queue_move_next,
+            commands::queue_remove,
+            commands::clear_queue,
+            commands::set_repeat,
             commands::get_queue,
             commands::track_details,
             commands::pause,
@@ -125,7 +137,8 @@ pub fn run() -> tauri::Result<()> {
     Ok(())
 }
 
-/// Dropped folders join the library; dropped audio files become playable.
+/// Dropped folders join the library. Lyra plays from the library only, so a
+/// dropped file gets a hint to add its folder instead.
 fn on_drop(app: &AppHandle, paths: &[std::path::PathBuf]) {
     let state = app.state::<AppState>();
     let (folders, files): (Vec<_>, Vec<_>) = paths.iter().partition(|path| path.is_dir());
@@ -140,24 +153,14 @@ fn on_drop(app: &AppHandle, paths: &[std::path::PathBuf]) {
     }
     if added {
         let _ = app.emit(LIBRARY_CHANGED_EVENT, ());
+    } else if !files.is_empty() {
+        let hint = if files.iter().any(|path| is_playable(path)) {
+            "Lyra plays music from your library: drop the folder that holds these files."
+        } else {
+            "Drop a folder of FLAC, WAV, DSF or DFF files to add it to your library."
+        };
+        let _ = app.emit(LIBRARY_NOTICE_EVENT, hint);
     }
-    let playable: Vec<_> = files
-        .into_iter()
-        .filter(|path| is_playable(path))
-        .cloned()
-        .collect();
-    if playable.is_empty() && added {
-        return; // A folder drop, not a failed file drop.
-    }
-    let dropped: Vec<DroppedFile> = playable
-        .iter()
-        .map(|path| DroppedFile {
-            path: path.display().to_string(),
-            name: file_name(path),
-        })
-        .collect();
-    state.allow(playable);
-    let _ = app.emit(DROP_EVENT, dropped);
 }
 
 fn on_scan_event(app: &AppHandle, status: &Mutex<ScanStatus>, event: ScanEvent) {
@@ -190,11 +193,23 @@ fn on_scan_event(app: &AppHandle, status: &Mutex<ScanStatus>, event: ScanEvent) 
     }
 }
 
-/// Serves one cached artwork file. Only names the cache creates are served,
-/// so a request cannot leave the artwork directory.
-fn artwork(art_dir: &Path, name: &str) -> Response<Vec<u8>> {
+/// Serves one cached artwork file, or its thumbnail for `thumb/<name>`.
+/// Only names the cache creates are served, so a request cannot leave the
+/// artwork directory.
+fn artwork(art_dir: &Path, request: &str) -> Response<Vec<u8>> {
+    let (name, small) = match request.strip_prefix(THUMB_PATH) {
+        Some(name) => (name, true),
+        None => (request, false),
+    };
     let found = library::is_art_name(name)
-        .then(|| std::fs::read(art_dir.join(name)).ok())
+        .then(|| {
+            let path = if small {
+                thumbs::thumbnail(art_dir, name)?
+            } else {
+                art_dir.join(name)
+            };
+            std::fs::read(path).ok()
+        })
         .flatten();
     let Some(bytes) = found else {
         return Response::builder()

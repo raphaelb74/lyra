@@ -1,7 +1,17 @@
 <script lang="ts">
   import AddToPlaylist from './AddToPlaylist.svelte';
-  import { clock, formatBadge } from './format';
+  import {
+    albumFormats,
+    albumLength,
+    clock,
+    formatBadge,
+    isHiRes,
+  } from './format';
+  import FormatLogo from './FormatLogo.svelte';
+  import Icon from './Icon.svelte';
   import { attempt, type Album, type Backend, type LibraryTrack } from './ipc';
+  import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
+  import { rowEvents } from './rows';
 
   interface Props {
     album: Album;
@@ -15,6 +25,9 @@
   }
 
   const { album, api, device, playingId, onBack, onError }: Props = $props();
+
+  /** The row a click selected; a double click plays. */
+  let selected = $state<number | null>(null);
 
   let tracks = $state<LibraryTrack[]>([]);
   let loaded = $state(false);
@@ -31,11 +44,48 @@
     });
   });
 
+  const formats = $derived(albumFormats(tracks));
+  const hiRes = $derived(tracks.some(isHiRes));
+  /** Format logos for the families among the tracks (WAV has none). */
+  const logos = $derived(
+    (['dsd', 'flac'] as const).filter((family) =>
+      tracks.some((track) =>
+        family === 'dsd' ? track.dsdMultiple !== null : track.codec === 'flac',
+      ),
+    ),
+  );
+  /** `1973 · Rock · 10 tracks, 38 min`. */
+  const facts = $derived(
+    [
+      album.year === null ? null : String(album.year),
+      album.genre,
+      `${String(album.trackCount)} ${album.trackCount === 1 ? 'track' : 'tracks'}${
+        album.durationSeconds === null
+          ? ''
+          : `, ${albumLength(album.durationSeconds)}`
+      }`,
+    ]
+      .filter((fact) => fact !== null)
+      .join(' · '),
+  );
+
   /** Plays the album from `index`, so it continues through the rest. */
   function play(index: number) {
     const ids = tracks.map((t) => t.id);
 
     void attempt(() => api.playTracks(ids, index, device), onError);
+  }
+
+  /** Turns shuffle on and starts from a random track. */
+  function shuffle() {
+    const ids = tracks.map((t) => t.id);
+    const start = Math.floor(Math.random() * ids.length);
+
+    void attempt(async () => {
+      await api.setShuffle(true);
+
+      return api.playTracks(ids, start, device);
+    }, onError);
   }
 
   function number(track: LibraryTrack): string {
@@ -46,29 +96,44 @@
 </script>
 
 <section class="album" aria-labelledby="album-title">
-  <button type="button" class="back" onclick={onBack}>← All albums</button>
+  <button type="button" class="back" onclick={onBack}
+    ><Icon name="chevron-left" size={16} />All albums</button
+  >
   <header>
     {#if album.art}
-      <img src={album.art} alt="" width="180" height="180" />
+      <img class="art" src={album.art} alt="" width="200" height="200" />
     {:else}
-      <div class="placeholder" aria-hidden="true">♪</div>
+      <div class="art" aria-hidden="true"><Icon name="disc-3" size={48} /></div>
     {/if}
-    <div>
+    <div class="details">
       <h3 id="album-title">{album.title}</h3>
-      <p>
-        {album.artist}{album.year === null ? '' : ` · ${String(album.year)}`}
-      </p>
-      <p class="muted">
-        {album.trackCount}
-        {album.trackCount === 1 ? 'track' : 'tracks'} · {formatBadge(album)}
-      </p>
+      <p class="artist">{album.artist}</p>
+      <p class="muted num">{facts}</p>
+      {#if formats.length > 0}
+        <div class="formats">
+          {#each logos as logo (logo)}<FormatLogo format={logo} />{/each}
+          <ul class="badges" aria-label="Formats">
+            {#if hiRes}<li class="hi-res">Hi-Res</li>{/if}
+            {#each formats as format (format)}
+              <li class="num">{format}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
       <div class="actions">
         <button
           type="button"
+          class="primary with-icon"
           disabled={tracks.length === 0 || device === ''}
           onclick={() => {
             play(0);
-          }}>Play album</button
+          }}><Icon name="play" size={16} />Play</button
+        >
+        <button
+          type="button"
+          class="with-icon"
+          disabled={tracks.length === 0 || device === ''}
+          onclick={shuffle}><Icon name="shuffle" size={16} />Shuffle</button
         >
         <AddToPlaylist
           {api}
@@ -83,27 +148,52 @@
   {#if loaded && tracks.length === 0}
     <p class="muted">This album has no tracks any more.</p>
   {/if}
-  <ol>
+  <ol class="rows">
     {#each tracks as track, index (track.id)}
       <li>
         <button
           type="button"
+          class="row"
           aria-current={track.id === playingId ? 'true' : undefined}
           disabled={device === ''}
           title={device === '' ? 'Choose an output device first' : undefined}
-          onclick={() => {
-            play(index);
+          data-selected={selected === track.id}
+          {...rowEvents(
+            () => (selected = track.id),
+            () => {
+              play(index);
+            },
+          )}
+          oncontextmenu={(event) => {
+            openMenu(event, [
+              {
+                label: 'Play',
+                icon: 'play',
+                disabled: device === '',
+                run: () => {
+                  play(index);
+                },
+              },
+              ...queueActions(
+                api,
+                () => Promise.resolve([track.id]),
+                device,
+                onError,
+              ),
+              'separator',
+              addToPlaylist(api, () => Promise.resolve([track.id]), onError),
+            ]);
           }}
         >
-          <span class="number">{number(track)}</span>
+          <span class="meta end">{number(track)}</span>
           <span class="title">
             {track.title}
             {#if track.artist !== album.artist}
               <small>{track.artist}</small>
             {/if}
           </span>
-          <span class="format">{formatBadge(track)}</span>
-          <span class="time"
+          <span class="meta format">{formatBadge(track)}</span>
+          <span class="meta end"
             >{track.durationSeconds === null
               ? ''
               : clock(track.durationSeconds)}</span
@@ -121,104 +211,82 @@
 </section>
 
 <style>
+  /* The details go under the cover when the view is narrow (queue open). */
   header {
     display: flex;
-    gap: 24px;
+    flex-wrap: wrap;
+    gap: var(--space-5);
     align-items: flex-end;
-    margin: 16px 0 24px;
+    margin: var(--space-4) 0 var(--space-5);
   }
-  img,
-  .placeholder {
-    width: 180px;
-    height: 180px;
-    border-radius: 8px;
-    object-fit: cover;
-    flex-shrink: 0;
-    background: var(--surface);
-  }
-  .placeholder {
-    display: grid;
-    place-items: center;
-    font-size: 48px;
-    color: var(--accent-line);
+  .art {
+    width: 200px;
+    height: 200px;
   }
   h3 {
-    font-size: 28px;
-    font-weight: 500;
-    margin: 0 0 8px;
+    font-size: var(--type-heading);
+    line-height: var(--leading-heading);
+    font-weight: var(--weight-strong);
+    margin: 0 0 var(--space-2);
   }
   header p {
-    margin: 4px 0;
+    margin: var(--space-1) 0;
+    color: var(--text-secondary);
   }
-  .muted {
-    color: var(--text-muted);
-    font-size: 13px;
+  header .artist {
+    color: var(--text);
+    font-size: var(--type-title);
+    line-height: var(--leading-title);
+  }
+  /* Format logos, then tags: a quiet outline; Hi-Res in the accent colour. */
+  .formats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+    color: var(--text-secondary);
+  }
+  .badges {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+  }
+  .badges li {
+    padding: var(--space-0) var(--space-2);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-s);
+    color: var(--text-secondary);
+    font-size: var(--type-caption);
+    line-height: var(--leading-caption);
+    font-weight: var(--weight-medium);
+    letter-spacing: 0.04em;
+  }
+  .badges .hi-res {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .details {
+    flex: 1 1 320px;
+    min-width: 0;
   }
   .actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    margin-top: 12px;
+    flex-wrap: wrap;
+    margin-top: var(--space-3);
   }
-  ol li {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  ol {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    gap: 2px;
-  }
-  ol button {
-    flex: 1;
-    min-width: 0;
-    width: 100%;
-    display: grid;
-    grid-template-columns: 3em minmax(0, 1fr) auto 4em;
-    gap: 16px;
-    align-items: center;
-    text-align: left;
-    border: 0;
-    background: transparent;
-    padding: 10px 12px;
-  }
-  ol button[aria-current='true'] {
-    background: var(--surface-current);
-    color: var(--text-current);
-  }
-  ol button:hover:not(:disabled),
-  ol button:focus-visible {
-    background: var(--surface);
-  }
-  .number,
-  .time,
-  .format {
-    color: var(--text-muted);
-    font-size: 13px;
-    font-variant-numeric: tabular-nums;
-  }
-  .time {
-    text-align: right;
-  }
-  .title {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .title small {
-    color: var(--text-muted);
-    margin-left: 8px;
+  .rows {
+    --columns: 3em minmax(0, 1fr) auto 4em;
   }
   @media (max-width: 650px) {
     header {
       flex-direction: column;
       align-items: flex-start;
     }
-    ol button {
-      grid-template-columns: 2.5em minmax(0, 1fr) 3.5em;
+    .rows {
+      --columns: 2.5em minmax(0, 1fr) 3.5em;
     }
     .format {
       display: none;

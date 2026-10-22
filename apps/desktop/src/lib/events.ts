@@ -1,20 +1,7 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-import {
-  isRecord,
-  isText,
-  isDroppedFile,
-  isVolume,
-  isScanStatus,
-  isStatus,
-} from './guards';
-import type {
-  DroppedFile,
-  JsonValue,
-  PlayerStatus,
-  ScanStatus,
-  VolumeInfo,
-} from './ipc';
+import { isRecord, isText, isVolume, isScanStatus, isStatus } from './guards';
+import type { JsonValue, PlayerStatus, ScanStatus, VolumeInfo } from './ipc';
 
 /* Events Rust pushes to the window. */
 
@@ -24,17 +11,6 @@ export function onStatus(
 ): Promise<UnlistenFn> {
   return listen<JsonValue>('player-status', (event) => {
     if (isStatus(event.payload)) handle(event.payload);
-  });
-}
-
-/** Playable files the user dropped onto the window (possibly none). */
-export function onFilesDropped(
-  handle: (files: DroppedFile[]) => void,
-): Promise<UnlistenFn> {
-  return listen<JsonValue>('files-dropped', (event) => {
-    const files = event.payload;
-
-    if (Array.isArray(files) && files.every(isDroppedFile)) handle(files);
   });
 }
 

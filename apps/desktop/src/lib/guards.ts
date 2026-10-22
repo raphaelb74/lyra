@@ -11,7 +11,6 @@ import type {
   ConversionInfo,
   DiagnosticsInfo,
   DeviceInfo,
-  DroppedFile,
   Folder,
   JsonValue,
   LibraryTrack,
@@ -71,6 +70,8 @@ const STATES: readonly string[] = [
   'error',
 ];
 
+const REPEATS: readonly string[] = ['off', 'all', 'one'];
+
 export function isAppInfo(value: JsonValue): value is JsonValue & AppInfo {
   return (
     isRecord(value) &&
@@ -84,6 +85,7 @@ function isDevice(value: JsonValue): value is JsonValue & DeviceInfo {
   return (
     isRecord(value) &&
     isText(value.name) &&
+    isText(value.label) &&
     isText(value.cardName) &&
     isText(value.pcmName) &&
     isFlag(value.usb)
@@ -94,12 +96,6 @@ export function isDeviceList(
   value: JsonValue,
 ): value is JsonValue & DeviceInfo[] {
   return Array.isArray(value) && value.every(isDevice);
-}
-
-export function isDroppedFile(
-  value: JsonValue,
-): value is JsonValue & DroppedFile {
-  return isRecord(value) && isText(value.path) && isText(value.name);
 }
 
 function isVerdict(value: Field): value is JsonValue & Verdict {
@@ -251,7 +247,10 @@ function isAlbum(value: JsonValue): value is JsonValue & Album {
     isText(value.artist) &&
     isNullableNumber(value.year) &&
     isNullableText(value.art) &&
-    isNumber(value.trackCount)
+    isNullableText(value.thumb) &&
+    isNumber(value.trackCount) &&
+    isNullableText(value.genre) &&
+    isNullableNumber(value.durationSeconds)
   );
 }
 
@@ -288,7 +287,8 @@ function isArtist(value: JsonValue): value is JsonValue & Artist {
     isNumber(value.id) &&
     isText(value.name) &&
     isNumber(value.albumCount) &&
-    isNumber(value.trackCount)
+    isNumber(value.trackCount) &&
+    isNullableText(value.art)
   );
 }
 
@@ -356,7 +356,8 @@ function isQueueEntry(value: JsonValue): value is JsonValue & QueueEntry {
     isNullableNumber(value.trackId) &&
     isText(value.title) &&
     isNullableText(value.artist) &&
-    isNullableNumber(value.durationSeconds)
+    isNullableNumber(value.durationSeconds) &&
+    isNullableText(value.art)
   );
 }
 
@@ -375,7 +376,8 @@ export function isTrackDetails(
       isNullableText(value.album) &&
       isNumber(value.albumId) &&
       isNullableNumber(value.year) &&
-      isNullableText(value.art))
+      isNullableText(value.art) &&
+      isNullableText(value.thumb))
   );
 }
 
@@ -399,7 +401,12 @@ export function isStatus(value: JsonValue): value is JsonValue & PlayerStatus {
     STATES.includes(value.state) &&
     (value.track === null || isTrack(value.track)) &&
     (value.error === null || isIpcError(value.error)) &&
-    isNumber(value.queueLength)
+    isNumber(value.queueLength) &&
+    isNumber(value.queueRevision) &&
+    typeof value.hasNext === 'boolean' &&
+    typeof value.shuffle === 'boolean' &&
+    isText(value.repeat) &&
+    REPEATS.includes(value.repeat)
   );
 }
 

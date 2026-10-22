@@ -88,12 +88,15 @@ def main():
             wait_for(lambda: execute("return document.querySelector('[data-connected=true]') !== null"))
             # list_devices crossed IPC (CI runners have no sound card: an empty list is fine).
             wait_for(lambda: execute("return document.querySelector('[data-testid=devices][data-loaded=true]') !== null"))
+            # The engine's version and connection are under Settings > About.
+            execute("document.querySelector('nav.end button').click(); return true")
+            wait_for(lambda: execute("return document.querySelector('[data-testid=backend-status]') !== null"))
             state = execute("""
                 return {
                     title: document.title,
                     devicesLoaded: document.querySelector('[data-testid=devices]').dataset.loaded,
                     player: document.querySelector('footer').textContent,
-                    status: document.querySelector('[data-testid=backend-status]').textContent,
+                    about: document.querySelector('.about').textContent,
                     playDisabled: document.querySelector('button[aria-label=Play]').disabled
                 };
             """)
@@ -101,9 +104,10 @@ def main():
             assert state['devicesLoaded'] == 'true', state
             assert 'Nothing playing' in state['player'], state
             assert state['playDisabled'], state
-            assert 'Lyra 0.1.0 · Rust connected · linux' in state['status'], state
+            assert 'Lyra 0.1.0' in state['about'], state
+            assert 'Audio engine connected · linux' in state['about'], state
             # Retry the connection from the visible UI as well as on initial mount.
-            execute("document.querySelector('.backend button').click(); return true")
+            execute("document.querySelector('.about button').click(); return true")
             wait_for(lambda: execute("return document.querySelector('[data-connected=true]') !== null"))
             png = request('GET', prefix + '/screenshot')
             (ARTIFACTS / 'desktop.png').write_bytes(base64.b64decode(png))

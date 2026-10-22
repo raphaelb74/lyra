@@ -1,13 +1,15 @@
 <script lang="ts">
-  import { formatBadge } from './format';
+  import Icon from './Icon.svelte';
   import type { Album } from './ipc';
 
   interface Props {
     albums: Album[];
     onOpen: (album: Album) => void;
+    /** Right click (or the Menu key) on an album. */
+    onMenu?: (event: MouseEvent, album: Album) => void;
   }
 
-  const { albums, onOpen }: Props = $props();
+  const { albums, onOpen, onMenu }: Props = $props();
 </script>
 
 <ul class="grid">
@@ -18,15 +20,31 @@
         onclick={() => {
           onOpen(album);
         }}
+        oncontextmenu={(event) => {
+          onMenu?.(event, album);
+        }}
       >
-        {#if album.art}
-          <img src={album.art} alt="" loading="lazy" width="200" height="200" />
+        {#if album.thumb}
+          <img
+            class="art"
+            src={album.thumb}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            width="200"
+            height="200"
+          />
         {:else}
-          <span class="placeholder" aria-hidden="true">♪</span>
+          <span class="art" aria-hidden="true"
+            ><Icon name="disc-3" size={40} /></span
+          >
         {/if}
-        <strong>{album.title}</strong>
-        <small>{album.artist}</small>
-        <small class="badge">{formatBadge(album)}</small>
+        <strong class="truncate">{album.title}</strong>
+        <small class="truncate"
+          >{album.artist}{album.year === null
+            ? ''
+            : ` · ${String(album.year)}`}</small
+        >
       </button>
     </li>
   {/each}
@@ -38,56 +56,43 @@
     padding: 0;
     margin: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 24px 20px;
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+    gap: var(--space-5);
   }
   button {
     width: 100%;
     display: grid;
-    gap: 4px;
+    gap: var(--space-0);
     text-align: left;
     border: 0;
-    background: transparent;
     padding: 0;
+    font-weight: var(--weight-regular);
   }
-  img,
-  .placeholder {
+  button:hover:not(:disabled) {
+    background: transparent;
+  }
+  .art {
     width: 100%;
     height: auto;
-    aspect-ratio: 1;
-    object-fit: cover;
-    border-radius: 8px;
-    background: var(--surface);
-    margin-bottom: 6px;
+    margin-bottom: var(--space-2);
+    transition: opacity var(--dur-fast) var(--ease);
   }
-  .placeholder {
-    display: grid;
-    place-items: center;
-    font-size: 40px;
-    color: var(--accent-line);
+  button:hover .art {
+    opacity: 0.85;
   }
-  button:focus-visible img,
-  button:focus-visible .placeholder,
-  button:hover img,
-  button:hover .placeholder {
-    outline: 2px solid var(--accent-line);
+  button:focus-visible {
+    outline: none;
+  }
+  button:focus-visible .art {
+    outline: var(--focus-ring);
     outline-offset: 2px;
   }
   strong {
-    font-weight: 500;
-    font-size: 14px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-weight: var(--weight-medium);
   }
   small {
-    color: var(--text-muted);
-    font-size: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .badge {
-    color: var(--accent);
+    color: var(--text-secondary);
+    font-size: var(--type-small);
+    line-height: var(--leading-small);
   }
 </style>

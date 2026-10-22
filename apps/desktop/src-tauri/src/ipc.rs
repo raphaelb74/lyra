@@ -11,9 +11,9 @@ use format_pcm::{Codec, SampleEncoding};
 use library::{Album, Artist, Entry, Folder, Playlist, ScanSummary};
 use player_core::{
     BitPerfect, ConversionStats, Encoding, ErrorKind, NowPlaying, PlaybackState, PlayerError,
-    PlayerStatus, SourceInfo, Transport,
+    PlayerStatus, Repeat, SourceInfo, Transport,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Response of the `get_app_info` command.
 #[derive(Clone, Debug, Serialize)]
@@ -91,6 +91,8 @@ pub struct DeviceVolume {
 pub struct DeviceInfo {
     /// ALSA name to play to, `hw:CARD=…,DEV=…`.
     pub name: String,
+    /// Short name for people, e.g. `iFi USB Audio SE`, `HDMI 2`.
+    pub label: String,
     pub card_name: String,
     pub pcm_name: String,
     pub usb: bool,
@@ -101,18 +103,12 @@ impl From<Device> for DeviceInfo {
         let usb = device.is_usb();
         Self {
             name: device.name,
+            label: device.label,
             card_name: device.card_name,
             pcm_name: device.pcm_name,
             usb,
         }
     }
-}
-
-/// A dropped file Lyra may play.
-#[derive(Clone, Debug, Serialize)]
-pub struct DroppedFile {
-    pub path: String,
-    pub name: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -122,6 +118,41 @@ pub struct Status {
     pub track: Option<Track>,
     pub error: Option<IpcError>,
     pub queue_length: usize,
+    pub shuffle: bool,
+    pub repeat: RepeatMode,
+    /// Changes whenever the queue does; the queue pane reloads on it.
+    pub queue_revision: u64,
+    /// Next has a track to go to (see [`PlayerStatus::has_next`]).
+    pub has_next: bool,
+}
+
+/// [`Repeat`] on the wire: `off`, `all` or `one`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RepeatMode {
+    Off,
+    All,
+    One,
+}
+
+impl From<Repeat> for RepeatMode {
+    fn from(repeat: Repeat) -> Self {
+        match repeat {
+            Repeat::Off => Self::Off,
+            Repeat::All => Self::All,
+            Repeat::One => Self::One,
+        }
+    }
+}
+
+impl From<RepeatMode> for Repeat {
+    fn from(mode: RepeatMode) -> Self {
+        match mode {
+            RepeatMode::Off => Self::Off,
+            RepeatMode::All => Self::All,
+            RepeatMode::One => Self::One,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -171,6 +202,10 @@ impl From<&PlayerStatus> for Status {
             track: status.track.as_ref().map(Track::from),
             error: status.error.clone().map(IpcError::from),
             queue_length: status.queue_length,
+            shuffle: status.shuffle,
+            repeat: status.repeat.into(),
+            queue_revision: status.queue_revision,
+            has_next: status.has_next(),
         }
     }
 }
@@ -371,6 +406,19 @@ impl From<Capabilities> for CapabilitiesInfo {
 /// URL of a cached artwork file, served by the `lyra-art` protocol.
 pub const ART_URL: &str = "lyra-art://localhost/";
 
+/// Path of a thumbnail under [`ART_URL`] (see `thumbs.rs`).
+pub const THUMB_PATH: &str = "thumb/";
+
+/// The `lyra-art` URL of a cached artwork file name.
+pub fn art_url(name: Option<&str>) -> Option<String> {
+    name.map(|name| format!("{ART_URL}{name}"))
+}
+
+/// The URL of its thumbnail, for grids and lists.
+pub fn thumb_url(name: Option<&str>) -> Option<String> {
+    name.map(|name| format!("{ART_URL}{THUMB_PATH}{name}"))
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct FolderInfo {
     pub id: i64,
@@ -395,7 +443,11 @@ pub struct AlbumInfo {
     pub year: Option<i32>,
     /// Artwork URL, or `None`.
     pub art: Option<String>,
+    /// Its thumbnail, for the grid.
+    pub thumb: Option<String>,
     pub track_count: u32,
+    pub genre: Option<String>,
+    pub duration_seconds: Option<f64>,
     /// Best source format among the tracks.
     pub codec: String,
     pub sample_rate: u32,
@@ -409,8 +461,11 @@ impl From<Album> for AlbumInfo {
             title: album.title,
             artist: album.artist,
             year: album.year,
-            art: album.art.map(|name| format!("{ART_URL}{name}")),
+            art: art_url(album.art.as_deref()),
+            thumb: thumb_url(album.art.as_deref()),
             track_count: album.tracks,
+            genre: album.genre,
+            duration_seconds: album.duration_ms.map(ms_to_seconds),
             dsd_multiple: dsd_multiple(&album.best_codec, album.best_rate),
             codec: album.best_codec,
             sample_rate: album.best_rate,
@@ -467,6 +522,8 @@ pub struct ArtistInfo {
     pub name: String,
     pub album_count: u32,
     pub track_count: u32,
+    /// `lyra-art://` URL of a cover standing in for a photo, or null.
+    pub art: Option<String>,
 }
 
 impl From<Artist> for ArtistInfo {
@@ -476,6 +533,7 @@ impl From<Artist> for ArtistInfo {
             name: artist.name,
             album_count: artist.albums,
             track_count: artist.tracks,
+            art: thumb_url(artist.art.as_deref()),
         }
     }
 }
@@ -525,6 +583,8 @@ pub struct QueueEntry {
     pub title: String,
     pub artist: Option<String>,
     pub duration_seconds: Option<f64>,
+    /// Album cover thumbnail, a `lyra-art:` URL.
+    pub art: Option<String>,
 }
 
 /// Library details of the playing track, for Now Playing.
@@ -537,6 +597,8 @@ pub struct TrackDetails {
     pub album_id: i64,
     pub year: Option<i32>,
     pub art: Option<String>,
+    /// Its thumbnail, for the player bar.
+    pub thumb: Option<String>,
 }
 
 /// Pushed on the `scan-status` event and returned by `get_scan_status`.

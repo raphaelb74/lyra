@@ -6,6 +6,7 @@
     supportLabel,
   } from './diagnostics';
   import { outputLabel } from './format';
+  import Icon from './Icon.svelte';
   import {
     attempt,
     type Backend,
@@ -20,10 +21,11 @@
     /** Selected output device; undefined when none. */
     device: DeviceInfo | undefined;
     status: PlayerStatus;
+    onBack: () => void;
     onError: (message: string) => void;
   }
 
-  const { api, device, status, onError }: Props = $props();
+  const { api, device, status, onBack, onError }: Props = $props();
 
   /** How often the live figures are read while this view is open. */
   const REFRESH_MS = 1000;
@@ -102,6 +104,9 @@
   }
 </script>
 
+<button type="button" class="back" onclick={onBack}
+  ><Icon name="chevron-left" size={16} />Settings</button
+>
 <section aria-labelledby="diagnostics-title">
   <div class="heading">
     <h3 id="diagnostics-title">Diagnostics</h3>
@@ -122,7 +127,7 @@
     <p class="muted">Reading {device.name}…</p>
   {:else}
     <p class="device">
-      {device.cardName}, {device.pcmName}
+      {device.label}
       <span class="muted">{info.device}</span>
     </p>
 
@@ -218,48 +223,29 @@
 
 <style>
   .heading {
-    display: flex;
-    align-items: baseline;
-    gap: 16px;
-    margin-bottom: 16px;
-  }
-  h3 {
-    font-size: 16px;
-    font-weight: 500;
-    margin: 0;
+    justify-content: flex-start;
   }
   h4 {
-    font-size: 14px;
-    font-weight: 500;
-    margin: 28px 0 10px;
+    font-size: var(--type-body);
+    margin: var(--space-6) 0 var(--space-3);
   }
   .device {
-    margin: 0;
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 12px;
-  }
-  .muted,
-  .caption,
-  .note {
-    font-size: 13px;
-  }
-  .muted,
-  .caption {
-    color: var(--text-muted);
-  }
-  .note {
-    color: var(--warning);
+    gap: var(--space-1) var(--space-3);
   }
   .caption {
-    margin: 12px 0 6px;
+    color: var(--text-secondary);
+    font-size: var(--type-small);
+    margin: var(--space-3) 0 var(--space-2);
   }
   dl {
     display: grid;
     grid-template-columns: max-content 1fr;
-    gap: 6px 20px;
+    gap: var(--space-2) var(--space-5);
     margin: 0;
-    font-size: 13px;
+    font-size: var(--type-small);
+    font-variant-numeric: tabular-nums;
   }
   dt {
     color: var(--text-muted);
@@ -273,27 +259,27 @@
   pre,
   textarea {
     margin: 0;
-    padding: 10px 12px;
+    padding: var(--space-3);
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    font-size: 12px;
-    line-height: 1.5;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-s);
+    font-family: var(--font-mono);
+    font-size: var(--type-caption);
+    line-height: var(--leading-small);
     overflow-x: auto;
     color: var(--text);
   }
   textarea {
     width: 100%;
-    box-sizing: border-box;
-    margin: 12px 0 0;
-    font-family: ui-monospace, monospace;
+    margin: var(--space-3) 0 0;
     resize: vertical;
   }
   .formats {
-    margin: 0 0 12px;
-    padding-left: 18px;
-    font-size: 13px;
+    margin: 0 0 var(--space-3);
+    padding-left: var(--space-5);
+    font-size: var(--type-small);
+    font-variant-numeric: tabular-nums;
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
   }
 </style>

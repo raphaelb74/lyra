@@ -20,6 +20,10 @@ custom-protocol = ["tauri/custom-protocol"]
 tauri-build = { workspace = true }
 
 [dependencies]
+# MPRIS (media keys); already in the tree through audio-alsa.
+dbus.workspace = true
+# Album cover thumbnails; already in the tree through GTK (Tauri on Linux).
+gdk-pixbuf = "0.18"
 audio-alsa = { workspace = true }
 format-dsd = { workspace = true }
 format-pcm = { workspace = true }

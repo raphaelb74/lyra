@@ -75,6 +75,10 @@ Leads, not yet confirmed:
 
 The `play` example's `seconds=N` option plays N seconds of each track for such trials. Leave at least a second between runs: a run that starts while the previous one is still closing gets "device busy".
 
+### 2026-10-22: no host-side sign; warm-up open
+
+Traced every 250 ms through a hissing play and a clean replay of the same DSD64 track: both identical on the host (`Status: Running`, altset 4, `DSD_U32_BE` at 88200, feedback 88203–88204 Hz). Lyra cannot detect the state, so it now avoids it: every native DSD open plays 0.1 s of DSD idle pattern, closes, waits 0.15 s and opens again (`AlsaSink::warm_up`), which is what the always-working replay does. About 0.25 s more before the first DSD notes. To confirm: replug the DAC, play DSD several times, and switch PCM → DSD.
+
 ## To do
 
 - With the volume at 0 dB (100% in Lyra): DoP DSD64/128 and the bit-perfect verdict.

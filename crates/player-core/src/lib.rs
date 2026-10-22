@@ -7,12 +7,14 @@
 mod controller;
 mod dop;
 pub mod mock;
+mod order;
 mod player;
 mod sink;
 mod source;
 mod status;
 mod writer;
 
+pub use order::Repeat;
 pub use player::{ConversionStats, POOL_SIZE, Player, QueueItem};
 pub use sink::{
     AudioSink, DsdFallback, DsdPolicy, DsdTransport, Encoding, HardwareVolume, OutputFormat,

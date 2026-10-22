@@ -296,12 +296,12 @@ fn write_track(
 
     conn.prepare_cached(
         "INSERT INTO tracks (folder_id, path, size, mtime_ns, album_id, artist_id, title,
-             disc, track, duration_ms, codec, sample_rate, bits_per_sample, channels)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+             disc, track, duration_ms, codec, sample_rate, bits_per_sample, channels, genre)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
          ON CONFLICT (path) DO UPDATE SET folder_id = ?1, size = ?3, mtime_ns = ?4,
              album_id = ?5, artist_id = ?6, title = ?7, disc = ?8, track = ?9,
              duration_ms = ?10, codec = ?11, sample_rate = ?12, bits_per_sample = ?13,
-             channels = ?14",
+             channels = ?14, genre = ?15",
     )?
     .execute(params![
         folder_id,
@@ -318,6 +318,7 @@ fn write_track(
         scanned.sample_rate,
         scanned.bits_per_sample,
         scanned.channels,
+        scanned.genre,
     ])?;
 
     if !has_art {

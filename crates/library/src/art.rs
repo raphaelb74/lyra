@@ -93,11 +93,17 @@ pub(crate) fn folder_image(dir: &Path) -> Option<Picture> {
     })
 }
 
-/// Deletes cached art files by name. Missing files are fine.
+/// Folder in the artwork directory for small copies made by the app, named
+/// like their originals.
+pub const THUMB_DIR: &str = "thumbs";
+
+/// Deletes cached art files by name, and their thumbnails. Missing files
+/// are fine.
 pub fn delete_art(art_dir: &Path, names: &[String]) {
     for name in names {
         if is_art_name(name) {
             let _ = fs::remove_file(art_dir.join(name));
+            let _ = fs::remove_file(art_dir.join(THUMB_DIR).join(name));
         }
     }
 }

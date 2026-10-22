@@ -1,0 +1,109 @@
+/*
+ * Lyra design tokens (docs/DESIGN_SPEC.md §4). Components use only these:
+ * no raw colours, font sizes or durations in .svelte files (tokens.test.ts).
+ */
+
+@font-face {
+  font-family: Manrope;
+  font-style: normal;
+  font-display: block;
+  font-weight: 200 800;
+  src: url('../assets/fonts/manrope-latin-wght-normal.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: Manrope;
+  font-style: normal;
+  font-display: block;
+  font-weight: 200 800;
+  src: url('../assets/fonts/manrope-latin-ext-wght-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
+    U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@layer tokens {
+  :root {
+    color-scheme: dark;
+
+    /* Colour: graphite surfaces, one cool accent (the lit lamp). */
+    --bg: #0d0f12;
+    --surface: #15181c;
+    --surface-raised: #1c2025;
+    --surface-hover: #22272d;
+    --surface-selected: #272d35;
+    --line: #2a2f36;
+    --line-strong: #3a4049;
+    --text: #f1f2f3;
+    --text-secondary: #9a9fa7;
+    /* Below 4.5:1 on hover and selected surfaces: use secondary there. */
+    --text-muted: #838a94;
+    --accent: #b8c7d9;
+    --warning: #e0b07a;
+    --danger: #e8958a;
+    --danger-surface: color-mix(in srgb, var(--danger) 8%, var(--bg));
+    --art-empty: #1f242a;
+    --shadow-pop: 0 12px 32px rgb(0 0 0 / 45%);
+
+    /* Type: size and line height pairs. */
+    --font-ui: Manrope, system-ui, sans-serif;
+    --font-mono: ui-monospace, 'DejaVu Sans Mono', monospace;
+    --type-caption: 12px;
+    --leading-caption: 16px;
+    --type-small: 13px;
+    --leading-small: 18px;
+    --type-body: 14px;
+    --leading-body: 20px;
+    --type-title: 18px;
+    --leading-title: 24px;
+    --type-heading: 26px;
+    --leading-heading: 32px;
+    --type-display: clamp(28px, 3.2vw, 40px);
+    --leading-display: 1.15;
+    --weight-regular: 450;
+    --weight-medium: 550;
+    --weight-strong: 600;
+
+    /* Space: 4 px grid; --space-0 only for hairline gaps between rows. */
+    --space-0: 2px;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+    --space-8: 64px;
+
+    /* Size and shape. */
+    --hit: 32px;
+    --hit-row: 28px;
+    --hit-primary: 40px;
+    --row-height: 40px;
+    --titlebar-height: 40px;
+    --radius-s: 4px;
+    --radius-m: 6px;
+    --radius-round: 50%;
+    --focus-ring: 2px solid var(--accent);
+
+    /* Motion: responsive before animated. */
+    --dur-fast: 120ms;
+    --dur-base: 180ms;
+    --dur-panel: 220ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --dur-fast: 0ms;
+      --dur-base: 0ms;
+      --dur-panel: 0ms;
+    }
+  }
+}

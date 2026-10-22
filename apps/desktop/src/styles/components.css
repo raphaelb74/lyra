@@ -1,0 +1,226 @@
+/* Patterns shared by several views (docs/DESIGN_SPEC.md §6). */
+
+@layer components {
+  /* Text. */
+  .muted {
+    color: var(--text-muted);
+    font-size: var(--type-small);
+    line-height: var(--leading-small);
+  }
+
+  .secondary {
+    color: var(--text-secondary);
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* View heading: title on the left, actions on the right. */
+  .heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+
+  .heading h2,
+  .heading h3 {
+    font-size: var(--type-title);
+    line-height: var(--leading-title);
+  }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  /* Track rows: one grid per list, set with --columns. */
+  .rows {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: var(--space-0);
+  }
+
+  .rows > li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .row {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    display: grid;
+    grid-template-columns: var(--columns);
+    gap: var(--space-4);
+    align-items: center;
+    min-height: var(--row-height);
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+    font-weight: var(--weight-regular);
+    border: 0;
+    border-radius: var(--radius-s);
+    background: transparent;
+  }
+
+  .row:hover:not(:disabled) {
+    background: var(--surface-hover);
+  }
+
+  /* Selected by a click; a double click plays it. */
+  .row[data-selected='true'] {
+    background: var(--surface-hover);
+  }
+
+  .row[aria-current='true'] {
+    background: var(--surface-selected);
+    color: var(--accent);
+  }
+
+  .row > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .row .meta {
+    color: var(--text-muted);
+    font-size: var(--type-small);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .row:hover .meta,
+  .row[aria-current='true'] .meta,
+  .row .title small {
+    color: var(--text-secondary);
+  }
+
+  .row .title small {
+    font-size: var(--type-small);
+    margin-left: var(--space-2);
+  }
+
+  .row .end {
+    text-align: right;
+  }
+
+  /* Settings: titled groups of rows, name and one line on the left, the
+     control on the right. */
+  .group-title {
+    font-size: var(--type-small);
+    line-height: var(--leading-small);
+    color: var(--text-secondary);
+    margin: var(--space-6) 0 var(--space-2) var(--space-1);
+  }
+
+  .panel {
+    background: var(--surface);
+    border-radius: var(--radius-m);
+    padding: 0 var(--space-4);
+  }
+
+  .setting {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-5);
+    padding: var(--space-3) 0;
+    min-height: calc(var(--row-height) + var(--space-4));
+  }
+
+  .setting + .setting {
+    border-top: 1px solid var(--line);
+  }
+
+  .setting-text {
+    display: grid;
+    gap: var(--space-0);
+    min-width: 0;
+  }
+
+  .setting-text h4 {
+    font-size: var(--type-body);
+    line-height: var(--leading-body);
+  }
+
+  /* Empty library. */
+  .drop {
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--radius-m);
+    padding: var(--space-6);
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: var(--type-small);
+  }
+
+  .alert {
+    border: 1px solid var(--danger);
+    background: var(--danger-surface);
+    color: var(--text);
+    border-radius: var(--radius-m);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--type-small);
+    margin-bottom: var(--space-5);
+  }
+
+  /* Short confirmation or warning beside a control. */
+  .note {
+    color: var(--warning);
+    font-size: var(--type-small);
+  }
+
+  .confirm {
+    color: var(--accent);
+    font-size: var(--type-small);
+  }
+
+  /* Artwork and its placeholder. */
+  .art {
+    display: grid;
+    place-items: center;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: var(--radius-s);
+    background: var(--art-empty);
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  /* Back link above a detail view. */
+  button.back {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    border: 0;
+    padding: var(--space-1) var(--space-2) var(--space-1) 0;
+    color: var(--text-secondary);
+    font-weight: var(--weight-regular);
+  }
+
+  button.back:hover:not(:disabled) {
+    background: transparent;
+    color: var(--text);
+  }
+}

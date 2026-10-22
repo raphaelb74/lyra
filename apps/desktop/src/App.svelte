@@ -1,83 +1,101 @@
 <script lang="ts">
   import { isTauri } from '@tauri-apps/api/core';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
+  import { cubicOut } from 'svelte/easing';
+  import { slide } from 'svelte/transition';
 
   import {
     BackendError,
     attempt,
     backend,
+    type AppInfo,
     type DeviceInfo,
-    type DroppedFile,
     type PlayerStatus,
+    type Repeat,
     type TrackDetails,
   } from './lib/ipc';
-  import { onFilesDropped, onStatus } from './lib/events';
+  import { onStatus } from './lib/events';
   import Library from './lib/Library.svelte';
   import NowPlaying from './lib/NowPlaying.svelte';
   import PlayerBar from './lib/PlayerBar.svelte';
   import Playlists from './lib/Playlists.svelte';
-  import QueueView from './lib/QueueView.svelte';
+  import QueuePanel from './lib/QueuePanel.svelte';
   import Diagnostics from './lib/Diagnostics.svelte';
   import Settings from './lib/Settings.svelte';
+  import type { IconName } from './assets/icons/lucide';
+  import ContextMenu from './lib/ContextMenu.svelte';
+  import Icon from './lib/Icon.svelte';
+  import { actionFor, isTyping, type Action } from './lib/shortcuts';
+  import TitleBar from './lib/TitleBar.svelte';
+  import DevicePicker from './lib/DevicePicker.svelte';
   import VolumeControl from './lib/VolumeControl.svelte';
+  import { readFlag, writeFlag } from './lib/storage';
 
   const api = backend();
 
   type View =
-    | 'library'
+    | 'albums'
+    | 'artists'
+    | 'tracks'
     | 'playlists'
-    | 'now'
-    | 'queue'
-    | 'files'
     | 'settings'
+    /* Opened from the player bar and from Settings, not the sidebar. */
+    | 'now'
     | 'diagnostics';
 
-  const views: readonly { id: View; label: string }[] = [
-    { id: 'library', label: 'Library' },
-    { id: 'playlists', label: 'Playlists' },
-    { id: 'now', label: 'Now playing' },
-    { id: 'queue', label: 'Queue' },
-    { id: 'files', label: 'Files' },
-    { id: 'settings', label: 'Settings' },
-    { id: 'diagnostics', label: 'Diagnostics' },
+  const views: readonly { id: View; label: string; icon: IconName }[] = [
+    { id: 'albums', label: 'Albums', icon: 'disc-3' },
+    { id: 'artists', label: 'Artists', icon: 'mic-vocal' },
+    { id: 'tracks', label: 'Tracks', icon: 'audio-lines' },
+    { id: 'playlists', label: 'Playlists', icon: 'list-music' },
   ];
 
-  let connection = $state('Connecting to Rust…');
+  const QUEUE_OPEN_KEY = 'lyra.queue.open';
+
+  let appInfo = $state<AppInfo | null>(null);
+  /** Why the audio engine cannot be reached; null while it can. */
+  let connectionError = $state<string | null>(null);
   let connected = $state(false);
   let checking = $state(false);
   let devices = $state<DeviceInfo[]>([]);
   let devicesLoaded = $state(false);
   let selectedDevice = $state('');
-  let files = $state<DroppedFile[]>([]);
-  let dropNotice = $state<string | null>(null);
   let status = $state<PlayerStatus>({
     state: 'stopped',
     track: null,
     error: null,
     queueLength: 0,
+    shuffle: false,
+    repeat: 'off',
+    queueRevision: 0,
+    hasNext: false,
   });
   let position = $state(0);
   let actionError = $state<string | null>(null);
-  let view = $state<View>('library');
+  let view = $state<View>('albums');
+  /** Where Now Playing and Diagnostics go back to. */
+  let back = $state<View>('albums');
   let details = $state<TrackDetails | null>(null);
+  /** The queue pane on the right, remembered between launches. */
+  let queueOpen = $state(readFlag(QUEUE_OPEN_KEY));
 
   const device = $derived(devices.find((d) => d.name === selectedDevice));
   const libraryId = $derived(status.track?.libraryId ?? null);
   const shownError = $derived(actionError ?? status.error?.message ?? null);
 
-  const UNEXPECTED = 'Unexpected error while contacting Rust.';
+  const UNEXPECTED = 'Lyra cannot reach its audio engine.';
 
   async function checkBackend() {
     checking = true;
     connected = false;
 
     try {
-      const info = await api.appInfo();
-
-      connection = `${info.name} ${info.version} · Rust connected · ${info.platform}`;
+      appInfo = await api.appInfo();
       connected = true;
+      connectionError = null;
     } catch (error) {
-      connection = error instanceof BackendError ? error.message : UNEXPECTED;
+      connectionError =
+        error instanceof BackendError ? error.message : UNEXPECTED;
     } finally {
       checking = false;
     }
@@ -88,14 +106,118 @@
       devices = await api.listDevices();
 
       if (!devices.some((d) => d.name === selectedDevice)) {
-        // Prefer an external DAC; never switch while one is chosen.
-        selectedDevice = (devices.find((d) => d.usb) ?? devices[0])?.name ?? '';
+        // The list comes most-wanted first (USB DACs, then built-in
+        // audio); never switch while a listed device is chosen.
+        selectedDevice = devices[0]?.name ?? '';
       }
     } catch (error) {
       actionError = error instanceof BackendError ? error.message : UNEXPECTED;
     } finally {
       devicesLoaded = true;
     }
+  }
+
+  function setQueueOpen(open: boolean) {
+    queueOpen = open;
+    writeFlag(QUEUE_OPEN_KEY, open);
+  }
+
+  /** The panel slide follows --dur-panel, which is 0 with reduced motion. */
+  function panelMotion() {
+    const token = getComputedStyle(document.documentElement)
+      .getPropertyValue('--dur-panel')
+      .trim();
+
+    const amount = parseFloat(token) || 0;
+
+    return {
+      axis: 'x' as const,
+      duration: token.endsWith('ms') ? amount : amount * 1000,
+      easing: cubicOut,
+    };
+  }
+
+  /** Opens a view that has a way back (Now Playing, Diagnostics). */
+  function visit(next: View) {
+    if (view !== 'now' && view !== 'diagnostics') back = view;
+
+    view = next;
+  }
+
+  /** Seconds a Shift+arrow press moves the playhead. */
+  const SEEK_STEP = 10;
+
+  function seekBy(seconds: number) {
+    const duration = status.track?.durationSeconds ?? 0;
+
+    if (duration === 0) return;
+
+    const target = Math.min(duration, Math.max(0, position + seconds));
+
+    position = target;
+    void command(() => api.seek(target));
+  }
+
+  async function focusSearch() {
+    view = 'tracks';
+    await tick();
+    document.querySelector<HTMLInputElement>('input[type=search]')?.focus();
+  }
+
+  function run(action: Action) {
+    const active = status.state === 'playing' || status.state === 'paused';
+
+    switch (action) {
+      case 'toggle':
+        if (active) toggle();
+        break;
+      case 'next':
+        void command(api.next);
+        break;
+      case 'previous':
+        void command(api.previous);
+        break;
+      case 'stop':
+        if (active) void command(api.stop);
+        break;
+      case 'seekForward':
+        seekBy(SEEK_STEP);
+        break;
+      case 'seekBack':
+        seekBy(-SEEK_STEP);
+        break;
+      case 'search':
+        void focusSearch();
+        break;
+      case 'ignore':
+        break;
+      case 'queue':
+        setQueueOpen(!queueOpen);
+        break;
+      default:
+        view = action;
+    }
+  }
+
+  function onKey(event: KeyboardEvent) {
+    if (event.defaultPrevented) return;
+
+    if (event.key === 'Escape') {
+      if (view === 'now' || view === 'diagnostics') view = back;
+      else if (queueOpen) setQueueOpen(false);
+
+      return;
+    }
+
+    if (isTyping(event.target)) return;
+
+    const action = actionFor(event);
+
+    if (action === null) return;
+
+    // Space plays or pauses even on a focused button or slider.
+    event.preventDefault();
+    run(action);
   }
 
   function showError(message: string) {
@@ -106,10 +228,6 @@
   async function command(action: () => Promise<null>) {
     actionError = null;
     await attempt(action, showError);
-  }
-
-  function playFile(file: DroppedFile) {
-    void command(() => api.play(file.path, selectedDevice));
   }
 
   function toggle() {
@@ -129,16 +247,6 @@
     const unlisten = [
       onStatus((next) => {
         status = next;
-      }),
-      onFilesDropped((dropped) => {
-        view = 'files';
-        dropNotice =
-          dropped.length === 0
-            ? 'Only FLAC, WAV, DSF and DFF files can be played.'
-            : null;
-        const known = new Set(files.map((f) => f.path));
-
-        files = [...files, ...dropped.filter((f) => !known.has(f.path))];
       }),
     ];
 
@@ -181,74 +289,58 @@
 </script>
 
 <svelte:head><title>Lyra — Music player</title></svelte:head>
+<svelte:window onkeydown={onKey} />
 
-<div class="app">
+<div class="app" data-connected={connected}>
+  <TitleBar />
+  <ContextMenu />
   <div class="layout">
     <aside aria-label="Application">
-      <h1><span aria-hidden="true">♮</span> Lyra</h1>
       <nav aria-label="Main navigation">
         {#each views as item (item.id)}
           <button
             type="button"
             aria-current={view === item.id ? 'page' : undefined}
-            onclick={() => (view = item.id)}>{item.label}</button
+            title={item.label}
+            onclick={() => (view = item.id)}
           >
+            <Icon name={item.icon} size={18} />
+            <span class="label">{item.label}</span>
+          </button>
         {/each}
       </nav>
-      <section class="output" aria-labelledby="device-title">
-        <div class="section-heading">
-          <h3 id="device-title">Output</h3>
-          <button type="button" class="small" onclick={loadDevices}
-            >Refresh</button
-          >
-        </div>
-        <div class="device" data-testid="devices" data-loaded={devicesLoaded}>
-          {#if devices.length > 0}
-            <select bind:value={selectedDevice} aria-label="Output device">
-              {#each devices as option (option.name)}
-                <option value={option.name}
-                  >{option.cardName} · {option.pcmName}</option
-                >
-              {/each}
-            </select>
-            <small class="muted">{selectedDevice}</small>
-            <VolumeControl
-              {api}
-              device={selectedDevice}
-              {status}
-              onError={showError}
-            />
-          {:else}
-            <p class="muted">
-              {devicesLoaded
-                ? 'No audio devices found.'
-                : 'Looking for devices…'}
-            </p>
-          {/if}
-        </div>
-      </section>
-      <section class="backend" aria-label="Backend connection">
-        <p
-          role="status"
-          data-testid="backend-status"
-          data-connected={connected}
-        >
-          {connection}
-        </p>
+      <nav class="end" aria-label="Preferences">
         <button
           type="button"
-          class="small"
-          onclick={checkBackend}
-          disabled={checking}>{checking ? 'Checking…' : 'Check'}</button
+          aria-current={view === 'settings' || view === 'diagnostics'
+            ? 'page'
+            : undefined}
+          title="Settings"
+          onclick={() => (view = 'settings')}
         >
-      </section>
+          <Icon name="settings" size={18} />
+          <span class="label">Settings</span>
+        </button>
+      </nav>
     </aside>
     <main>
+      {#if connectionError}
+        <div class="alert engine" role="alert">
+          <span>{connectionError}</span>
+          <button
+            type="button"
+            class="small"
+            disabled={checking}
+            onclick={checkBackend}>{checking ? 'Retrying…' : 'Retry'}</button
+          >
+        </div>
+      {/if}
       {#if shownError}
         <p class="alert" role="alert">{shownError}</p>
       {/if}
-      {#if view === 'library'}
+      {#if view === 'albums' || view === 'artists' || view === 'tracks'}
         <Library
+          section={view}
           {api}
           device={selectedDevice}
           playingId={libraryId}
@@ -262,54 +354,51 @@
           onError={showError}
         />
       {:else if view === 'now'}
-        <NowPlaying {status} {details} {device} />
+        <NowPlaying {status} {details} {device} onBack={() => (view = back)} />
       {:else if view === 'settings'}
-        <Settings {api} onError={showError} />
-      {:else if view === 'diagnostics'}
-        <Diagnostics {api} {device} {status} onError={showError} />
-      {:else if view === 'queue'}
-        <QueueView
+        <Settings
           {api}
-          current={status.track?.queueIndex ?? null}
-          queueLength={status.queueLength}
+          {appInfo}
+          {connected}
+          {checking}
+          {device}
+          onCheck={checkBackend}
+          onOpenDiagnostics={() => {
+            visit('diagnostics');
+          }}
           onError={showError}
         />
       {:else}
-        <section aria-labelledby="files-title">
-          <div class="section-heading">
-            <h3 id="files-title">Files</h3>
-            <span class="muted">{files.length} dropped</span>
-          </div>
-          {#if files.length > 0}
-            <ul class="files">
-              {#each files as file (file.path)}
-                <li>
-                  <button
-                    type="button"
-                    aria-current={status.track?.fileName === file.name}
-                    disabled={selectedDevice === ''}
-                    onclick={() => {
-                      playFile(file);
-                    }}
-                    ><span>{file.name}</span><small>{file.path}</small></button
-                  >
-                </li>
-              {/each}
-            </ul>
-          {/if}
-          <p class="drop">
-            {dropNotice ??
-              'Drop FLAC, WAV, DSF or DFF files anywhere on this window to play them, or a folder to add it to the library.'}
-          </p>
-        </section>
+        <Diagnostics
+          {api}
+          {device}
+          {status}
+          onBack={() => (view = 'settings')}
+          onError={showError}
+        />
       {/if}
     </main>
+    {#if queueOpen}
+      <div class="queue-pane" transition:slide={panelMotion()}>
+        <QueuePanel
+          {api}
+          {status}
+          device={selectedDevice}
+          onClose={() => {
+            setQueueOpen(false);
+          }}
+          onError={showError}
+        />
+      </div>
+    {/if}
   </div>
   <PlayerBar
     {status}
     {position}
-    {device}
     {details}
+    onOpen={() => {
+      visit('now');
+    }}
     onToggle={toggle}
     onPrevious={() => {
       void command(api.previous);
@@ -320,177 +409,164 @@
     onStop={() => {
       void command(api.stop);
     }}
+    onShuffle={(on: boolean) => {
+      void command(() => api.setShuffle(on));
+    }}
+    onRepeat={(mode: Repeat) => {
+      void command(() => api.setRepeat(mode));
+    }}
     onSeek={(seconds: number) => {
       position = seconds;
       void command(() => api.seek(seconds));
     }}
-  />
+  >
+    {#snippet output()}
+      <button
+        type="button"
+        class="icon"
+        aria-label="Queue"
+        aria-pressed={queueOpen}
+        title="Queue (Ctrl+5)"
+        onclick={() => {
+          setQueueOpen(!queueOpen);
+        }}><Icon name="list-ordered" size={18} /></button
+      >
+      {#if selectedDevice !== ''}
+        <VolumeControl
+          {api}
+          device={selectedDevice}
+          {status}
+          onError={showError}
+        />
+      {/if}
+      <DevicePicker
+        {devices}
+        selected={selectedDevice}
+        loaded={devicesLoaded}
+        onSelect={(name: string) => (selectedDevice = name)}
+        onRefresh={loadDevices}
+      />
+    {/snippet}
+  </PlayerBar>
 </div>
 
 <style>
   .app {
+    --sidebar-width: 232px;
+
     display: grid;
-    grid-template-rows: minmax(0, 1fr) auto;
+    /* Never wider than the window, whatever a view holds. */
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
     height: 100dvh;
+  }
+  /* No system frame: a hairline marks the window's edge. */
+  .app::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    border: 1px solid var(--line);
+    pointer-events: none;
+    z-index: 100;
   }
   .layout {
     display: flex;
     min-height: 0;
   }
   aside {
-    width: 240px;
+    width: var(--sidebar-width);
     flex-shrink: 0;
-    background: var(--bg-sidebar);
-    padding: 28px 20px;
-    border-right: 1px solid var(--border-sidebar);
+    background: var(--surface);
+    padding: var(--space-3) var(--space-4) var(--space-4);
+    border-right: 1px solid var(--line);
     display: flex;
     flex-direction: column;
-    gap: 24px;
-    overflow-y: auto;
-  }
-  h1 {
-    font-size: 25px;
-    letter-spacing: 4px;
-    text-transform: uppercase;
-    margin: 8px 0 24px;
-  }
-  h1 span {
-    color: var(--accent);
+    gap: var(--space-5);
+    overflow: hidden auto;
   }
   nav {
     display: grid;
-    gap: 8px;
-    color: var(--text-muted);
+    gap: var(--space-0);
+  }
+  nav.end {
+    margin-top: auto;
   }
   nav button {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
     border: 0;
-    background: transparent;
-    padding: 12px 16px;
+    padding: var(--space-2) var(--space-3);
     text-align: left;
+    color: var(--text-secondary);
+    font-weight: var(--weight-medium);
   }
-  nav button:disabled {
-    opacity: 0.55;
+  nav button:hover:not(:disabled) {
+    color: var(--text);
   }
   nav [aria-current='page'] {
-    color: var(--text-current);
+    color: var(--text);
     background: var(--surface-selected);
   }
-  .output {
-    margin-top: auto;
+  nav [aria-current='page'] :global(svg) {
+    color: var(--accent);
+  }
+  .label {
+    flex: 1;
   }
   main {
     flex: 1;
-    padding: 40px 48px;
+    display: flex;
+    flex-direction: column;
+    /* Side margin of every view; a view that scrolls on its own reaches
+       past it to the window's edge (Artists). */
+    --page-gutter: var(--space-7);
+
+    padding: var(--space-2) var(--page-gutter) var(--space-6);
     min-width: 0;
     max-width: 1400px;
     overflow-y: auto;
   }
-  .section-heading,
-  .backend {
+  /* Views flow top to bottom; one may fill the height (Artists). */
+  main > :global(*) {
+    flex-shrink: 0;
+  }
+  /* Fixed inner width: the pane slides in without its text reflowing. */
+  .queue-pane {
+    --queue-width: 340px;
+
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .engine {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-4);
   }
-  .muted {
-    color: var(--text-muted);
-    font-size: 13px;
-  }
-  h3 {
-    font-size: 16px;
-    font-weight: 500;
-    margin: 0;
-  }
-  .section-heading {
-    margin-bottom: 12px;
-  }
-  main .section-heading {
-    margin-bottom: 20px;
-  }
-  .backend {
-    border-top: 1px solid var(--border);
-    padding-top: 16px;
-  }
-  .backend p {
-    font-size: 11px;
-    color: var(--accent);
-    line-height: 1.5;
-    margin: 0;
-  }
-  .files {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    gap: 8px;
-  }
-  .files button {
-    width: 100%;
-    text-align: left;
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    background: var(--surface);
-    border-color: var(--border);
-  }
-  .files button[aria-current='true'] {
-    border-color: var(--accent-line);
-    background: var(--surface-current);
-  }
-  .files small {
-    color: var(--text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .drop {
-    border: 1px dashed var(--border-strong);
-    border-radius: 8px;
-    padding: 28px;
-    text-align: center;
-    color: var(--text-muted);
-    font-size: 13px;
-  }
-  .device {
-    display: grid;
-    gap: 6px;
-  }
-  .device small {
-    font-size: 11px;
-    overflow-wrap: anywhere;
-  }
-  select {
-    font: inherit;
-    font-size: 13px;
-    color: inherit;
-    background: var(--surface);
-    border: 1px solid var(--accent-line);
-    border-radius: 8px;
-    padding: 8px 10px;
-    width: 100%;
-  }
-  .alert {
-    border: 1px solid var(--danger-line);
-    background: var(--danger-surface);
-    color: var(--danger-text);
-    border-radius: 8px;
-    padding: 12px 16px;
-    font-size: 13px;
-    line-height: 1.5;
-    margin-top: 0;
-  }
-  @media (max-width: 950px) {
+  /* Narrow windows: an icon rail; names stay for screen readers and in
+     tooltips. */
+  @media (max-width: 1000px) {
+    .app {
+      --sidebar-width: 64px;
+    }
+    aside {
+      padding: var(--space-3) var(--space-2);
+    }
+    nav button {
+      justify-content: center;
+      position: relative;
+    }
+    .label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
     main {
-      padding: 30px 25px;
-    }
-    aside {
-      width: 200px;
-      padding: 25px 15px;
-    }
-  }
-  @media (max-width: 650px) {
-    aside {
-      display: none;
+      --page-gutter: var(--space-5);
     }
   }
 </style>
