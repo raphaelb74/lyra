@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { attempt, type Backend, type Playlist } from './ipc';
+  import Popover from './Popover.svelte';
 
   interface Props {
     api: Backend;
@@ -14,20 +15,16 @@
 
   const { api, trackIds, label, text, onError }: Props = $props();
 
-  let open = $state(false);
   let playlists = $state<Playlist[]>([]);
   let name = $state('');
   let added = $state<string | null>(null);
-  let container = $state<HTMLDivElement | undefined>();
 
-  async function toggle() {
-    open = !open;
+  async function load() {
     added = null;
-
-    if (open) playlists = (await attempt(api.playlists, onError)) ?? [];
+    playlists = (await attempt(api.playlists, onError)) ?? [];
   }
 
-  async function addTo(playlist: Playlist) {
+  async function addTo(playlist: Playlist, close: () => void) {
     const done = await attempt(
       () => api.addToPlaylist(playlist.id, trackIds),
       onError,
@@ -35,64 +32,55 @@
 
     if (done !== undefined) {
       added = `Added to ${playlist.name}`;
-      open = false;
+      close();
     }
   }
 
-  async function create(event: SubmitEvent) {
+  async function create(event: SubmitEvent, close: () => void) {
     event.preventDefault();
 
     const id = await attempt(() => api.createPlaylist(name), onError);
 
     if (id === undefined) return;
 
-    await addTo({ id, name: name.trim(), trackCount: 0, durationSeconds: 0 });
+    const playlist = {
+      id,
+      name: name.trim(),
+      trackCount: 0,
+      durationSeconds: 0,
+    };
+
     name = '';
-  }
-
-  /** Closes the menu when a press lands outside it. */
-  function closeOutside(event: PointerEvent) {
-    const target = event.target;
-
-    if (open && !(target instanceof Node && container?.contains(target))) {
-      open = false;
-    }
-  }
-
-  function closeOnEscape(event: KeyboardEvent) {
-    if (open && event.key === 'Escape') open = false;
+    await addTo(playlist, close);
   }
 </script>
 
-<svelte:document onpointerdown={closeOutside} onkeydown={closeOnEscape} />
-
-<div class="add" bind:this={container}>
-  <button
-    type="button"
-    class={text === undefined ? 'icon' : 'with-icon'}
-    aria-label={label}
-    aria-expanded={open}
-    title={label}
-    onclick={() => {
-      void toggle();
-    }}
-    ><Icon name="plus" size={16} />{#if text !== undefined}<span>{text}</span
-      >{/if}</button
+<div class="add">
+  <Popover
+    {label}
+    triggerClass={text === undefined ? 'icon' : 'with-icon'}
+    onOpen={load}
   >
-  {#if added}
-    <span class="confirm" role="status">{added}</span>
-  {/if}
-  {#if open}
-    <div class="menu">
-      {#each playlists as playlist (playlist.id)}
-        <button
-          type="button"
-          onclick={() => {
-            void addTo(playlist);
-          }}>{playlist.name}</button
-        >
-      {/each}
-      <form onsubmit={create}>
+    {#snippet trigger()}
+      <Icon name="plus" size={16} />{#if text !== undefined}<span>{text}</span
+        >{/if}
+    {/snippet}
+    {#snippet children(close: () => void)}
+      <div class="items">
+        {#each playlists as playlist (playlist.id)}
+          <button
+            type="button"
+            onclick={() => {
+              void addTo(playlist, close);
+            }}>{playlist.name}</button
+          >
+        {/each}
+      </div>
+      <form
+        onsubmit={(event) => {
+          void create(event, close);
+        }}
+      >
         <input
           aria-label="New playlist name"
           placeholder="New playlist"
@@ -103,13 +91,15 @@
           >Create</button
         >
       </form>
-    </div>
+    {/snippet}
+  </Popover>
+  {#if added}
+    <span class="confirm" role="status">{added}</span>
   {/if}
 </div>
 
 <style>
   .add {
-    position: relative;
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -117,23 +107,11 @@
   .confirm {
     white-space: nowrap;
   }
-  .menu {
-    position: absolute;
-    right: 0;
-    top: calc(100% + var(--space-1));
-    z-index: 10;
-    min-width: 220px;
-    max-height: 320px;
-    overflow-y: auto;
+  .items {
     display: grid;
     gap: var(--space-0);
-    padding: var(--space-1);
-    background: var(--surface-raised);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-m);
-    box-shadow: var(--shadow-pop);
   }
-  .menu > button {
+  .items > button {
     text-align: left;
     border: 0;
     padding: var(--space-2) var(--space-3);
@@ -143,6 +121,8 @@
   form {
     display: flex;
     gap: var(--space-2);
+  }
+  .items:not(:empty) + form {
     padding-top: var(--space-2);
     border-top: 1px solid var(--line);
     margin-top: var(--space-1);

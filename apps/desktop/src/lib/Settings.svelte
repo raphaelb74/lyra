@@ -7,6 +7,7 @@
     type Settings,
   } from './ipc';
   import LibraryFolders from './LibraryFolders.svelte';
+  import ShortcutList from './ShortcutList.svelte';
   import Segmented from './Segmented.svelte';
   import type { Option } from './segmented';
 
@@ -255,6 +256,9 @@
       >
     </div>
   </div>
+
+  <h3 class="group-title">Keyboard</h3>
+  <ShortcutList />
 
   <h3 class="group-title">About</h3>
   <div class="panel about">
