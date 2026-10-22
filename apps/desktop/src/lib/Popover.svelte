@@ -9,8 +9,9 @@
     triggerClass?: string;
     /** Opens upwards, for controls at the bottom of the window. */
     above?: boolean;
-    /** Called as the panel opens, e.g. to load its contents. */
-    onOpen?: () => void;
+    /** Called as the panel opens, e.g. to load its contents; focus moves
+     * into the panel once a returned promise settles. */
+    onOpen?: () => void | Promise<void>;
     /** Panel contents; `close` returns focus to the trigger. */
     children: Snippet<[close: () => void]>;
   }
@@ -38,7 +39,7 @@
 
   async function show() {
     open = true;
-    onOpen?.();
+    await onOpen?.();
     await tick();
 
     const items = focusable();

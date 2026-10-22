@@ -15,6 +15,8 @@
   let folders = $state<Folder[]>([]);
   let scan = $state<ScanStatus | null>(null);
   let notice = $state<string | null>(null);
+  /** Folders the last scan could not read (an unplugged drive). */
+  const missing = $derived(new Set(scan?.last?.unavailable ?? []));
   /** Folder awaiting a second click to confirm removal. */
   let confirming = $state<number | null>(null);
 
@@ -94,6 +96,9 @@
   {#each folders as folder (folder.id)}
     <div class="setting folder">
       <span class="truncate">{folder.path}</span>
+      {#if missing.has(folder.path)}
+        <span class="missing">Not found · tracks kept</span>
+      {/if}
       <button
         type="button"
         class="small tertiary"
@@ -127,5 +132,12 @@
   }
   .folder button {
     white-space: nowrap;
+  }
+  .folder .truncate {
+    flex: 1;
+  }
+  .missing {
+    white-space: nowrap;
+    color: var(--warning);
   }
 </style>

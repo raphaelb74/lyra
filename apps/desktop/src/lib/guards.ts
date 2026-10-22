@@ -130,7 +130,9 @@ export function isSettings(value: Field): value is JsonValue & Settings {
       value.dsdTransport === 'dop') &&
     (value.dsdFallback === 'refuse' || value.dsdFallback === 'convert') &&
     isNumber(value.conversionGainDb) &&
-    isNumber(value.resyncDelayMs)
+    isNumber(value.resyncDelayMs) &&
+    Array.isArray(value.dopDevices) &&
+    value.dopDevices.every(isText)
   );
 }
 
@@ -356,7 +358,9 @@ function isScanReport(value: Field): value is JsonValue & ScanReport {
     isNumber(value.added) &&
     isNumber(value.updated) &&
     isNumber(value.removed) &&
-    isNumber(value.failed)
+    isNumber(value.failed) &&
+    Array.isArray(value.unavailable) &&
+    value.unavailable.every(isText)
   );
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { backend, type JsonValue } from './ipc';
+import { backend, type JsonValue, type Settings } from './ipc';
 
 const info = { name: 'Lyra', version: '0.1.0', platform: 'linux' };
 
@@ -195,7 +195,8 @@ describe('playback commands', () => {
       dsdFallback: 'convert',
       conversionGainDb: 3,
       resyncDelayMs: 500,
-    } as const;
+      dopDevices: ['hw:CARD=E30,DEV=0'],
+    } satisfies Settings;
 
     const runCommand = vi.fn(() => Promise.resolve(settings));
 

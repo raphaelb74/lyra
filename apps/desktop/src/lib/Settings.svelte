@@ -7,6 +7,7 @@
     type Settings,
   } from './ipc';
   import LibraryFolders from './LibraryFolders.svelte';
+  import ShortcutList from './ShortcutList.svelte';
   import Segmented from './Segmented.svelte';
   import type { Option } from './segmented';
 
@@ -40,7 +41,7 @@
     {
       value: 'auto',
       label: 'Auto',
-      hint: 'Native DSD when the DAC offers it, otherwise DoP.',
+      hint: 'Native DSD when the DAC offers it, otherwise DoP if it plays DoP.',
     },
     {
       value: 'native',
@@ -51,6 +52,18 @@
       value: 'dop',
       label: 'DoP',
       hint: 'DSD packed in PCM frames, for DACs that decode DoP.',
+    },
+  ];
+  const dopChoices: Option<'off' | 'on'>[] = [
+    {
+      value: 'off',
+      label: 'Off',
+      hint: 'DoP goes only to DACs that also play native DSD. Turn on if the manual says this one supports DoP.',
+    },
+    {
+      value: 'on',
+      label: 'On',
+      hint: 'This DAC receives DSD over DoP. A DAC without DoP would play it as noise.',
     },
   ];
   const fallbacks: Option<Settings['dsdFallback']>[] = [
@@ -134,6 +147,17 @@
 
   function chooseDelay(value: number) {
     void save({ resyncDelayMs: value });
+  }
+
+  /** Remembers whether the selected device decodes DoP. */
+  function chooseDop(value: 'off' | 'on') {
+    if (settings === null || device === undefined) return;
+
+    const others = settings.dopDevices.filter((name) => name !== device.name);
+
+    void save({
+      dopDevices: value === 'on' ? [...others, device.name] : others,
+    });
   }
 
   function chooseGain(value: number) {
@@ -238,6 +262,24 @@
 
   <h3 class="group-title">Output</h3>
   <div class="panel">
+    {#if settings && device}
+      {@const playsDop = settings.dopDevices.includes(device.name)
+        ? 'on'
+        : 'off'}
+      <div class="setting">
+        <div class="setting-text">
+          <h4 id="dop-label">{device.label} plays DoP</h4>
+          <p class="muted">{hint(dopChoices, playsDop)}</p>
+        </div>
+        <Segmented
+          labelledby="dop-label"
+          name="plays-dop"
+          options={dopChoices}
+          value={playsDop}
+          onChoose={chooseDop}
+        />
+      </div>
+    {/if}
     <div class="setting">
       <div class="setting-text">
         <h4>Diagnostics</h4>
@@ -255,6 +297,9 @@
       >
     </div>
   </div>
+
+  <h3 class="group-title">Keyboard</h3>
+  <ShortcutList />
 
   <h3 class="group-title">About</h3>
   <div class="panel about">

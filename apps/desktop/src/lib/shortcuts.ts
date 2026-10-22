@@ -97,6 +97,134 @@ export function actionFor(keys: Keys): Action | null {
   return null;
 }
 
+/** A shortcut as Settings lists it. */
+export interface Shortcut {
+  label: string;
+  /** What `actionFor` does with each press; null when a control handles it. */
+  action: Action | null;
+  presses: readonly Keys[];
+}
+
+function keys(key: string, modifiers: Partial<Keys> = {}): Keys {
+  return {
+    key,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    metaKey: false,
+    ...modifiers,
+  };
+}
+
+const ctrl = { ctrlKey: true };
+
+export const SHORTCUTS: readonly Shortcut[] = [
+  { label: 'Play or pause', action: 'toggle', presses: [keys(' ')] },
+  {
+    label: 'Next track',
+    action: 'next',
+    presses: [keys('ArrowRight', ctrl)],
+  },
+  {
+    label: 'Previous track',
+    action: 'previous',
+    presses: [keys('ArrowLeft', ctrl)],
+  },
+  {
+    label: 'Forward 10 seconds',
+    action: 'seekForward',
+    presses: [keys('ArrowRight', { shiftKey: true })],
+  },
+  {
+    label: 'Back 10 seconds',
+    action: 'seekBack',
+    presses: [keys('ArrowLeft', { shiftKey: true })],
+  },
+  { label: 'Stop', action: 'stop', presses: [keys('.', ctrl)] },
+  {
+    label: 'Volume',
+    action: null,
+    presses: [keys('ArrowUp', ctrl), keys('ArrowDown', ctrl)],
+  },
+  {
+    label: 'Search tracks',
+    action: 'search',
+    presses: [keys('/'), keys('f', ctrl)],
+  },
+  { label: 'Albums', action: 'albums', presses: [keys('1', ctrl)] },
+  { label: 'Artists', action: 'artists', presses: [keys('2', ctrl)] },
+  { label: 'Tracks', action: 'tracks', presses: [keys('3', ctrl)] },
+  { label: 'Playlists', action: 'playlists', presses: [keys('4', ctrl)] },
+  {
+    label: 'Show or hide the queue',
+    action: 'queue',
+    presses: [keys('5', ctrl)],
+  },
+  { label: 'Settings', action: 'settings', presses: [keys(',', ctrl)] },
+  {
+    label: 'Move in the queue',
+    action: null,
+    presses: [
+      keys('ArrowUp', { altKey: true }),
+      keys('ArrowDown', { altKey: true }),
+    ],
+  },
+  { label: 'Close or go back', action: null, presses: [keys('Escape')] },
+];
+
+const KEY_NAMES = new Map([
+  [' ', 'Space'],
+  ['ArrowRight', '→'],
+  ['ArrowLeft', '←'],
+  ['ArrowUp', '↑'],
+  ['ArrowDown', '↓'],
+  ['Escape', 'Esc'],
+]);
+
+function modifierNames(press: Keys): string[] {
+  const names: string[] = [];
+
+  if (press.ctrlKey) names.push('Ctrl');
+
+  if (press.shiftKey) names.push('Shift');
+
+  if (press.altKey) names.push('Alt');
+
+  return names;
+}
+
+function keyName(press: Keys): string {
+  return KEY_NAMES.get(press.key) ?? press.key.toUpperCase();
+}
+
+/** The keys of one press as printed on the keyboard: `['Ctrl', 'F']`. */
+export function keyNames(press: Keys): string[] {
+  return [...modifierNames(press), keyName(press)];
+}
+
+/** Presses with the same modifiers, shown once: `Ctrl + ↑ or ↓`. */
+export interface KeyGroup {
+  modifiers: string[];
+  keys: string[];
+}
+
+export function keyGroups(presses: readonly Keys[]): KeyGroup[] {
+  const groups: KeyGroup[] = [];
+
+  for (const press of presses) {
+    const modifiers = modifierNames(press);
+    const last = groups.at(-1);
+
+    if (last?.modifiers.join('+') === modifiers.join('+')) {
+      last.keys.push(keyName(press));
+    } else {
+      groups.push({ modifiers, keys: [keyName(press)] });
+    }
+  }
+
+  return groups;
+}
+
 /** Text fields keep their keys: typing a space or a slash is not a shortcut. */
 export function isTyping(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;

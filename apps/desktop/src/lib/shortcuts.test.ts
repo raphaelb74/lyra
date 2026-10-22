@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { actionFor, type Keys } from './shortcuts';
+import {
+  actionFor,
+  keyGroups,
+  keyNames,
+  SHORTCUTS,
+  type Action,
+  type Keys,
+} from './shortcuts';
 
 function press(key: string, modifiers: Partial<Keys> = {}): Keys {
   return {
@@ -56,5 +63,60 @@ describe('keyboard shortcuts', () => {
     expect(actionFor(press('a'))).toBeNull();
     expect(actionFor(press('ArrowDown'))).toBeNull();
     expect(actionFor(press(' ', { altKey: true }))).toBeNull();
+  });
+});
+
+describe('the shortcut list in Settings', () => {
+  it('lists presses that do what their label says', () => {
+    for (const { label, action, presses } of SHORTCUTS) {
+      for (const keys of presses) {
+        expect(actionFor(keys), `${label}: ${keyNames(keys).join('+')}`).toBe(
+          action,
+        );
+      }
+    }
+  });
+
+  it('lists every action', () => {
+    // A new action fails type checking here until it is added.
+    const every: Record<Exclude<Action, 'ignore'>, true> = {
+      toggle: true,
+      next: true,
+      previous: true,
+      seekForward: true,
+      seekBack: true,
+      stop: true,
+      search: true,
+      albums: true,
+      artists: true,
+      tracks: true,
+      playlists: true,
+      queue: true,
+      settings: true,
+    };
+
+    const listed = new Set(SHORTCUTS.map((shortcut) => shortcut.action));
+
+    for (const action of Object.keys(every)) {
+      expect(listed, action).toContain(action);
+    }
+  });
+
+  it('names keys as printed on the keyboard', () => {
+    expect(keyNames(press(' '))).toEqual(['Space']);
+    expect(keyNames(press('f', { ctrlKey: true }))).toEqual(['Ctrl', 'F']);
+    expect(keyNames(press('ArrowUp', { altKey: true }))).toEqual(['Alt', '↑']);
+  });
+
+  it('prints shared modifiers once', () => {
+    const ctrl = { ctrlKey: true };
+
+    expect(
+      keyGroups([press('ArrowUp', ctrl), press('ArrowDown', ctrl)]),
+    ).toEqual([{ modifiers: ['Ctrl'], keys: ['↑', '↓'] }]);
+    expect(keyGroups([press('/'), press('f', ctrl)])).toEqual([
+      { modifiers: [], keys: ['/'] },
+      { modifiers: ['Ctrl'], keys: ['F'] },
+    ]);
   });
 });

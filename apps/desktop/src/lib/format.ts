@@ -201,5 +201,14 @@ export function scanText(scan: ScanStatus): string {
   const failed =
     last.failed === 0 ? '' : ` · ${String(last.failed)} could not be read`;
 
-  return `Up to date · ${String(last.added)} added, ${String(last.updated)} updated, ${String(last.removed)} removed${failed}`;
+  const missing = last.unavailable.length;
+
+  const unavailable =
+    missing === 0
+      ? ''
+      : missing === 1
+        ? ' · 1 folder not found, its tracks kept'
+        : ` · ${String(missing)} folders not found, their tracks kept`;
+
+  return `Up to date · ${String(last.added)} added, ${String(last.updated)} updated, ${String(last.removed)} removed${failed}${unavailable}`;
 }
