@@ -2,6 +2,7 @@
   import { clock, formatBadge } from './format';
   import Icon from './Icon.svelte';
   import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
+  import { rowEvents } from './rows';
   import {
     attempt,
     type Backend,
@@ -17,6 +18,9 @@
   }
 
   const { api, device, playingId, onError }: Props = $props();
+
+  /** The row a click selected; a double click plays. */
+  let selected = $state<number | null>(null);
 
   let playlists = $state<Playlist[]>([]);
   let openId = $state<number | null>(null);
@@ -158,9 +162,13 @@
               class="row"
               aria-current={entry.track.id === playingId ? 'true' : undefined}
               disabled={device === ''}
-              onclick={() => {
-                play(index);
-              }}
+              data-selected={selected === entry.entryId}
+              {...rowEvents(
+                () => (selected = entry.entryId),
+                () => {
+                  play(index);
+                },
+              )}
               oncontextmenu={(event) => {
                 openMenu(event, [
                   {

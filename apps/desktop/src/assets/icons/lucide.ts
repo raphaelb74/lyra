@@ -220,6 +220,11 @@ export const icons = {
     ['path', { d: 'm16 16-3 3 3 3' }],
     ['path', { d: 'M21 5v12a2 2 0 0 1-2 2h-6' }],
   ],
+  'list-filter': [
+    ['path', { d: 'M2 5h20' }],
+    ['path', { d: 'M6 12h12' }],
+    ['path', { d: 'M9 19h6' }],
+  ],
 } as const satisfies Record<string, readonly IconPart[]>;
 
 export type IconName = keyof typeof icons;

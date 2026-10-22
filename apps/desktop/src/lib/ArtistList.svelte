@@ -1,5 +1,6 @@
 <script lang="ts">
   import AlbumGrid from './AlbumGrid.svelte';
+  import { filterArtists, type ArtistSort } from './filters';
   import Icon from './Icon.svelte';
   import { attempt, type Album, type Artist, type Backend } from './ipc';
   import { openMenu, queueActions } from './menu.svelte';
@@ -10,6 +11,9 @@
     device: string;
     /** Changes when the library changed; reloads the list. */
     version: number;
+    /** Filter text and order, from the view's heading. */
+    query: string;
+    sort: ArtistSort;
     /** Chosen artist, kept by the parent so it survives opening an album. */
     selectedId: number | null;
     onSelect: (id: number) => void;
@@ -22,6 +26,8 @@
     api,
     device,
     version,
+    query,
+    sort,
     selectedId,
     onSelect,
     onOpenAlbum,
@@ -34,9 +40,10 @@
   let albums = $state<Album[]>([]);
   let list = $state<HTMLUListElement | undefined>();
 
-  /** The chosen artist, or the first one. */
+  const shown = $derived(filterArtists(artists, query, sort));
+  /** The chosen artist if shown, or the first one shown. */
   const current = $derived(
-    artists.find((artist) => artist.id === selectedId) ?? artists[0],
+    shown.find((artist) => artist.id === selectedId) ?? shown[0],
   );
 
   /** Loads for library `forVersion`; a reply for an older one is dropped. */
@@ -78,8 +85,8 @@
   function onKey(event: KeyboardEvent) {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
 
-    const index = artists.findIndex((artist) => artist.id === current?.id);
-    const next = artists[index + (event.key === 'ArrowDown' ? 1 : -1)];
+    const index = shown.findIndex((artist) => artist.id === current?.id);
+    const next = shown[index + (event.key === 'ArrowDown' ? 1 : -1)];
 
     if (next === undefined) return;
 
@@ -109,7 +116,7 @@
   <div class="artists">
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <ul class="list" aria-label="Artists" bind:this={list} onkeydown={onKey}>
-      {#each artists as artist (artist.id)}
+      {#each shown as artist (artist.id)}
         <li>
           <button
             type="button"
@@ -153,6 +160,8 @@
             <span class="truncate">{artist.name}</span>
           </button>
         </li>
+      {:else}
+        <li class="muted none">No artists match.</li>
       {/each}
     </ul>
 
@@ -214,6 +223,10 @@
     color: var(--text);
     font-weight: var(--weight-medium);
   }
+  .none {
+    padding: var(--space-2);
+    font-size: var(--type-small);
+  }
   .avatar {
     flex-shrink: 0;
     display: grid;
@@ -225,10 +238,13 @@
     background: var(--art-empty);
     color: var(--text-muted);
   }
+  /* Out to the window's edge, so its scrollbar sits there and not over
+     the covers and the Play button. */
   .detail {
     min-width: 0;
     overflow-y: auto;
-    padding: var(--space-5) 0 var(--space-6) var(--space-6);
+    margin-right: calc(-1 * var(--page-gutter));
+    padding: var(--space-5) var(--page-gutter) var(--space-6) var(--space-6);
   }
   header {
     display: flex;

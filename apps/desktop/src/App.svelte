@@ -518,7 +518,11 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    padding: var(--space-2) var(--space-7) var(--space-6);
+    /* Side margin of every view; a view that scrolls on its own reaches
+       past it to the window's edge (Artists). */
+    --page-gutter: var(--space-7);
+
+    padding: var(--space-2) var(--page-gutter) var(--space-6);
     min-width: 0;
     max-width: 1400px;
     overflow-y: auto;
@@ -562,7 +566,7 @@
       white-space: nowrap;
     }
     main {
-      padding: var(--space-2) var(--space-5) var(--space-6);
+      --page-gutter: var(--space-5);
     }
   }
 </style>

@@ -8,6 +8,7 @@
     type QueueEntry,
   } from './ipc';
   import { openMenu } from './menu.svelte';
+  import { rowEvents } from './rows';
 
   interface Props {
     api: Backend;
@@ -21,6 +22,8 @@
   const { api, status, device, onClose, onError }: Props = $props();
 
   let entries = $state<QueueEntry[]>([]);
+  /** The row a click selected; a double click plays. */
+  let selected = $state<number | null>(null);
 
   const current = $derived(status.track?.queueIndex ?? null);
   /** Changes only when the queue does, not with every status event. */
@@ -160,9 +163,13 @@
                 class="entry"
                 title={entry.title}
                 disabled={status.track === null && device === ''}
-                onclick={() => {
-                  play(index);
-                }}
+                data-selected={selected === index}
+                {...rowEvents(
+                  () => (selected = index),
+                  () => {
+                    play(index);
+                  },
+                )}
                 oncontextmenu={(event) => {
                   menu(event, index);
                 }}
@@ -340,7 +347,8 @@
     pointer-events: auto;
   }
   li:hover .entry,
-  li:focus-within .entry {
+  li:focus-within .entry,
+  .entry[data-selected='true'] {
     background: var(--surface-hover);
   }
   li:hover .time,

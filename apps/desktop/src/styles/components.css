@@ -89,6 +89,11 @@
     background: var(--surface-hover);
   }
 
+  /* Selected by a click; a double click plays it. */
+  .row[data-selected='true'] {
+    background: var(--surface-hover);
+  }
+
   .row[aria-current='true'] {
     background: var(--surface-selected);
     color: var(--accent);

@@ -10,6 +10,7 @@
   import Icon from './Icon.svelte';
   import { attempt, type Album, type Backend, type LibraryTrack } from './ipc';
   import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
+  import { rowEvents } from './rows';
 
   interface Props {
     album: Album;
@@ -23,6 +24,9 @@
   }
 
   const { album, api, device, playingId, onBack, onError }: Props = $props();
+
+  /** The row a click selected; a double click plays. */
+  let selected = $state<number | null>(null);
 
   let tracks = $state<LibraryTrack[]>([]);
   let loaded = $state(false);
@@ -141,9 +145,13 @@
           aria-current={track.id === playingId ? 'true' : undefined}
           disabled={device === ''}
           title={device === '' ? 'Choose an output device first' : undefined}
-          onclick={() => {
-            play(index);
-          }}
+          data-selected={selected === track.id}
+          {...rowEvents(
+            () => (selected = track.id),
+            () => {
+              play(index);
+            },
+          )}
           oncontextmenu={(event) => {
             openMenu(event, [
               {

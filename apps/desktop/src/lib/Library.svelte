@@ -6,6 +6,18 @@
   import ArtistList from './ArtistList.svelte';
   import TrackList from './TrackList.svelte';
   import { onLibraryChanged, onLibraryNotice, onScanStatus } from './events';
+  import FilterMenu from './FilterMenu.svelte';
+  import {
+    ALBUM_SORTS,
+    ARTIST_SORTS,
+    NO_ALBUM_FILTER,
+    QUALITIES,
+    chosen,
+    filterAlbums,
+    genresOf,
+    type ArtistSort,
+    type FilterGroup,
+  } from './filters';
   import { scanText } from './format';
   import { attempt, type Album, type Backend, type ScanStatus } from './ipc';
   import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
@@ -35,6 +47,58 @@
   /** Shown only in its own section: another sidebar choice leaves it. */
   const openAlbum = $derived(opened?.from === section ? opened.album : null);
   const titles = { albums: 'Albums', artists: 'Artists', tracks: 'Tracks' };
+
+  /** Filters stay while an album is open and between sections. */
+  let albumFilter = $state({ ...NO_ALBUM_FILTER });
+  let artistQuery = $state('');
+  let artistSort = $state<ArtistSort>('name');
+
+  const shownAlbums = $derived(filterAlbums(albums, albumFilter));
+  const ALL_GENRES = '';
+  const albumGroups: FilterGroup[] = $derived([
+    {
+      title: 'Quality',
+      options: QUALITIES,
+      value: albumFilter.quality,
+      onChoose: (value: string) => {
+        albumFilter.quality = chosen(QUALITIES, value) ?? 'all';
+      },
+    },
+    {
+      title: 'Genre',
+      options: [
+        { value: ALL_GENRES, label: 'All genres' },
+        ...genresOf(albums).map((genre) => ({ value: genre, label: genre })),
+      ],
+      value: albumFilter.genre ?? ALL_GENRES,
+      onChoose: (value: string) => {
+        albumFilter.genre = value === ALL_GENRES ? null : value;
+      },
+    },
+    {
+      title: 'Sort by',
+      options: ALBUM_SORTS,
+      value: albumFilter.sort,
+      onChoose: (value: string) => {
+        albumFilter.sort = chosen(ALBUM_SORTS, value) ?? 'artist';
+      },
+    },
+  ]);
+  const albumsFiltered = $derived(
+    albumFilter.quality !== 'all' ||
+      albumFilter.genre !== null ||
+      albumFilter.sort !== 'artist',
+  );
+  const artistGroups: FilterGroup[] = $derived([
+    {
+      title: 'Sort by',
+      options: ARTIST_SORTS,
+      value: artistSort,
+      onChoose: (value: string) => {
+        artistSort = chosen(ARTIST_SORTS, value) ?? 'name';
+      },
+    },
+  ]);
 
   /** Artist chosen in the Artists view; kept while an album is open. */
   let artistId = $state<number | null>(null);
@@ -162,7 +226,42 @@
     <div class="heading">
       <h2>{titles[section]}</h2>
       {#if section === 'albums' && albums.length > 0}
-        <span class="muted num">{albums.length} albums</span>
+        <div class="tools">
+          <span class="muted num"
+            >{shownAlbums.length === albums.length
+              ? `${String(albums.length)} albums`
+              : `${String(shownAlbums.length)} of ${String(albums.length)}`}</span
+          >
+          <input
+            type="search"
+            placeholder="Filter albums"
+            aria-label="Filter albums by title, artist or year"
+            bind:value={albumFilter.query}
+          />
+          <FilterMenu
+            label="Filter and sort albums"
+            groups={albumGroups}
+            active={albumsFiltered}
+            onReset={() => {
+              albumFilter = { ...NO_ALBUM_FILTER, query: albumFilter.query };
+            }}
+          />
+        </div>
+      {:else if section === 'artists' && albums.length > 0}
+        <div class="tools">
+          <input
+            type="search"
+            placeholder="Filter artists"
+            aria-label="Filter artists by name"
+            bind:value={artistQuery}
+          />
+          <FilterMenu
+            label="Sort artists"
+            groups={artistGroups}
+            active={artistSort !== 'name'}
+            onReset={() => (artistSort = 'name')}
+          />
+        </div>
       {/if}
     </div>
     {#if notice !== null || scan?.running}
@@ -187,12 +286,26 @@
         </div>
       {/if}
     {:else if section === 'albums'}
-      <AlbumGrid {albums} onOpen={showAlbum} onMenu={albumMenu} />
+      {#if shownAlbums.length === 0}
+        <p class="muted">
+          No albums match.
+          <button
+            type="button"
+            class="tertiary small"
+            onclick={() => (albumFilter = { ...NO_ALBUM_FILTER })}
+            >Clear filters</button
+          >
+        </p>
+      {:else}
+        <AlbumGrid albums={shownAlbums} onOpen={showAlbum} onMenu={albumMenu} />
+      {/if}
     {:else if section === 'artists'}
       <ArtistList
         {api}
         {device}
         {version}
+        query={artistQuery}
+        sort={artistSort}
         selectedId={artistId}
         onSelect={(id: number) => (artistId = id)}
         onOpenAlbum={showAlbum}
@@ -222,6 +335,14 @@
   }
   .fill .heading {
     margin-bottom: var(--space-3);
+  }
+  .tools {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .tools input {
+    width: 220px;
   }
   .scanning {
     margin: 0 0 var(--space-4);
