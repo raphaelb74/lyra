@@ -287,6 +287,7 @@ mod tests {
             sample_rate: 96_000,
             channels: 2,
             hardware_volume: volume,
+            decodes_dop: false,
         };
         NowPlaying {
             path: PathBuf::new(),

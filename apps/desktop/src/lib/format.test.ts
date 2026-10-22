@@ -41,9 +41,23 @@ describe('display formatting', () => {
     expect(
       scanText({
         ...idle,
-        last: { added: 3, updated: 1, removed: 0, failed: 2 },
+        last: { added: 3, updated: 1, removed: 0, failed: 2, unavailable: [] },
       }),
     ).toBe('Up to date · 3 added, 1 updated, 0 removed · 2 could not be read');
+    expect(
+      scanText({
+        ...idle,
+        last: {
+          added: 0,
+          updated: 0,
+          removed: 0,
+          failed: 0,
+          unavailable: ['/media/usb/Music'],
+        },
+      }),
+    ).toBe(
+      'Up to date · 0 added, 0 updated, 0 removed · 1 folder not found, its tracks kept',
+    );
   });
 
   it('names what reaches the DAC in plain words', () => {

@@ -276,8 +276,9 @@ impl Library {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// Adds a folder to scan. Folders inside it are merged into it; a folder
-    /// already inside a library folder is refused.
+    /// Adds a folder to scan. Folders inside it are merged into it, their
+    /// tracks (and so playlists) kept; a folder already inside a library
+    /// folder is refused.
     pub fn add_folder(&mut self, path: &Path) -> Result<Folder, LibraryError> {
         if !path.is_dir() {
             return Err(LibraryError::NotADirectory(path.to_owned()));
@@ -294,18 +295,21 @@ impl Library {
             });
         }
         let transaction = self.conn.transaction()?;
-        for inner in existing
-            .iter()
-            .filter(|folder| folder.path.starts_with(&path))
-        {
-            transaction.execute("DELETE FROM folders WHERE id = ?1", [inner.id])?;
-        }
         transaction.execute(
             "INSERT INTO folders (path, added_at) VALUES (?1, ?2)",
             params![path_bytes(&path), now()],
         )?;
         let id = transaction.last_insert_rowid();
-        prune(&transaction)?;
+        for inner in existing
+            .iter()
+            .filter(|folder| folder.path.starts_with(&path))
+        {
+            transaction.execute(
+                "UPDATE tracks SET folder_id = ?1 WHERE folder_id = ?2",
+                [id, inner.id],
+            )?;
+            transaction.execute("DELETE FROM folders WHERE id = ?1", [inner.id])?;
+        }
         transaction.commit()?;
         Ok(Folder { id, path })
     }

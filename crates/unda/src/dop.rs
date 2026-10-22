@@ -1,10 +1,12 @@
 //! The DoP safety rule, in one place.
 //!
 //! DoP is DSD dressed as PCM. A device that does not decode it (built-in
-//! audio, most non-USB outputs) plays it as loud noise, and any attenuation
-//! breaks its markers. So DoP only reaches a device whose volume is known to
-//! leave the samples alone ([`HardwareVolume::passes_dop`]), and that volume
-//! must not move while DoP plays. Native DSD has neither risk.
+//! audio, PCM-only DACs) plays it as loud noise, and any attenuation breaks
+//! its markers. So DoP only reaches a device known to decode it
+//! ([`OutputFormat::decodes_dop`]: it exposes native DSD, or the user said
+//! so) whose volume leaves the samples alone ([`HardwareVolume::passes_dop`]),
+//! and that volume must not move while DoP plays. Native DSD has neither
+//! risk.
 
 use crate::sink::{Encoding, HardwareVolume, OutputFormat};
 use crate::status::{ErrorKind, PlayerError, format_db};
@@ -17,9 +19,22 @@ pub(crate) fn is_dop(output: &OutputFormat) -> bool {
     matches!(output.encoding, Encoding::Dop(_))
 }
 
-/// Refuses a device just opened for DoP whose volume may not pass it intact.
+/// Refuses a device just opened for DoP that may not decode it, or whose
+/// volume may not pass it intact.
 pub(crate) fn check_open(output: &OutputFormat) -> Result<(), PlayerError> {
-    if !is_dop(output) || output.hardware_volume.passes_dop() {
+    if !is_dop(output) {
+        return Ok(());
+    }
+    if !output.decodes_dop {
+        return Err(unsupported(
+            "Lyra cannot tell whether this DAC decodes DSD over DoP; if it does not, \
+             it would play loud noise. If its manual says it supports DoP, turn on \
+             “Plays DoP” for it in Settings. Or turn on “Convert DSD to PCM” \
+             (not bit-perfect)."
+                .to_owned(),
+        ));
+    }
+    if output.hardware_volume.passes_dop() {
         return Ok(());
     }
     Err(unsupported(match output.hardware_volume {

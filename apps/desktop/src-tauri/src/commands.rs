@@ -75,7 +75,7 @@ impl AppState {
     }
 
     fn settings(&self) -> Settings {
-        *locked(&self.settings)
+        locked(&self.settings).clone()
     }
 
     /// Stores `settings` and applies what the engine uses.
@@ -290,7 +290,12 @@ pub fn play_tracks(
     let items = queue_items(&state, track_ids)?;
     state
         .player
-        .play_queue(items, start, device, state.settings().dsd_policy())
+        .play_queue(
+            items,
+            start,
+            device.clone(),
+            state.settings().dsd_policy(&device),
+        )
         .map_err(IpcError::from)
 }
 
@@ -307,7 +312,12 @@ pub fn enqueue_tracks(
     let items = queue_items(&state, track_ids)?;
     state
         .player
-        .enqueue(items, next, device, state.settings().dsd_policy())
+        .enqueue(
+            items,
+            next,
+            device.clone(),
+            state.settings().dsd_policy(&device),
+        )
         .map_err(IpcError::from)
 }
 
@@ -377,7 +387,7 @@ pub fn skip_to(index: usize, device: String, state: State<'_, AppState>) -> Resu
     let device = hardware_device(device)?;
     state
         .player
-        .skip_to(index, device, state.settings().dsd_policy())
+        .skip_to(index, device.clone(), state.settings().dsd_policy(&device))
         .map_err(IpcError::from)
 }
 
@@ -590,7 +600,7 @@ pub fn set_settings(settings: Settings, state: State<'_, AppState>) -> Result<Se
             code: "settings_not_saved",
             message: format!("Cannot save the settings: {error}"),
         })?;
-    state.apply_settings(settings);
+    state.apply_settings(settings.clone());
     Ok(settings)
 }
 

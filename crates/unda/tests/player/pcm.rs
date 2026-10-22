@@ -40,6 +40,7 @@ fn plays_every_source_byte_through_the_states() {
             sample_rate: rate,
             channels: 2,
             hardware_volume: HardwareVolume::None,
+            decodes_dop: false,
         };
         assert_eq!(status.track.unwrap().output, Some(output));
         drop(player); // joins the threads, so every sink call has happened

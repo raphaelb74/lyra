@@ -662,6 +662,8 @@ pub struct ScanReport {
     pub updated: usize,
     pub removed: usize,
     pub failed: usize,
+    /// Library folders that could not be read; their tracks were kept.
+    pub unavailable: Vec<String>,
 }
 
 impl From<&ScanSummary> for ScanReport {
@@ -671,6 +673,11 @@ impl From<&ScanSummary> for ScanReport {
             updated: summary.updated,
             removed: summary.removed,
             failed: summary.failed,
+            unavailable: summary
+                .unavailable
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect(),
         }
     }
 }

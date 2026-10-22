@@ -25,11 +25,13 @@ use unda::{
 
 pub(crate) const DEVICE: &str = "hw:CARD=TEST,DEV=0";
 
-/// The default DSD policy for `transport`: bit-perfect or refused.
+/// The default DSD policy for `transport`: bit-perfect or refused. The
+/// mock DAC is confirmed to decode DoP, as a user would on a DoP DAC.
 pub(crate) fn refuse(transport: DsdTransport) -> DsdPolicy {
     DsdPolicy {
         transport,
         fallback: DsdFallback::Refuse,
+        dop_confirmed: true,
     }
 }
 
@@ -37,6 +39,7 @@ pub(crate) fn refuse(transport: DsdTransport) -> DsdPolicy {
 pub(crate) const CONVERT: DsdPolicy = DsdPolicy {
     transport: DsdTransport::Auto,
     fallback: DsdFallback::Convert { gain_db: 0 },
+    dop_confirmed: true,
 };
 
 /// Asserts equal bytes, reporting the first difference instead of dumping both.

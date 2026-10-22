@@ -176,6 +176,8 @@ export interface ScanReport {
   updated: number;
   removed: number;
   failed: number;
+  /** Library folders that could not be read; their tracks were kept. */
+  unavailable: string[];
 }
 
 /** Mirrors Rust's `ScanStatus`. */
@@ -247,6 +249,8 @@ export interface Settings {
   conversionGainDb: number;
   /** Silence before playback when the format changes: 0–2000 ms. */
   resyncDelayMs: number;
+  /** Devices (`hw:CARD=…,DEV=…`) the user says decode DoP. */
+  dopDevices: string[];
 }
 
 /** Mirrors Rust's `DiagnosticsInfo`: one device, read now. */

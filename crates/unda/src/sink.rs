@@ -23,6 +23,8 @@ pub enum StreamFormat {
         /// With [`DsdTransport::Auto`] only: when neither native DSD nor DoP
         /// can be used, convert to PCM.
         convert: bool,
+        /// The user says the device decodes DoP ([`DsdPolicy::dop_confirmed`]).
+        dop_confirmed: bool,
     },
 }
 
@@ -37,11 +39,15 @@ pub enum DsdTransport {
     Dop,
 }
 
-/// The user's DSD settings.
+/// The user's DSD settings, for the device the track plays on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DsdPolicy {
     pub transport: DsdTransport,
     pub fallback: DsdFallback,
+    /// The user says this device decodes DoP. Without that, DoP only goes to
+    /// a device that also exposes native DSD: PCM carrier support alone does
+    /// not show the DAC decodes DoP, and one that does not plays noise.
+    pub dop_confirmed: bool,
 }
 
 /// What to do when a device takes neither native DSD nor DoP (built-in
@@ -146,6 +152,9 @@ pub struct OutputFormat {
     pub sample_rate: u32,
     pub channels: usize,
     pub hardware_volume: HardwareVolume,
+    /// For DoP: the device is known to decode it, because it exposes native
+    /// DSD or the user confirmed it. False for every other encoding.
+    pub decodes_dop: bool,
 }
 
 /// State of the device's own volume controls while Lyra plays.
@@ -272,10 +281,11 @@ impl OutputFormat {
     /// played: no rate, channel or format change is ever made beyond the
     /// opt-in DSD conversion.
     ///
-    /// When conversion is allowed, DoP is skipped on a device that may not
-    /// pass it intact (built-in audio accepts the DoP format but would play
-    /// noise), so conversion is reached. Without conversion DoP stays, and
-    /// the player refuses it with the reason.
+    /// DoP needs a device known to decode it ([`Self::decodes_dop`]) whose
+    /// volume passes it intact. When conversion is allowed, DoP that may not
+    /// arrive as DSD is skipped (built-in audio accepts the DoP format but
+    /// would play noise), so conversion is reached. Without conversion DoP
+    /// stays, and the player refuses it with the reason.
     pub fn negotiate(
         stream: &StreamFormat,
         volume: HardwareVolume,
@@ -285,19 +295,46 @@ impl OutputFormat {
         let converts = candidates
             .iter()
             .any(|(encoding, _)| matches!(encoding, Encoding::Converted(_)));
-        candidates
-            .into_iter()
-            .filter(|(encoding, _)| {
-                !(converts && matches!(encoding, Encoding::Dop(_)) && !volume.passes_dop())
-            })
-            .find(|&(encoding, rate)| accepts(encoding, rate))
-            .map(|(encoding, sample_rate)| Self {
-                encoding,
-                sample_rate,
-                channels: stream.channels(),
-                hardware_volume: volume,
-            })
+        let dop_confirmed = matches!(
+            *stream,
+            StreamFormat::Dsd {
+                dop_confirmed: true,
+                ..
+            }
+        );
+        // Probed only when DoP is considered: native DSD needs no evidence.
+        let mut known: Option<bool> = None;
+        let mut decodes = |accepts: &mut _| {
+            dop_confirmed || *known.get_or_insert_with(|| exposes_native_dsd(accepts))
+        };
+        for (encoding, sample_rate) in candidates {
+            let dop = matches!(encoding, Encoding::Dop(_));
+            if dop && converts && !(volume.passes_dop() && decodes(&mut accepts)) {
+                continue;
+            }
+            if accepts(encoding, sample_rate) {
+                return Some(Self {
+                    encoding,
+                    sample_rate,
+                    channels: stream.channels(),
+                    hardware_volume: volume,
+                    decodes_dop: dop && decodes(&mut accepts),
+                });
+            }
+        }
+        None
     }
+}
+
+/// Whether the device takes any native DSD format at DSD64 to DSD512: a DAC
+/// that decodes DSD natively decodes DoP too.
+fn exposes_native_dsd(accepts: &mut impl FnMut(Encoding, u32) -> bool) -> bool {
+    const DSD64: u32 = 2_822_400;
+    [1, 2, 4, 8].into_iter().any(|multiple| {
+        DsdLayout::ALL
+            .into_iter()
+            .any(|layout| accepts(Encoding::Dsd(layout), layout.frame_rate(DSD64 * multiple)))
+    })
 }
 
 /// `88200 or 44100 Hz`.
@@ -382,6 +419,7 @@ mod tests {
             channels: 2,
             transport,
             convert,
+            dop_confirmed: false,
         }
     }
 
@@ -467,12 +505,21 @@ mod tests {
     #[test]
     fn conversion_is_the_last_resort() {
         let convert = dsd64(DsdTransport::Auto, true);
-        // A USB DAC at 0 dB keeps DoP.
+        // A USB DAC at 0 dB keeps DoP once the user confirmed it decodes it;
+        // the carrier alone does not show that.
         let dop_dac = |encoding, rate| matches!(encoding, Encoding::Dop(_)) && rate == 176_400;
+        let confirmed = StreamFormat::Dsd {
+            dsd_rate: 2_822_400,
+            channels: 2,
+            transport: DsdTransport::Auto,
+            convert: true,
+            dop_confirmed: true,
+        };
         assert!(matches!(
-            chosen(&convert, HardwareVolume::Unity, dop_dac),
+            chosen(&confirmed, HardwareVolume::Unity, dop_dac),
             Some((Encoding::Dop(_), 176_400))
         ));
+        assert_eq!(chosen(&convert, HardwareVolume::Unity, dop_dac), None);
         // Built-in audio accepts the DoP format, but its volume cannot be
         // read: DoP would play noise there, so conversion is used, at the
         // highest rate it takes.
@@ -532,6 +579,7 @@ mod tests {
             channels: 2,
             transport: DsdTransport::Auto,
             convert: true,
+            dop_confirmed: false,
         };
         assert!(output.carries(&dsd128));
         // 24-bit PCM at 88.2 kHz would fit the device, but it is not

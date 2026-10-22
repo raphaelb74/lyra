@@ -420,3 +420,129 @@ fn playlists_keep_order_through_edits_and_rescans() {
     assert_eq!(library.playlists().unwrap(), []);
     assert_eq!(library.tracks().unwrap().len(), 3, "tracks stay");
 }
+
+/// A library of `music(root)`, scanned, with every track in one playlist.
+fn library_with_playlist(dir: &Path) -> (Library, PathBuf, PathBuf, i64) {
+    let root = dir.join("music");
+    music(&root);
+    let art = dir.join("art");
+    let mut library = Library::open(&dir.join("library.db")).unwrap();
+    library.add_folder(&root).unwrap();
+    run_scan(&mut library, &art);
+    let ids: Vec<i64> = library.tracks().unwrap().iter().map(|t| t.id).collect();
+    let playlist = library.create_playlist("Keep").unwrap();
+    library.add_to_playlist(playlist, &ids).unwrap();
+    (library, root, art, playlist)
+}
+
+fn playlist_ids(library: &Library, playlist: i64) -> Vec<i64> {
+    library
+        .playlist_entries(playlist)
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.track.id)
+        .collect()
+}
+
+#[test]
+fn an_unplugged_drive_keeps_its_tracks_and_playlists() {
+    let dir = temp_dir("an_unplugged_drive_keeps_its_tracks_and_playlists");
+    let (mut library, root, art, playlist) = library_with_playlist(&dir);
+    let before = playlist_ids(&library, playlist);
+    assert_eq!(before.len(), 4);
+
+    // Unplugged: the folder is gone.
+    let away = dir.join("away");
+    fs::rename(&root, &away).unwrap();
+    let missing = run_scan(&mut library, &art);
+    assert_eq!(missing.removed, 0, "{missing:?}");
+    assert_eq!(missing.unavailable, std::slice::from_ref(&root));
+    assert_eq!(playlist_ids(&library, playlist), before);
+
+    // Unmounted: an empty mount point is left behind.
+    fs::create_dir(&root).unwrap();
+    let empty = run_scan(&mut library, &art);
+    assert_eq!(
+        (empty.removed, empty.unavailable.len()),
+        (0, 1),
+        "{empty:?}"
+    );
+    assert_eq!(playlist_ids(&library, playlist), before);
+
+    // Back again: nothing to do, same tracks.
+    fs::remove_dir(&root).unwrap();
+    fs::rename(&away, &root).unwrap();
+    let back = run_scan(&mut library, &art);
+    assert_eq!(
+        (
+            back.added,
+            back.updated,
+            back.removed,
+            back.unavailable.len()
+        ),
+        (0, 0, 0, 0),
+        "{back:?}"
+    );
+    assert_eq!(playlist_ids(&library, playlist), before);
+}
+
+#[test]
+fn an_unreadable_folder_keeps_its_tracks() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = temp_dir("an_unreadable_folder_keeps_its_tracks");
+    let (mut library, root, art, playlist) = library_with_playlist(&dir);
+    let before = playlist_ids(&library, playlist);
+    let bowie = root.join("Bowie");
+    fs::set_permissions(&bowie, fs::Permissions::from_mode(0o000)).unwrap();
+    let readable = fs::read_dir(&bowie).is_ok(); // root ignores permissions
+    let summary = run_scan(&mut library, &art);
+    fs::set_permissions(&bowie, fs::Permissions::from_mode(0o755)).unwrap();
+    if readable {
+        return;
+    }
+    assert_eq!(summary.removed, 0, "{summary:?}");
+    assert_eq!(playlist_ids(&library, playlist), before);
+}
+
+#[test]
+fn a_file_that_fails_to_read_keeps_its_entry() {
+    let dir = temp_dir("a_file_that_fails_to_read_keeps_its_entry");
+    let (mut library, root, art, playlist) = library_with_playlist(&dir);
+    let before = playlist_ids(&library, playlist);
+    let file = root.join("Test Tones/a.flac");
+    let good = fs::read(&file).unwrap();
+
+    fs::write(&file, b"half written").unwrap();
+    let broken = run_scan(&mut library, &art);
+    // `broken.flac` of the fixture library fails on every scan too.
+    assert_eq!((broken.failed, broken.removed), (2, 0), "{broken:?}");
+    assert_eq!(playlist_ids(&library, playlist), before);
+
+    // Readable again: read and updated in place.
+    fs::write(&file, good).unwrap();
+    let fixed = run_scan(&mut library, &art);
+    assert_eq!((fixed.updated, fixed.failed), (1, 1), "{fixed:?}");
+    assert_eq!(playlist_ids(&library, playlist), before);
+}
+
+#[test]
+fn adding_a_parent_folder_keeps_tracks_and_playlists() {
+    let dir = temp_dir("adding_a_parent_folder_keeps_tracks_and_playlists");
+    let root = dir.join("music");
+    music(&root);
+    let art = dir.join("art");
+    let mut library = Library::open(&dir.join("library.db")).unwrap();
+    library.add_folder(&root.join("Bowie")).unwrap();
+    run_scan(&mut library, &art);
+    let ids: Vec<i64> = library.tracks().unwrap().iter().map(|t| t.id).collect();
+    let playlist = library.create_playlist("Bowie").unwrap();
+    library.add_to_playlist(playlist, &ids).unwrap();
+
+    library.add_folder(&root).unwrap();
+    assert_eq!(playlist_ids(&library, playlist), ids);
+    let summary = run_scan(&mut library, &art);
+    // Only the new folder's two readable files are new.
+    assert_eq!((summary.added, summary.removed), (2, 0), "{summary:?}");
+    assert_eq!(playlist_ids(&library, playlist), ids);
+}

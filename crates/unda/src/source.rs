@@ -57,6 +57,7 @@ impl SourceInfo {
                 transport: dsd.transport,
                 convert: dsd.transport == DsdTransport::Auto
                     && matches!(dsd.fallback, DsdFallback::Convert { .. }),
+                dop_confirmed: dsd.dop_confirmed,
             },
         }
     }

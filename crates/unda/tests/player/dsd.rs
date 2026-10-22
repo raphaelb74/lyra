@@ -6,8 +6,8 @@ use unda::mock::{MockSink, SinkCall};
 use unda::{DsdTransport, Encoding, ErrorKind, HardwareVolume, PlaybackState};
 
 use crate::{
-    DEVICE, assert_same_bytes, dsd_fixture, dsd_reference, play_dsd, refuse, start, wait_for,
-    with_native,
+    CONVERT, DEVICE, assert_same_bytes, dsd_fixture, dsd_reference, play_dsd, refuse, start,
+    wait_for, with_native,
 };
 
 #[test]
@@ -163,4 +163,62 @@ fn native_dsd_plays_at_any_dac_volume() {
     let (output, bytes) = play_dsd(sink, "dsd64_stereo.dsf", refuse(DsdTransport::Auto));
     assert_eq!(output.encoding, Encoding::Dsd(DsdLayout::U32Be));
     assert_eq!(bytes.len(), dsd_reference().len().next_multiple_of(8));
+}
+
+#[test]
+fn dop_goes_only_to_a_dac_known_to_decode_it() {
+    // A USB DAC at 0 dB that takes the DoP carrier but has no native DSD:
+    // it may be PCM-only, and would play the DoP as noise.
+    let pcm_only = || {
+        let mut sink = MockSink::new();
+        sink.rates.push(176_400);
+        sink.hardware_volume = HardwareVolume::Unity;
+        sink
+    };
+    let unconfirmed = |policy: unda::DsdPolicy| unda::DsdPolicy {
+        dop_confirmed: false,
+        ..policy
+    };
+
+    let sink = pcm_only();
+    let recorder = sink.recorder.clone();
+    let (player, updates) = start(sink);
+    player
+        .play(
+            dsd_fixture("dsd64_stereo.dsf"),
+            DEVICE.into(),
+            unconfirmed(refuse(DsdTransport::Auto)),
+        )
+        .unwrap();
+    let error = wait_for(&updates, PlaybackState::Error).0.error.unwrap();
+    assert_eq!(error.kind, ErrorKind::Unsupported);
+    assert!(error.message.contains("Plays DoP"), "{}", error.message);
+    drop(player);
+    recorder.with(|recording| {
+        assert!(
+            !recording
+                .calls
+                .iter()
+                .any(|call| matches!(call, SinkCall::Write { .. }))
+        );
+    });
+
+    // With conversion allowed, conversion is used instead.
+    let (output, _) = play_dsd(pcm_only(), "dsd64_stereo.dsf", unconfirmed(CONVERT));
+    assert!(matches!(output.encoding, Encoding::Converted(_)));
+
+    // Confirmed by the user: DoP.
+    let (output, _) = play_dsd(pcm_only(), "dsd64_stereo.dsf", refuse(DsdTransport::Auto));
+    assert!(matches!(output.encoding, Encoding::Dop(_)));
+
+    // A DAC with native DSD decodes DoP too: no confirmation needed.
+    let mut native = with_native(DsdLayout::U8);
+    native.hardware_volume = HardwareVolume::Unity;
+    let (output, _) = play_dsd(
+        native,
+        "dsd64_stereo.dsf",
+        unconfirmed(refuse(DsdTransport::Dop)),
+    );
+    assert!(matches!(output.encoding, Encoding::Dop(_)));
+    assert!(output.decodes_dop);
 }

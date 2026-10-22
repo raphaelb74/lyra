@@ -51,6 +51,9 @@ pub struct ScanSummary {
     pub failures: Vec<(PathBuf, String)>,
     /// Stopped early; files not reached were left as they were.
     pub cancelled: bool,
+    /// Library folders that could not be read, or that look empty while the
+    /// library has tracks in them (an unplugged drive): their tracks were kept.
+    pub unavailable: Vec<PathBuf>,
 }
 
 /// A track already in the database, by path.
@@ -65,6 +68,22 @@ struct Pending {
     file: Found,
     scanned: Result<Scanned, String>,
     existed: bool,
+}
+
+/// What a walk through one library folder found.
+struct Walk {
+    /// The folder itself could be listed.
+    opened: bool,
+    files: Vec<Found>,
+    /// Folders that could not be listed, in whole or in part, and files that
+    /// could not be examined: known tracks under them are kept, not removed.
+    unreadable: Vec<PathBuf>,
+}
+
+impl Walk {
+    fn covers(&self, path: &Path) -> bool {
+        self.unreadable.iter().any(|dir| path.starts_with(dir))
+    }
 }
 
 /// A file found on disk.
@@ -93,19 +112,25 @@ pub fn scan(
             })?
             .collect::<Result<_, _>>()?
     };
-    let found: Vec<(i64, Vec<Found>)> = folders
+    let found: Vec<(i64, &Path, Walk)> = folders
         .iter()
-        .map(|(id, root)| (*id, audio_files(root)))
+        .map(|(id, root)| (*id, root.as_path(), audio_files(root)))
         .collect();
-    let total = found.iter().map(|(_, files)| files.len()).sum();
+    let total = found.iter().map(|(_, _, walk)| walk.files.len()).sum();
 
     let mut summary = ScanSummary::default();
     let mut done = 0;
     progress(ScanProgress { done, total });
-    'folders: for (folder_id, files) in found {
+    'folders: for (folder_id, root, mut walk) in found {
         let mut known = known_tracks(conn, folder_id)?;
+        // A missing drive must not empty the library: an unmounted mount
+        // point is often an empty folder.
+        if !walk.opened || (walk.files.is_empty() && !known.is_empty()) {
+            summary.unavailable.push(root.to_owned());
+            continue;
+        }
         let mut pending = Vec::new();
-        for file in files {
+        for file in std::mem::take(&mut walk.files) {
             if cancel.load(Ordering::Relaxed) {
                 summary.cancelled = true;
                 write_batch(conn, art_dir, &mut pending, &mut summary)?;
@@ -128,9 +153,13 @@ pub fn scan(
             progress(ScanProgress { done, total });
         }
         write_batch(conn, art_dir, &mut pending, &mut summary)?;
-        // Whatever was not found any more is gone from disk.
+        // Whatever was not found any more is gone from disk, unless it sits
+        // where the walk could not look.
         let transaction = conn.transaction()?;
-        for (id, _) in known.into_values() {
+        for (path, (id, _)) in known {
+            if walk.covers(&path_from(&path)) {
+                continue;
+            }
             transaction.execute("DELETE FROM tracks WHERE id = ?1", [id])?;
             summary.removed += 1;
         }
@@ -156,20 +185,29 @@ pub fn scan(
 
 /// Audio files under `root`, sorted. Hidden entries (`.name`, including
 /// macOS `._` files) are skipped, and symlinked folders are not followed
-/// (no cycles). Unreadable folders are skipped.
-fn audio_files(root: &Path) -> Vec<Found> {
+/// (no cycles). What cannot be read is reported, not taken as absent.
+fn audio_files(root: &Path) -> Walk {
     let mut files = Vec::new();
+    let mut unreadable = Vec::new();
+    let mut opened = false;
     let mut folders = vec![root.to_owned()];
     while let Some(folder) = folders.pop() {
         let Ok(entries) = fs::read_dir(&folder) else {
+            unreadable.push(folder);
             continue;
         };
-        for entry in entries.flatten() {
+        opened |= folder == root;
+        for entry in entries {
+            let Ok(entry) = entry else {
+                unreadable.push(folder.clone());
+                continue;
+            };
             if entry.file_name().as_encoded_bytes().starts_with(b".") {
                 continue;
             }
             let path = entry.path();
             let Ok(kind) = entry.file_type() else {
+                unreadable.push(path);
                 continue;
             };
             if kind.is_dir() {
@@ -181,6 +219,7 @@ fn audio_files(root: &Path) -> Vec<Found> {
             }
             // Follows a symlinked file; skips one that points at a folder.
             let Ok(metadata) = fs::metadata(&path) else {
+                unreadable.push(path);
                 continue;
             };
             if metadata.is_file() {
@@ -196,7 +235,11 @@ fn audio_files(root: &Path) -> Vec<Found> {
         }
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
-    files
+    Walk {
+        opened,
+        files,
+        unreadable,
+    }
 }
 
 /// Tracks already in the database for a folder: path → (id, size, mtime).
@@ -245,11 +288,9 @@ fn write_batch(
                 }
             }
             Err(reason) => {
-                // A file that no longer reads is dropped from the library.
-                transaction.execute(
-                    "DELETE FROM tracks WHERE path = ?1",
-                    [path_bytes(&file.path)],
-                )?;
+                // A known track keeps its entry and playlists: the failure may
+                // be passing (a slow drive). Its old stamp makes the next scan
+                // read it again.
                 summary.failed += 1;
                 if summary.failures.len() < MAX_REPORTED_FAILURES {
                     summary.failures.push((file.path, reason));
