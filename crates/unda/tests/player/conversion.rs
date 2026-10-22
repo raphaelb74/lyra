@@ -2,8 +2,8 @@
 
 use format_dsd::DsdLayout;
 use format_pcm::SampleEncoding;
-use player_core::mock::MockSink;
-use player_core::{
+use unda::mock::MockSink;
+use unda::{
     BitPerfect, DsdPolicy, DsdTransport, Encoding, ErrorKind, HardwareVolume, PlaybackState,
     Transport,
 };

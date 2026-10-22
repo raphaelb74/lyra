@@ -105,7 +105,7 @@ def main():
             assert 'Nothing playing' in state['player'], state
             assert state['playDisabled'], state
             assert 'Lyra 0.1.0' in state['about'], state
-            assert 'Audio engine connected · linux' in state['about'], state
+            assert 'UNDA engine connected · linux' in state['about'], state
             # Retry the connection from the visible UI as well as on initial mount.
             execute("document.querySelector('.about button').click(); return true")
             wait_for(lambda: execute("return document.querySelector('[data-connected=true]') !== null"))

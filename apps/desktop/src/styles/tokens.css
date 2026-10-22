@@ -46,6 +46,11 @@
     --text-muted: #838a94;
     --accent: #b8c7d9;
     --warning: #e0b07a;
+    /* The lamp's format colours, after iFi's LED: what the DAC receives. */
+    --tone-cd: #f2d45c;
+    --tone-hi-res: #f1f2f3;
+    --tone-dsd: #5ed3e6;
+    --tone-dsd-high: #ef6461;
     --danger: #e8958a;
     --danger-surface: color-mix(in srgb, var(--danger) 8%, var(--bg));
     --art-empty: #1f242a;

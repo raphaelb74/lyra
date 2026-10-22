@@ -6,6 +6,7 @@ import {
   isHiRes,
   clock,
   formatBadge,
+  formatTone,
   outputLabel,
   playbackLabel,
   scanText,
@@ -25,6 +26,7 @@ const flac: Track = {
   channels: 2,
   durationSeconds: null,
   output: null,
+  processing: [],
   bitPerfect: null,
 };
 
@@ -52,7 +54,12 @@ describe('display formatting', () => {
       dsdMultiple: 128,
     };
 
-    const wire = { format: 'S32_LE', channels: 2 };
+    const wire = {
+      format: 'S32_LE',
+      channels: 2,
+      hardwareVolume: 'none' as const,
+      hardwareDb: null,
+    };
 
     expect(playbackLabel(flac)).toBeNull();
     expect(
@@ -91,6 +98,8 @@ describe('display formatting', () => {
         format: 'S24_3LE',
         sampleRate: 96000,
         channels: 2,
+        hardwareVolume: 'none',
+        hardwareDb: null,
       }),
     ).toBe('S24_3LE · 96 kHz');
   });
@@ -102,6 +111,8 @@ describe('display formatting', () => {
         format: 'S32_LE',
         sampleRate: 88200,
         channels: 2,
+        hardwareVolume: 'none',
+        hardwareDb: null,
       }),
     ).toBe('DSD converted to PCM · S32_LE · 88.2 kHz');
   });
@@ -122,6 +133,8 @@ describe('display formatting', () => {
         format: 'S24_3LE',
         sampleRate: 176400,
         channels: 2,
+        hardwareVolume: 'none',
+        hardwareDb: null,
       }),
     ).toBe('DoP · S24_3LE · 176.4 kHz');
     expect(
@@ -130,8 +143,45 @@ describe('display formatting', () => {
         format: 'DSD_U32_BE',
         sampleRate: 88200,
         channels: 2,
+        hardwareVolume: 'none',
+        hardwareDb: null,
       }),
     ).toBe('Native DSD · DSD_U32_BE · 88.2 kHz');
+  });
+
+  it('colours the lamp by what the DAC receives, as iFi does', () => {
+    const pcm = {
+      ...flac.output,
+      transport: 'pcm',
+      format: 'S32_LE',
+      channels: 2,
+      hardwareVolume: 'none',
+      hardwareDb: null,
+    } as const;
+    const at = (sampleRate: number) => ({
+      ...flac,
+      output: { ...pcm, sampleRate },
+    });
+
+    const dsd = (dsdMultiple: number, transport: 'native' | 'dop') => ({
+      ...flac,
+      dsdMultiple,
+      output: { ...pcm, transport, sampleRate: 176400 },
+    });
+
+    expect(formatTone(flac)).toBeNull();
+    expect(formatTone(at(48000))).toBe('cd');
+    expect(formatTone(at(96000))).toBe('hiRes');
+    expect(formatTone(at(384000))).toBe('hiRes');
+    expect(formatTone(dsd(128, 'native'))).toBe('dsd');
+    expect(formatTone(dsd(64, 'dop'))).toBe('dsd');
+    expect(formatTone(dsd(256, 'native'))).toBe('dsdHigh');
+    expect(
+      formatTone({
+        ...dsd(64, 'native'),
+        output: { ...pcm, transport: 'converted', sampleRate: 88200 },
+      }),
+    ).toBe('hiRes');
   });
 
   it('badges albums by their best format', () => {

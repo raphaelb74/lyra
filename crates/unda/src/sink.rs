@@ -57,6 +57,16 @@ pub enum DsdFallback {
     Convert { gain_db: i8 },
 }
 
+impl DsdPolicy {
+    /// The gain conversion applies, in dB; 0 when conversion is off.
+    pub fn conversion_gain_db(self) -> i8 {
+        match self.fallback {
+            DsdFallback::Convert { gain_db } => gain_db,
+            DsdFallback::Refuse => 0,
+        }
+    }
+}
+
 /// How the audio reaches the DAC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transport {

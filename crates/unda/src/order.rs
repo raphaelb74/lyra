@@ -25,8 +25,12 @@ pub(crate) enum Edit {
         items: Vec<QueueItem>,
         next: bool,
     },
-    /// Moves entry `index` to play next.
-    MoveNext(usize),
+    /// Moves entry `from` to play right after entry `after`, or next when
+    /// `after` is `None` or already playing or decoded.
+    Move {
+        from: usize,
+        after: Option<usize>,
+    },
     Remove(usize),
     /// Removes every entry but the playing one.
     Clear,
@@ -111,12 +115,16 @@ impl Queue {
                     rank,
                 }));
             }
-            Edit::MoveNext(index) => {
-                if !movable(index) {
+            Edit::Move { from, after } => {
+                // Committed entries stay together: a track placed after one
+                // of them goes after the last.
+                let after = after.filter(|a| !committed.contains(a));
+                if !movable(from) || after.is_some_and(|a| a == from || a >= self.len()) {
                     return None;
                 }
-                let slot = slots.remove(index);
-                let at = if index < next { next - 1 } else { next };
+                let slot = slots.remove(from);
+                let shift = |p: usize| if p > from { p - 1 } else { p };
+                let at = after.map_or_else(|| shift(next), |a| shift(a) + 1);
                 slots.insert(at, slot);
             }
             Edit::Remove(index) => {
@@ -280,7 +288,7 @@ mod tests {
     #[test]
     fn move_next_remove_and_clear_leave_the_playing_track_alone() {
         let queue = Queue::new(items(0..5));
-        let promoted = |index| queue.edited(Edit::MoveNext(index), &[1], false);
+        let promoted = |from| queue.edited(Edit::Move { from, after: None }, &[1], false);
         assert_eq!(ids(&promoted(4).unwrap().0), [0, 1, 4, 2, 3]);
         assert_eq!(ids(&promoted(0).unwrap().0), [1, 0, 2, 3, 4]);
         assert!(promoted(1).is_none(), "the playing track stays");
@@ -296,6 +304,27 @@ mod tests {
         assert_eq!(moved[2], Some(0));
         let (empty, _) = queue.edited(Edit::Clear, &[], false).unwrap();
         assert_eq!(empty.len(), 0);
+    }
+
+    #[test]
+    fn a_dragged_track_goes_after_the_one_it_was_dropped_below() {
+        let queue = Queue::new(items(0..6));
+        // Entry 1 plays, 2 is decoded after it.
+        let moved = |from, after| {
+            queue
+                .edited(Edit::Move { from, after }, &[1, 2], false)
+                .map(|(q, _)| ids(&q))
+        };
+        assert_eq!(moved(5, Some(3)), Some(vec![0, 1, 2, 3, 5, 4]));
+        assert_eq!(moved(3, Some(5)), Some(vec![0, 1, 2, 4, 5, 3]));
+        // Dropped on the playing or decoded entry: plays after both.
+        assert_eq!(moved(5, Some(1)), Some(vec![0, 1, 2, 5, 3, 4]));
+        assert_eq!(moved(5, None), Some(vec![0, 1, 2, 5, 3, 4]));
+        // Before the playing track: last when repeating the queue.
+        assert_eq!(moved(4, Some(0)), Some(vec![0, 4, 1, 2, 3, 5]));
+        assert_eq!(moved(2, Some(4)), None, "decoded entries stay");
+        assert_eq!(moved(3, Some(3)), None);
+        assert_eq!(moved(3, Some(9)), None);
     }
 
     #[test]

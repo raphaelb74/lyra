@@ -9,11 +9,11 @@ use audio_alsa::{Capabilities, Device, KernelReport, SinkReport};
 use format_dsd::Container;
 use format_pcm::{Codec, SampleEncoding};
 use library::{Album, Artist, Entry, Folder, Playlist, ScanSummary};
-use player_core::{
-    BitPerfect, ConversionStats, Encoding, ErrorKind, NowPlaying, PlaybackState, PlayerError,
-    PlayerStatus, Repeat, SourceInfo, Transport,
-};
 use serde::{Deserialize, Serialize};
+use unda::{
+    BitPerfect, ConversionStats, Encoding, ErrorKind, HardwareVolume, NowPlaying, PlaybackState,
+    PlayerError, PlayerStatus, Processing, Repeat, SourceInfo, Transport,
+};
 
 /// Response of the `get_app_info` command.
 #[derive(Clone, Debug, Serialize)]
@@ -174,7 +174,32 @@ pub struct Track {
     pub channels: usize,
     pub duration_seconds: Option<f64>,
     pub output: Option<Output>,
+    /// What UNDA does to the samples, in order; empty: sent as read.
+    pub processing: Vec<Step>,
     pub bit_perfect: Option<Verdict>,
+}
+
+/// One processing step, as `{ "kind": "padded", "fromBits": 16, … }`.
+#[derive(Clone, Debug, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Step {
+    Padded { from_bits: u32, to_bits: u32 },
+    DopPacked,
+    Converted { gain_db: i8 },
+}
+
+impl From<Processing> for Step {
+    fn from(step: Processing) -> Self {
+        match step {
+            Processing::Padded { from_bits, to_bits } => Self::Padded { from_bits, to_bits },
+            Processing::DopPacked => Self::DopPacked,
+            Processing::Converted { gain_db } => Self::Converted { gain_db },
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -186,6 +211,11 @@ pub struct Output {
     pub format: &'static str,
     pub sample_rate: u32,
     pub channels: usize,
+    /// The device's own volume: `none` (no control), `unity` (0 dB),
+    /// `attenuated` or `unknown` (no dB scale).
+    pub hardware_volume: &'static str,
+    /// Set when `attenuated`.
+    pub hardware_db: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -256,7 +286,20 @@ impl From<&NowPlaying> for Track {
                 format: alsa_format_name(output.encoding),
                 sample_rate: output.sample_rate,
                 channels: output.channels,
+                hardware_volume: match output.hardware_volume {
+                    HardwareVolume::None => "none",
+                    HardwareVolume::Unity => "unity",
+                    HardwareVolume::Attenuated { .. } => "attenuated",
+                    HardwareVolume::Unknown => "unknown",
+                },
+                hardware_db: match output.hardware_volume {
+                    HardwareVolume::Attenuated { centibels } => {
+                        i32::try_from(centibels).ok().map(|c| f64::from(c) / 100.0)
+                    }
+                    _ => None,
+                },
             }),
+            processing: now.processing().into_iter().map(Step::from).collect(),
             bit_perfect: now.bit_perfect().map(|verdict| match verdict {
                 BitPerfect::Yes => Verdict {
                     status: "yes",
@@ -659,7 +702,7 @@ pub fn frames_to_seconds(frames: u64, sample_rate: u32) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use player_core::{ErrorKind, PlayerError};
+    use unda::{ErrorKind, PlayerError};
 
     use super::{DiagnosticsInfo, IpcError};
 
@@ -690,7 +733,7 @@ mod tests {
             buffer,
             taken_from: Some("pipewire".into()),
         };
-        let peak = |peak| player_core::ConversionStats { clipped: 3, peak };
+        let peak = |peak| unda::ConversionStats { clipped: 3, peak };
         let json = |peak| {
             serde_json::to_value(DiagnosticsInfo::new(
                 "hw:CARD=PCH,DEV=0".into(),

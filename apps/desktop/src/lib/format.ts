@@ -98,6 +98,60 @@ export function playbackLabel(track: Track): string | null {
   }
 }
 
+/**
+ * The colour of what reaches the DAC, after iFi's format LED: `cd` (yellow,
+ * PCM up to 48 kHz), `hiRes` (white, PCM above), `dsd` (cyan, DSD64 and
+ * DSD128) and `dsdHigh` (red, DSD256 and up). Null until the device is open.
+ */
+export type FormatTone = 'cd' | 'hiRes' | 'dsd' | 'dsdHigh';
+
+export function formatTone(track: Track): FormatTone | null {
+  const output = track.output;
+
+  if (output === null) return null;
+
+  switch (output.transport) {
+    case 'pcm':
+    case 'converted':
+      return output.sampleRate <= 48000 ? 'cd' : 'hiRes';
+    case 'native':
+    case 'dop':
+      return (track.dsdMultiple ?? 0) >= 256 ? 'dsdHigh' : 'dsd';
+  }
+}
+
+/** Bits per sample of an ALSA PCM format (`S24_3LE` → 24); null otherwise. */
+export function pcmBits(format: string): number | null {
+  const bits = /^[SU](\d+)_/.exec(format)?.[1];
+
+  if (bits !== undefined) return Number(bits);
+
+  return format.startsWith('FLOAT_') ? 32 : null;
+}
+
+/**
+ * What the DAC receives, for people: `PCM · 32-bit · 96 kHz`,
+ * `DSD128 · Native`, `DSD64 · DoP`.
+ */
+export function wireLabel(track: Track, output: Output): string {
+  const dsd = `DSD${String(track.dsdMultiple ?? '')}`;
+
+  switch (output.transport) {
+    case 'pcm':
+    case 'converted': {
+      const bits = pcmBits(output.format);
+      const depth = bits === null ? output.format : `${String(bits)}-bit`;
+
+      return `PCM · ${depth} · ${kilohertz(output.sampleRate)} kHz`;
+    }
+
+    case 'native':
+      return `${dsd} · Native`;
+    case 'dop':
+      return `${dsd} · DoP`;
+  }
+}
+
 /** `44.1`, `96`, `352.8`. */
 function kilohertz(rate: number): string {
   return String(rate / 1000);

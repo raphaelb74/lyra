@@ -9,8 +9,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use player_core::{DsdFallback, DsdPolicy, DsdTransport};
 use serde::{Deserialize, Serialize};
+use unda::{DsdFallback, DsdPolicy, DsdTransport};
 
 /// Gains offered for converted DSD, in dB. DSD is mastered with its peaks
 /// at most 3 dB above the SACD reference level, which converts to about
@@ -119,7 +119,7 @@ fn temporary_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use player_core::{DsdFallback, DsdTransport};
+    use unda::{DsdFallback, DsdTransport};
 
     use super::{Fallback, Settings, Transport};
 

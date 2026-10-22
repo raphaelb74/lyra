@@ -27,7 +27,7 @@ Build a local-first, lightweight, attractive graphical music player with determi
 ```text
 apps/desktop/src       Svelte UI; no audio decoding/output
 apps/desktop/src-tauri Tauri IPC adapter and lifecycle
-crates/player-core     Playback state machine, queue, transport policy
+crates/unda     Playback state machine, queue, transport policy
 crates/audio-alsa      Device enumeration, negotiation, ALSA streaming
 crates/format-dsd      DSF/DFF parsers and DoP packer
 crates/format-pcm      PCM decode interface (Symphonia integration)

@@ -1,4 +1,4 @@
-import { outputLabel } from './format';
+import { outputLabel, pcmBits } from './format';
 import type {
   Capabilities,
   ConversionInfo,
@@ -32,11 +32,50 @@ export function conversionLabel(conversion: ConversionInfo): string {
   return `${peak}, ${clipped}`;
 }
 
-/** `S24_3LE: 44.1, 48, 96 kHz`. */
-export function supportLabel(support: Capabilities['formats'][number]): string {
-  const rates = support.rates.map((rate) => String(rate / 1000)).join(', ');
+/** Bits of one native DSD frame per channel: `DSD_U32_BE` → 32. */
+function dsdWidth(format: string): number | null {
+  const bits = /^DSD_U(8|16|32)(?:_|$)/.exec(format)?.[1];
 
-  return `${support.format}: ${rates} kHz`;
+  return bits === undefined ? null : Number(bits);
+}
+
+/** `PCM 24-bit`, `PCM 32-bit float`; null for a format Lyra does not know. */
+function pcmName(format: string): string | null {
+  if (format.startsWith('FLOAT_')) return 'PCM 32-bit float';
+
+  const bits = pcmBits(format);
+
+  if (bits === null) return null;
+
+  // S24_LE carries 24 bits in 32-bit samples; S24_3LE packs them in 3 bytes.
+  return bits === 24 && !format.startsWith('S24_3')
+    ? 'PCM 24-bit in 32-bit'
+    : `PCM ${String(bits)}-bit`;
+}
+
+/**
+ * One accepted format, for people: `PCM 24-bit: 44.1, 48, 96 kHz`,
+ * `Native DSD: DSD64, DSD128`. The ALSA name only when Lyra does not know it.
+ */
+export function supportLabel(support: Capabilities['formats'][number]): string {
+  const width = dsdWidth(support.format);
+
+  if (width !== null) {
+    const rates = support.rates.map((rate) => {
+      const multiple = (rate * width) / 44100;
+
+      return Number.isInteger(multiple)
+        ? `DSD${String(multiple)}`
+        : `${String((rate * width) / 1_000_000)} MHz`;
+    });
+
+    return `Native DSD: ${rates.join(', ')}`;
+  }
+
+  const rates = support.rates.map((rate) => String(rate / 1000)).join(', ');
+  const name = pcmName(support.format) ?? support.format;
+
+  return `${name}: ${rates} kHz`;
 }
 
 function playbackLines(
@@ -107,7 +146,9 @@ export function diagnosticsReport(
     lines.push(
       '',
       `Accepts (${String(capabilities.channelsMin)}–${String(capabilities.channelsMax)} channels):`,
-      ...capabilities.formats.map(supportLabel),
+      ...capabilities.formats.map(
+        (support) => `${supportLabel(support)} (${support.format})`,
+      ),
     );
   }
 

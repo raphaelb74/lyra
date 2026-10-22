@@ -319,7 +319,7 @@ impl Controller {
         } else {
             PlaybackState::Negotiating
         };
-        let now = now_playing(&item, &entry, &device, reuse);
+        let now = now_playing(&item, &entry, &device, reuse, dsd);
         let fresh = PlayerStatus {
             state,
             track: Some(now),
@@ -398,7 +398,8 @@ impl Controller {
                 if let Some(entry) = reached {
                     session.shown = entry;
                     let item = session.queue.items[entry.index].clone();
-                    let now = now_playing(&item, &entry, &session.device, session.output);
+                    let now =
+                        now_playing(&item, &entry, &session.device, session.output, session.dsd);
                     self.update(|status| status.track = Some(now));
                 }
                 if !paused {
@@ -747,6 +748,7 @@ fn now_playing(
     entry: &Entry,
     device: &str,
     output: Option<OutputFormat>,
+    dsd: DsdPolicy,
 ) -> NowPlaying {
     NowPlaying {
         path: item.path.clone(),
@@ -755,6 +757,7 @@ fn now_playing(
         device: device.to_owned(),
         source: entry.info,
         output,
+        dsd,
     }
 }
 

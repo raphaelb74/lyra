@@ -2,7 +2,7 @@ use alsa::pcm::{Access, Format, HwParams};
 use alsa::{Ctl, Direction, PCM};
 use format_dsd::DsdLayout;
 use format_pcm::SampleEncoding;
-use player_core::Encoding;
+use unda::Encoding;
 
 use crate::error::AlsaError;
 

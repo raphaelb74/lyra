@@ -2,8 +2,8 @@
 
 use format_dsd::DsdLayout;
 use format_pcm::SampleEncoding;
-use player_core::mock::{MockSink, SinkCall};
-use player_core::{DsdTransport, Encoding, ErrorKind, HardwareVolume, PlaybackState};
+use unda::mock::{MockSink, SinkCall};
+use unda::{DsdTransport, Encoding, ErrorKind, HardwareVolume, PlaybackState};
 
 use crate::{
     DEVICE, assert_same_bytes, dsd_fixture, dsd_reference, play_dsd, refuse, start, wait_for,

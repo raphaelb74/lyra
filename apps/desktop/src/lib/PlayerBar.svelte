@@ -3,7 +3,9 @@
 
   import { clock, playbackLabel, verdictLabel } from './format';
   import Icon from './Icon.svelte';
+  import Lamp from './Lamp.svelte';
   import type { PlayerStatus, Repeat, TrackDetails } from './ipc';
+  import Popover from './Popover.svelte';
   import Slider from './Slider.svelte';
   import { readFlag, writeFlag } from './storage';
 
@@ -14,6 +16,8 @@
     details: TrackDetails | null;
     /** Volume and output device, on the right of the transport. */
     output: Snippet;
+    /** The signal path, shown from the format line. */
+    signalPath: Snippet;
     /** Shows Now Playing. */
     onOpen: () => void;
     onToggle: () => void;
@@ -30,6 +34,7 @@
     position,
     details,
     output,
+    signalPath,
     onOpen,
     onToggle,
     onPrevious,
@@ -216,15 +221,21 @@
 
   <div class="output-controls">{@render output()}</div>
   {#if active}
-    <p class="signal" title={verdictText}>
-      <span
-        class="lamp"
-        data-status={verdict?.status ?? 'none'}
-        aria-hidden="true"
-      ></span>
-      <span class="num">{signal ?? 'Opening…'}</span>
-      <span class="visually-hidden">, {verdictText}</span>
-    </p>
+    <div class="signal">
+      <Popover
+        label={`Signal path: ${signal ?? 'Opening…'}, ${verdictText}`}
+        triggerClass="signal-trigger"
+        above
+      >
+        {#snippet trigger()}
+          {#if track}<Lamp {track} />{/if}
+          <span class="num" data-status={verdict?.status ?? 'none'}
+            >{signal ?? 'Opening…'}</span
+          >
+        {/snippet}
+        {@render signalPath()}
+      </Popover>
+    </div>
   {/if}
 
   <p class="visually-hidden" aria-live="polite">{announcement}</p>
@@ -356,29 +367,30 @@
     grid-column: 3;
     grid-row: 2;
     justify-self: end;
+  }
+  .signal :global(.signal-trigger) {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding-right: var(--space-2);
+    padding: 0 var(--space-2);
+    border: 0;
     font-size: var(--type-caption);
     line-height: var(--leading-caption);
+    font-weight: var(--weight-regular);
     color: var(--text-secondary);
   }
-  /* The one lit element: bit-perfect verified by the engine. */
-  .lamp {
-    width: 6px;
-    height: 6px;
-    border-radius: var(--radius-round);
-    border: 1px solid var(--text-muted);
+  .signal :global(.signal-trigger:hover:not(:disabled)) {
+    background: transparent;
+    color: var(--text);
   }
-  .lamp[data-status='yes'] {
-    border-color: var(--accent);
-    background: var(--accent);
-    box-shadow: 0 0 4px var(--accent);
+  .signal :global(.panel) {
+    width: min(420px, calc(100vw - 2 * var(--space-4)));
+    max-height: 480px;
+    padding: var(--space-4);
   }
-  .lamp[data-status='no'] {
-    border-color: var(--warning);
-    background: var(--warning);
+  /* Not bit-perfect: the label, not the lamp, turns amber. */
+  .num[data-status='no'] {
+    color: var(--warning);
   }
   @media (max-width: 1100px) {
     footer {

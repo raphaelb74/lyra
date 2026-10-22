@@ -199,7 +199,7 @@
       </p>
       <ul class="formats">
         {#each capabilities.formats as support (support.format)}
-          <li>{supportLabel(support)}</li>
+          <li title={support.format}>{supportLabel(support)}</li>
         {/each}
       </ul>
     {:else}

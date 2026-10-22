@@ -21,7 +21,9 @@
   import Playlists from './lib/Playlists.svelte';
   import QueuePanel from './lib/QueuePanel.svelte';
   import Diagnostics from './lib/Diagnostics.svelte';
+  import Licences from './lib/Licences.svelte';
   import Settings from './lib/Settings.svelte';
+  import SignalPath from './lib/SignalPath.svelte';
   import type { IconName } from './assets/icons/lucide';
   import ContextMenu from './lib/ContextMenu.svelte';
   import Icon from './lib/Icon.svelte';
@@ -41,7 +43,8 @@
     | 'settings'
     /* Opened from the player bar and from Settings, not the sidebar. */
     | 'now'
-    | 'diagnostics';
+    | 'diagnostics'
+    | 'licences';
 
   const views: readonly { id: View; label: string; icon: IconName }[] = [
     { id: 'albums', label: 'Albums', icon: 'disc-3' },
@@ -80,6 +83,10 @@
   let queueOpen = $state(readFlag(QUEUE_OPEN_KEY));
 
   const device = $derived(devices.find((d) => d.name === selectedDevice));
+  /** The device the track plays on, which may not be the selected one. */
+  const playingDevice = $derived(
+    devices.find((d) => d.name === status.track?.device),
+  );
   const libraryId = $derived(status.track?.libraryId ?? null);
   const shownError = $derived(actionError ?? status.error?.message ?? null);
 
@@ -137,9 +144,12 @@
     };
   }
 
-  /** Opens a view that has a way back (Now Playing, Diagnostics). */
+  /** Views with a way back instead of a sidebar entry. */
+  const DETAIL: readonly View[] = ['now', 'diagnostics', 'licences'];
+
+  /** Opens a view that has a way back (Now Playing, Diagnostics, Licences). */
   function visit(next: View) {
-    if (view !== 'now' && view !== 'diagnostics') back = view;
+    if (!DETAIL.includes(view)) back = view;
 
     view = next;
   }
@@ -203,7 +213,7 @@
     if (event.defaultPrevented) return;
 
     if (event.key === 'Escape') {
-      if (view === 'now' || view === 'diagnostics') view = back;
+      if (DETAIL.includes(view)) view = back;
       else if (queueOpen) setQueueOpen(false);
 
       return;
@@ -312,7 +322,9 @@
       <nav class="end" aria-label="Preferences">
         <button
           type="button"
-          aria-current={view === 'settings' || view === 'diagnostics'
+          aria-current={view === 'settings' ||
+          view === 'diagnostics' ||
+          view === 'licences'
             ? 'page'
             : undefined}
           title="Settings"
@@ -354,7 +366,12 @@
           onError={showError}
         />
       {:else if view === 'now'}
-        <NowPlaying {status} {details} {device} onBack={() => (view = back)} />
+        <NowPlaying
+          {status}
+          {details}
+          device={playingDevice}
+          onBack={() => (view = back)}
+        />
       {:else if view === 'settings'}
         <Settings
           {api}
@@ -366,8 +383,13 @@
           onOpenDiagnostics={() => {
             visit('diagnostics');
           }}
+          onOpenLicences={() => {
+            visit('licences');
+          }}
           onError={showError}
         />
+      {:else if view === 'licences'}
+        <Licences onBack={() => (view = 'settings')} />
       {:else}
         <Diagnostics
           {api}
@@ -446,6 +468,11 @@
         onSelect={(name: string) => (selectedDevice = name)}
         onRefresh={loadDevices}
       />
+    {/snippet}
+    {#snippet signalPath()}
+      {#if status.track}
+        <SignalPath track={status.track} device={playingDevice} />
+      {/if}
     {/snippet}
   </PlayerBar>
 </div>

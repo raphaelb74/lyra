@@ -1,4 +1,5 @@
-//! Playback engine: controller, bounded buffering, transport state.
+//! UNDA (Unified Native Digital Audio), Lyra's playback engine: controller,
+//! bounded buffering, transport state.
 //!
 //! Independent of Tauri and of ALSA: output goes through [`AudioSink`], so the
 //! engine is tested with [`mock::MockSink`] and runs on the DAC through
@@ -21,4 +22,6 @@ pub use sink::{
     SinkError, SinkErrorKind, StreamFormat, Transport,
 };
 pub use source::SourceInfo;
-pub use status::{BitPerfect, ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus};
+pub use status::{
+    BitPerfect, ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus, Processing,
+};

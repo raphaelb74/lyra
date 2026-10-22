@@ -12,9 +12,9 @@ use audio_alsa::AlsaSink;
 use commands::{AppState, LIBRARY_CHANGED_EVENT, LIBRARY_NOTICE_EVENT, is_playable};
 use ipc::{ScanReport, ScanStatus, Status, THUMB_PATH};
 use library::{Library, ScanEvent, Scanner};
-use player_core::Player;
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, DragDropEvent, Emitter, Manager, RunEvent, WindowEvent};
+use unda::Player;
 
 /// Event carrying a [`Status`] after every playback state change.
 const STATUS_EVENT: &str = "player-status";
@@ -86,7 +86,7 @@ pub fn run() -> tauri::Result<()> {
             commands::skip_to,
             commands::set_shuffle,
             commands::enqueue_tracks,
-            commands::queue_move_next,
+            commands::queue_move,
             commands::queue_remove,
             commands::clear_queue,
             commands::set_repeat,

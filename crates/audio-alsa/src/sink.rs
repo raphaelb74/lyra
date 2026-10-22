@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use alsa::pcm::{Access, HwParams, State};
 use alsa::{PCM, ValueOr};
-use player_core::{AudioSink, Encoding, OutputFormat, SinkError, SinkErrorKind, StreamFormat};
+use unda::{AudioSink, Encoding, OutputFormat, SinkError, SinkErrorKind, StreamFormat};
 
 use crate::device::{alsa_format, open};
 use crate::diagnostics::SinkStats;

@@ -23,6 +23,7 @@ import type {
   ScanReport,
   ScanStatus,
   Settings,
+  Step,
   Track,
   TrackDetails,
   Verdict,
@@ -197,8 +198,28 @@ function isOutput(value: Field): value is JsonValue & Output {
       value.transport === 'converted') &&
     isText(value.format) &&
     isNumber(value.sampleRate) &&
-    isNumber(value.channels)
+    isNumber(value.channels) &&
+    (value.hardwareVolume === 'none' ||
+      value.hardwareVolume === 'unity' ||
+      value.hardwareVolume === 'attenuated' ||
+      value.hardwareVolume === 'unknown') &&
+    isNullableNumber(value.hardwareDb)
   );
+}
+
+function isStep(value: Field): value is JsonValue & Step {
+  if (!isRecord(value)) return false;
+
+  switch (value.kind) {
+    case 'padded':
+      return isNumber(value.fromBits) && isNumber(value.toBits);
+    case 'dopPacked':
+      return true;
+    case 'converted':
+      return isNumber(value.gainDb);
+    default:
+      return false;
+  }
 }
 
 function isTrack(value: Field): value is JsonValue & Track {
@@ -218,6 +239,8 @@ function isTrack(value: Field): value is JsonValue & Track {
     isNumber(value.channels) &&
     isNullableNumber(value.durationSeconds) &&
     (value.output === null || isOutput(value.output)) &&
+    Array.isArray(value.processing) &&
+    value.processing.every(isStep) &&
     (value.bitPerfect === null || isVerdict(value.bitPerfect))
   );
 }

@@ -244,7 +244,7 @@ fn answer(handle: &AppHandle, call: &Message) -> Vec<Message> {
         return vec![MethodErr::failed("Lyra is starting").to_message(call)];
     };
     let player = &state.player;
-    let done = |result: Result<(), player_core::PlayerError>| match result {
+    let done = |result: Result<(), unda::PlayerError>| match result {
         Ok(()) => vec![call.method_return()],
         Err(error) => vec![MethodErr::failed(&IpcError::from(error).message).to_message(call)],
     };

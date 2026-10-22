@@ -26,7 +26,7 @@
     "allow-skip-to",
     "allow-set-shuffle",
     "allow-enqueue-tracks",
-    "allow-queue-move-next",
+    "allow-queue-move",
     "allow-queue-remove",
     "allow-clear-queue",
     "allow-set-repeat",

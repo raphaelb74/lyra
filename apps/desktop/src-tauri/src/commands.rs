@@ -10,9 +10,9 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use audio_alsa::SinkStats;
 use library::{Library, LibraryError, Scanner};
-use player_core::{Player, QueueItem};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::DialogExt;
+use unda::{Player, QueueItem};
 
 use crate::ipc::{
     AlbumInfo, AppInfo, ArtistInfo, CapabilitiesInfo, DeviceInfo, DiagnosticsInfo, FolderInfo,
@@ -312,8 +312,15 @@ pub fn enqueue_tracks(
 }
 
 #[tauri::command]
-pub fn queue_move_next(index: usize, state: State<'_, AppState>) -> Result<(), IpcError> {
-    state.player.move_next(index).map_err(IpcError::from)
+pub fn queue_move(
+    index: usize,
+    after: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<(), IpcError> {
+    state
+        .player
+        .move_entry(index, after)
+        .map_err(IpcError::from)
 }
 
 #[tauri::command]

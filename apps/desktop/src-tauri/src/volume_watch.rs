@@ -9,8 +9,8 @@ use std::io;
 use std::thread;
 use std::time::Duration;
 
-use player_core::{HardwareVolume, PlaybackState};
 use tauri::{AppHandle, Emitter, Manager};
+use unda::{HardwareVolume, PlaybackState};
 
 use crate::commands::{AppState, volume_info};
 use crate::ipc::DeviceVolume;

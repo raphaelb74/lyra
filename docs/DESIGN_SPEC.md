@@ -246,7 +246,7 @@ These are vertical stages joined by a hairline. Each stage states a fact the bac
 5. **Device:** iFi USB Audio SE (USB). "Kernel confirms 96000 Hz, S32_LE" appears only when Diagnostics `hw_params` matches the output.
 6. **Verdict** line: Bit-perfect / Not bit-perfect: reason / Not verified: reason.
 
-**Engine work:** steps 2 and 3 need facts the UI must not infer. The UNDA engine (`player-core`, renamed `unda` in M5) builds a `SignalPath { stages }` from what it actually did and reports it with the status. `ipc.rs` only maps it, and the frontend only renders it. Do the rename before phase 4, so the type lands in `unda`. This is the one IPC change in this spec.
+**Engine work:** steps 2 and 3 need facts the UI must not infer. The UNDA engine (`crates/unda`) reports them with the status: `NowPlaying::processing()` lists what it does to the samples (`Padded`, `DopPacked`, `Converted { gain_db }`, from the DSD policy the track plays under), and the output carries the DAC's own volume. `ipc.rs` only maps them, and `signal.ts` only words them. The device line adds "Kernel confirms …" when the kernel's `hw_params` match the open format.
 
 ### Now Playing
 
@@ -274,7 +274,7 @@ These are vertical stages joined by a hairline. Each stage states a fact the bac
   - The 500-row cap becomes windowed rendering: a fixed 40 px row height makes a small hand-written virtual list possible, about 60 lines and no dependency.
   - This is done only if A07 shows the cap is a problem. Otherwise the "showing 500 of N, refine your search" note stays.
 - **Playlists:** the shared rows. Up, down and remove appear as row actions on hover or focus, and Alt+↑ / Alt+↓ moves the focused row.
-- **Queue pane:** 340 px on the right, sliding in over `--dur-panel` and pushing the view; open state remembered. "Now playing" with its cover, then "Up next" in play order (wrapping when repeating all), with covers. Row actions on hover or focus: Play next and Remove; the same plus Play in the right-click menu. Clear keeps only the playing track. Albums, artists and tracks get "Play next" and "Add to queue" in their right-click menus; when nothing plays, they start playback. Later: drag to reorder.
+- **Queue pane:** 340 px on the right, sliding in over `--dur-panel` and pushing the view; open state remembered. "Now playing" with its cover, then "Up next" in play order (wrapping when repeating all), with covers. Row actions on hover or focus: Play next and Remove; the same plus Play in the right-click menu. Clear keeps only the playing track. Albums, artists and tracks get "Play next" and "Add to queue" in their right-click menus; when nothing plays, they start playback. Up next rows reorder by dragging (an accent line shows where the row lands; the pane scrolls near its edges) or with Alt+↑ / Alt+↓. The playing track and the one already decoded after it stay put; a row dropped on them plays right after.
 
 ### Settings
 
@@ -288,7 +288,7 @@ Groups, in order:
   - Diagnostics for the selected device.
 - **Library:** music folders, rescan.
 - **Keyboard:** the shortcut list (read-only).
-- **About:** version, engine, licences (fonts and icons).
+- **About:** version, UNDA engine status, and Licences: every component that ships in the Linux app (Rust crates linked into it, Svelte, the Tauri API, Manrope, Lucide, the format logos) with its licence text, from `scripts/record-notices.py`.
 
 ## 8. Interaction, keyboard, accessibility
 

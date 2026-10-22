@@ -14,14 +14,14 @@ mod queue;
 
 use format_dsd::DsdLayout;
 use format_pcm::SampleEncoding;
-use player_core::mock::{MockSink, SinkCall};
-use player_core::{
-    DsdFallback, DsdPolicy, DsdTransport, Encoding, HardwareVolume, OutputFormat, PlaybackState,
-    Player, PlayerStatus, QueueItem,
-};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
+use unda::mock::{MockSink, SinkCall};
+use unda::{
+    DsdFallback, DsdPolicy, DsdTransport, Encoding, HardwareVolume, OutputFormat, PlaybackState,
+    Player, PlayerStatus, QueueItem,
+};
 
 pub(crate) const DEVICE: &str = "hw:CARD=TEST,DEV=0";
 

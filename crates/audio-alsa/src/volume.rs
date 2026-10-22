@@ -14,7 +14,7 @@
 
 use alsa::mixer::{MilliBel, Selem, SelemChannelId, SelemId};
 use alsa::{Ctl, Mixer, Round};
-use player_core::HardwareVolume;
+use unda::HardwareVolume;
 
 use crate::error::AlsaError;
 use crate::sink::card_control;

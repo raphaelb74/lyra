@@ -6,7 +6,7 @@ use format_pcm::DecodeError;
 
 use crate::dop;
 use crate::order::{Repeat, following};
-use crate::sink::{Encoding, HardwareVolume, OutputFormat, SinkError, SinkErrorKind};
+use crate::sink::{DsdPolicy, Encoding, HardwareVolume, OutputFormat, SinkError, SinkErrorKind};
 use crate::source::SourceInfo;
 
 /// Playback states. Every change is published as a [`PlayerStatus`].
@@ -98,7 +98,9 @@ impl From<DsdError> for PlayerError {
     }
 }
 
-/// The track being played and how it reaches the DAC.
+/// The track being played and how it reaches the DAC: its signal path is
+/// `source`, then [`Self::processing`], then `output` (with the device's own
+/// volume), then the [`Self::bit_perfect`] verdict.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NowPlaying {
     pub path: PathBuf,
@@ -110,6 +112,22 @@ pub struct NowPlaying {
     pub source: SourceInfo,
     /// Set once the device accepted the stream.
     pub output: Option<OutputFormat>,
+    /// The DSD settings this track plays under (conversion gain).
+    pub dsd: DsdPolicy,
+}
+
+/// What UNDA does to the samples between the file and the device.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Processing {
+    /// PCM samples sent in a wider sample format, the extra low bits zero:
+    /// lossless.
+    Padded { from_bits: u32, to_bits: u32 },
+    /// DSD packed into PCM frames with DoP markers: lossless for a DAC that
+    /// decodes DoP.
+    DopPacked,
+    /// DSD converted to PCM (low-pass filter and decimation), with this gain
+    /// in dB: not bit-perfect.
+    Converted { gain_db: i8 },
 }
 
 /// Whether the DAC receives the source samples unchanged.
@@ -127,6 +145,30 @@ pub enum BitPerfect {
 }
 
 impl NowPlaying {
+    /// What happens to the samples on their way to the device; empty when
+    /// they go as read, or while the device opens.
+    pub fn processing(&self) -> Vec<Processing> {
+        let Some(output) = self.output else {
+            return Vec::new();
+        };
+        let step = match (self.source, output.encoding) {
+            (SourceInfo::Pcm(info), Encoding::Pcm(layout))
+                if layout.bits() > info.bits_per_sample =>
+            {
+                Some(Processing::Padded {
+                    from_bits: info.bits_per_sample,
+                    to_bits: layout.bits(),
+                })
+            }
+            (_, Encoding::Dop(_)) => Some(Processing::DopPacked),
+            (_, Encoding::Converted(_)) => Some(Processing::Converted {
+                gain_db: self.dsd.conversion_gain_db(),
+            }),
+            _ => None,
+        };
+        step.into_iter().collect()
+    }
+
     /// Verdict for the current output. The format path is exact by
     /// construction (same rate and channels, lossless layout, or the device
     /// is refused), so the remaining question is the device's own volume.
@@ -228,8 +270,8 @@ mod tests {
 
     use format_pcm::{Codec, SampleEncoding, StreamInfo};
 
-    use super::{BitPerfect, NowPlaying, PlaybackState, PlayerStatus, Repeat};
-    use crate::sink::{Encoding, HardwareVolume, OutputFormat};
+    use super::{BitPerfect, NowPlaying, PlaybackState, PlayerStatus, Processing, Repeat};
+    use crate::sink::{DsdFallback, DsdPolicy, Encoding, HardwareVolume, OutputFormat};
     use crate::source::SourceInfo;
 
     fn playing(volume: HardwareVolume) -> NowPlaying {
@@ -253,7 +295,47 @@ mod tests {
             device: String::new(),
             source: SourceInfo::Pcm(source),
             output: Some(output),
+            dsd: DsdPolicy::default(),
         }
+    }
+
+    #[test]
+    fn processing_names_what_changes_on_the_way() {
+        let with = |bits, encoding| {
+            let mut track = playing(HardwareVolume::Unity);
+            if let SourceInfo::Pcm(info) = &mut track.source {
+                info.bits_per_sample = bits;
+            }
+            if let Some(output) = &mut track.output {
+                output.encoding = encoding;
+            }
+            track.processing()
+        };
+        assert_eq!(with(24, Encoding::Pcm(SampleEncoding::S24In3Le)), []);
+        assert_eq!(
+            with(16, Encoding::Pcm(SampleEncoding::S32Le)),
+            [Processing::Padded {
+                from_bits: 16,
+                to_bits: 32
+            }]
+        );
+        assert_eq!(
+            with(1, Encoding::Dop(SampleEncoding::S24In3Le)),
+            [Processing::DopPacked]
+        );
+
+        let mut converted = playing(HardwareVolume::None);
+        converted.dsd.fallback = DsdFallback::Convert { gain_db: 6 };
+        if let Some(output) = &mut converted.output {
+            output.encoding = Encoding::Converted(SampleEncoding::S32Le);
+        }
+        assert_eq!(
+            converted.processing(),
+            [Processing::Converted { gain_db: 6 }]
+        );
+
+        converted.output = None;
+        assert_eq!(converted.processing(), [], "nothing until the device opens");
     }
 
     #[test]
