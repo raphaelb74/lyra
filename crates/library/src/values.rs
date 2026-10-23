@@ -114,6 +114,35 @@ impl Field {
         }
     }
 
+    /// The field's name for people, as messages use it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Field::Title => "Title",
+            Field::Artist => "Artist",
+            Field::Album => "Album",
+            Field::AlbumArtist => "Album artist",
+            Field::Track => "Track number",
+            Field::TrackTotal => "Track total",
+            Field::Disc => "Disc number",
+            Field::DiscTotal => "Disc total",
+            Field::Date => "Date",
+            Field::OriginalDate => "Original date",
+            Field::Genre => "Genre",
+            Field::Composer => "Composer",
+            Field::Compilation => "Compilation",
+            Field::TitleSort => "Title sort",
+            Field::ArtistSort => "Artist sort",
+            Field::AlbumSort => "Album sort",
+            Field::AlbumArtistSort => "Album artist sort",
+            Field::ReleaseId => "MusicBrainz release ID",
+            Field::ReleaseGroupId => "MusicBrainz release group ID",
+            Field::RecordingId => "MusicBrainz recording ID",
+            Field::ReleaseTrackId => "MusicBrainz track ID",
+            Field::ArtistId => "MusicBrainz artist ID",
+            Field::AlbumArtistId => "MusicBrainz album artist ID",
+        }
+    }
+
     pub fn from_name(name: &str) -> Option<Field> {
         Field::ALL.into_iter().find(|field| field.name() == name)
     }

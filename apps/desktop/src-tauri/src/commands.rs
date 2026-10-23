@@ -9,16 +9,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use audio_alsa::SinkStats;
-use library::{Library, LibraryError, Scanner};
+use library::{EditChange, Library, LibraryError, Origin, Revisions, Scanner, Target};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::DialogExt;
 use unda::{Player, QueueItem};
 
 use crate::ipc::{
-    AlbumInfo, AppInfo, ArtistInfo, CapabilitiesInfo, DeviceInfo, DiagnosticsInfo, FolderInfo,
-    IpcError, LibraryTrack, PlaylistEntry, PlaylistInfo, QueueEntry, RepeatMode, ScanStatus,
-    Status, TrackDetails, VolumeInfo, art_url, file_name, frames_to_seconds, ms_to_seconds,
-    thumb_url,
+    AcceptIn, AlbumEditor, AlbumInfo, AppInfo, ArtistInfo, CapabilitiesInfo, ChangeIn, DeviceInfo,
+    DiagnosticsInfo, EditorTrack, FieldInfo, FolderInfo, IpcError, LibraryTrack, PlaylistEntry,
+    PlaylistInfo, ProposalInfo, QueueEntry, RepeatMode, RevisionInfo, ScanStatus, Status,
+    TrackDetails, VolumeInfo, art_url, file_name, frames_to_seconds, ms_to_seconds, thumb_url,
 };
 use crate::settings::Settings;
 
@@ -706,4 +706,184 @@ fn volume_error(error: &audio_alsa::AlsaError) -> IpcError {
         code: "volume_failed",
         message: format!("Cannot use the device volume: {error}"),
     }
+}
+
+/// The album editor's fields: the album's, each track's, and the revisions
+/// a save is checked against.
+#[tauri::command(async)]
+pub fn album_editor(album_id: i64, state: State<'_, AppState>) -> Result<AlbumEditor, IpcError> {
+    query(&state, |library| {
+        let album = library.album(album_id)?.ok_or_else(|| {
+            LibraryError::Invalid("That album is no longer in the library.".into())
+        })?;
+        let fields = |target| -> Result<Vec<FieldInfo>, LibraryError> {
+            Ok(library
+                .fields(target)?
+                .into_iter()
+                .map(FieldInfo::from)
+                .collect())
+        };
+        let mut targets = vec![Target::Release(album_id)];
+        let mut tracks = Vec::new();
+        for track in library.album_tracks(album_id)? {
+            targets.push(Target::Track(track.id));
+            tracks.push(EditorTrack {
+                id: track.id,
+                file_name: file_name(&track.path),
+                fields: fields(Target::Track(track.id))?,
+            });
+        }
+        let revisions = library
+            .revisions(&targets)?
+            .iter()
+            .map(|(target, revision)| RevisionInfo {
+                target: target.into(),
+                revision,
+            })
+            .collect();
+        Ok(AlbumEditor {
+            album_id,
+            art: art_url(album.art.as_deref()),
+            fields: fields(Target::Release(album_id))?,
+            tracks,
+            revisions,
+        })
+    })
+}
+
+/// Saves the editor's changes in the library, as one undoable step, unless
+/// something it showed changed since (`changed_meanwhile`).
+#[tauri::command(async)]
+pub fn save_album_edits(
+    changes: Vec<ChangeIn>,
+    revisions: Vec<RevisionInfo>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), IpcError> {
+    let changes = changes
+        .into_iter()
+        .map(ChangeIn::into_change)
+        .collect::<Result<Vec<_>, _>>()?;
+    let seen: Revisions = revisions
+        .into_iter()
+        .map(|info| (Target::from(info.target), info.revision))
+        .collect();
+    query(&state, |library| {
+        library.commit_edits(&changes, &Origin::Manual, &seen)
+    })?;
+    let _ = app.emit(LIBRARY_CHANGED_EVENT, ());
+    Ok(())
+}
+
+/// Undoes the last saved change. `false` when there is none.
+#[tauri::command(async)]
+pub fn undo_edit(app: AppHandle, state: State<'_, AppState>) -> Result<bool, IpcError> {
+    let undone = query(&state, Library::undo_edits)?;
+    if undone {
+        let _ = app.emit(LIBRARY_CHANGED_EVENT, ());
+    }
+    Ok(undone)
+}
+
+/// Opens the system image picker for an album's artwork. The result arrives
+/// as `library-changed` or `library-notice`; the webview never sends a path.
+#[tauri::command]
+pub fn choose_artwork(album_id: i64, app: AppHandle) {
+    let handle = app.clone();
+    app.dialog()
+        .file()
+        .set_title("Choose album artwork")
+        .add_filter("Images", &["jpg", "jpeg", "png", "webp"])
+        .pick_file(move |picked| {
+            let Some(path) = picked.and_then(|picked| picked.into_path().ok()) else {
+                return; // Cancelled.
+            };
+            let state = tauri::Manager::state::<AppState>(&handle);
+            let result = state
+                .library()
+                .choose_artwork(&state.art_dir, album_id, &path);
+            let _ = match result {
+                Ok(()) => handle.emit(LIBRARY_CHANGED_EVENT, ()),
+                Err(error) => handle.emit(LIBRARY_NOTICE_EVENT, error.to_string()),
+            };
+        });
+}
+
+/// Shows the files' artwork for an album again.
+#[tauri::command(async)]
+pub fn reset_artwork(
+    album_id: i64,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), IpcError> {
+    query(&state, |library| {
+        library.reset_artwork(&state.art_dir, album_id)
+    })?;
+    let _ = app.emit(LIBRARY_CHANGED_EVENT, ());
+    Ok(())
+}
+
+/// Fix tags: what the cleanup rules propose, for one album or (`None`)
+/// the whole library. Changes nothing; nothing goes online.
+#[tauri::command(async)]
+pub fn propose_fixes(
+    album_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ProposalInfo>, IpcError> {
+    query(&state, |library| {
+        let albums: HashMap<i64, String> = library
+            .albums()?
+            .into_iter()
+            .map(|album| (album.id, album.title))
+            .collect();
+        let tracks: HashMap<i64, (i64, String)> = library
+            .tracks()?
+            .into_iter()
+            .map(|track| (track.id, (track.album_id, track.title)))
+            .collect();
+        let album_of = |target: Target| match target {
+            Target::Release(id) => Some(id),
+            Target::Track(id) => tracks.get(&id).map(|(album, _)| *album),
+        };
+        let mut proposals = Vec::new();
+        for proposal in library.propose_cleanup()? {
+            let album = album_of(proposal.target);
+            if album_id.is_some() && album != album_id {
+                continue;
+            }
+            let album_title = album
+                .and_then(|id| albums.get(&id))
+                .cloned()
+                .unwrap_or_default();
+            let item = match proposal.target {
+                Target::Release(_) => album_title,
+                Target::Track(id) => {
+                    let title = tracks.get(&id).map_or("", |(_, title)| title.as_str());
+                    format!("{title} — {album_title}")
+                }
+            };
+            proposals.push(ProposalInfo::new(proposal, item));
+        }
+        Ok(proposals)
+    })
+}
+
+/// Accepts proposed fixes as edits, as one undoable step; each keeps
+/// the rules that made it as its origin.
+#[tauri::command(async)]
+pub fn apply_fixes(
+    accepted: Vec<AcceptIn>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), IpcError> {
+    let changes = accepted
+        .into_iter()
+        .map(|item| {
+            let (change, rules) = item.into_change()?;
+            Ok((change, Origin::Rule(rules)))
+        })
+        .collect::<Result<Vec<(EditChange, Origin)>, IpcError>>()?;
+    query(&state, |library| library.save_edits_each(&changes))?;
+    let _ = app.emit(LIBRARY_CHANGED_EVENT, ());
+    Ok(())
 }

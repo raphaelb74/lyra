@@ -19,6 +19,9 @@ import {
   isSettings,
   isDiagnostics,
   isCapabilities,
+  isAlbumEditor,
+  isFlag,
+  isProposalList,
   type Guard,
 } from './guards';
 
@@ -290,6 +293,69 @@ export interface Capabilities {
   formats: { format: string; rates: number[] }[];
 }
 
+/** A track or album, as edits name them. */
+export interface TargetRef {
+  kind: 'track' | 'release';
+  id: number;
+}
+
+/** Mirrors Rust's `FieldInfo`: one field in the editor. */
+export interface FieldInfo {
+  /** Stable name, sent back in a change. */
+  field: string;
+  label: string;
+  /** In order; empty when nothing is shown. */
+  values: string[];
+  /** May hold several values. */
+  multiple: boolean;
+  /** An edit is in force over the files. */
+  edited: boolean;
+  /** The file changed under the edit. */
+  review: boolean;
+}
+
+export interface EditorTrack {
+  id: number;
+  fileName: string;
+  fields: FieldInfo[];
+}
+
+export interface RevisionInfo {
+  target: TargetRef;
+  revision: number;
+}
+
+/** Mirrors Rust's `AlbumEditor`. */
+export interface AlbumEditor {
+  albumId: number;
+  art: string | null;
+  fields: FieldInfo[];
+  tracks: EditorTrack[];
+  /** What a save is checked against. */
+  revisions: RevisionInfo[];
+}
+
+export type FieldEdit =
+  { kind: 'set'; values: string[] } | { kind: 'clear' } | { kind: 'reset' };
+
+export interface FieldChange {
+  target: TargetRef;
+  field: string;
+  edit: FieldEdit;
+}
+
+/** Mirrors Rust's `ProposalInfo`: a fix the cleanup rules propose. */
+export interface Proposal {
+  target: TargetRef;
+  field: string;
+  fieldLabel: string;
+  /** `Album`, or `Track — Album`. */
+  item: string;
+  before: string[];
+  after: string[];
+  rules: { name: string; label: string }[];
+}
+
 export type BackendErrorCode =
   'browser_preview' | 'command_failed' | 'invalid_response' | (string & {});
 
@@ -476,6 +542,40 @@ export function backend(
       run('get_diagnostics', isDiagnostics, { device }),
     probeDevice: (device: string) =>
       run('probe_device', isCapabilities, { device }),
+    albumEditor: (albumId: number) =>
+      run('album_editor', isAlbumEditor, { albumId }),
+    /** Saves in the library only; fails with `changed_meanwhile` when stale. */
+    saveAlbumEdits: (changes: FieldChange[], revisions: RevisionInfo[]) =>
+      run('save_album_edits', isNothing, {
+        changes: changes.map((change) => ({
+          target: { ...change.target },
+          field: change.field,
+          edit: { ...change.edit },
+        })),
+        revisions: revisions.map((revision) => ({
+          target: { ...revision.target },
+          revision: revision.revision,
+        })),
+      }),
+    /** `false` when there was nothing to undo. */
+    undoEdit: () => run('undo_edit', isFlag),
+    /** Opens the image picker; the result arrives as a library event. */
+    chooseArtwork: (albumId: number) =>
+      run('choose_artwork', isNothing, { albumId }),
+    resetArtwork: (albumId: number) =>
+      run('reset_artwork', isNothing, { albumId }),
+    /** Proposed fixes for one album, or the whole library when null. */
+    proposeFixes: (albumId: number | null) =>
+      run('propose_fixes', isProposalList, { albumId }),
+    applyFixes: (proposals: Proposal[]) =>
+      run('apply_fixes', isNothing, {
+        accepted: proposals.map((p) => ({
+          target: { ...p.target },
+          field: p.field,
+          values: p.after,
+          rules: p.rules.map((rule) => rule.name),
+        })),
+      }),
     setSettings: (settings: Settings) =>
       run('set_settings', isSettings, { settings: { ...settings } }),
   };

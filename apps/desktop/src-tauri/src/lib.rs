@@ -122,6 +122,13 @@ pub fn run() -> tauri::Result<()> {
             commands::set_volume,
             commands::get_diagnostics,
             commands::probe_device,
+            commands::album_editor,
+            commands::save_album_edits,
+            commands::undo_edit,
+            commands::choose_artwork,
+            commands::reset_artwork,
+            commands::propose_fixes,
+            commands::apply_fixes,
         ])
         .build(tauri::generate_context!())?;
     app.run(|handle, event| {

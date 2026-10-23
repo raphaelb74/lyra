@@ -66,17 +66,16 @@ Dropped as more than this needs: separate artist credit and identity tables (MT4
 
 ## MT3 — Embedded offline editor
 
-- [ ] Add album/track entry points and selection-aware General, Tracks, Artwork and Sources tabs.
-- [ ] **Tidy up library**: run the cleanup rules over the library or a selection; review proposals grouped by rule with counts and examples; accept per rule or per item; undo.
-- [ ] Add accessible multi-selection, mixed values, explicit clear/reset, field validation and unsaved-change handling.
-- [ ] Separate album artist from track artist and show selection scope. A shared artist rename is not implied.
-- [ ] Implement **Save in Lyra**, undo/reset and read-only file capability messaging. File writing/online controls remain unavailable until their phases ship.
-- [ ] Add keyboard-only flow, screen-reader status, focus return and useful empty/error states.
-- [ ] Add editor E2E coverage using synthetic library data and verify live label refresh.
+- [x] Album editor as a page (not a popup): an edit button over each cover (hover or focus), **Edit** on the album page and in the album menu. Shown first: album, album artist, date, compilation, a genre set on every track, and per track the number, title and artist (disc when there are several). **More fields** opens sort names, totals, original date and MusicBrainz IDs, and each track's other fields. Cover: choose a file, or the files' cover.
+- [x] **Fix tags** (offline cleanup rules, no network): a page for the whole library (from Settings) or one album (from the album page). One row per kind of fix with a count and an example, **Apply all** or **Review** (a table with ticks, 50 at a time); applied as one undoable step. _**ID Match** is the name kept for MT4's MusicBrainz identification._
+- [x] Clear (empty a field), reset to the files' value per edited field, several values separated by `;`, validation messages from Rust, Back asks before discarding changes, a save refused when the album changed meanwhile keeps what was typed.
+- [x] Saved in Lyra only, with Undo after a save. Labels refresh in the queue and Now Playing.
+- [ ] Multi-selection across albums and mixed values. _Later, if editing one album at a time proves too slow._
+- [ ] Editor E2E coverage on synthetic library data; a filesystem comparison that music files are untouched.
 
 **Done when:** a listener can correct an album and its track metadata/artwork offline, undo changes and restart/rescan without losing them; a filesystem comparison confirms source music files are untouched. Deliver this as the first user-facing release. Complete MT01–MT04, MT06 (read-only mode), MT09 (local undo), MT14 and MT15 user workflows.
 
-## MT4 — Reviewed online identification and artwork
+## MT4 — ID Match: reviewed online identification and artwork
 
 - [ ] Add the default-off online setting and first-use disclosure; no background startup/scan requests when disabled.
 - [ ] Implement a provider interface for search, release lookup, track alignment and cover candidates, separate from local editing/writing.

@@ -111,6 +111,30 @@ pub struct Preview {
     pub revisions: Revisions,
 }
 
+impl Revisions {
+    pub fn iter(&self) -> impl Iterator<Item = (Target, i64)> + '_ {
+        self.0.iter().map(|(&target, &revision)| (target, revision))
+    }
+}
+
+impl FromIterator<(Target, i64)> for Revisions {
+    fn from_iter<I: IntoIterator<Item = (Target, i64)>>(iter: I) -> Self {
+        Revisions(iter.into_iter().collect())
+    }
+}
+
+/// A field as the library shows it, for an editor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FieldState {
+    pub field: Field,
+    /// In order; none when nothing is shown.
+    pub values: Vec<String>,
+    /// An edit is in force: what the files say is not what is shown.
+    pub edited: bool,
+    /// The file changed under the edit.
+    pub review: bool,
+}
+
 /// An edit in force.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SavedEdit {
@@ -347,6 +371,25 @@ impl Library {
         Ok(())
     }
 
+    /// Saves changes of several origins (fixes of different rules, say) as
+    /// one undoable step, over whatever is there now.
+    pub fn save_edits_each(
+        &mut self,
+        changes: &[(EditChange, Origin)],
+    ) -> Result<(), LibraryError> {
+        let transaction = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changes: Vec<_> = changes
+            .iter()
+            .map(|(change, origin)| (change, origin))
+            .collect();
+        let plan = plan_each(&transaction, &changes)?;
+        apply(&transaction, &plan)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     /// Drops every edit of `targets`, showing the file values again, as one
     /// undoable step.
     pub fn reset_edits(&mut self, targets: &[Target]) -> Result<(), LibraryError> {
@@ -440,6 +483,40 @@ impl Library {
             .collect())
     }
 
+    /// Every field of a track or release, as shown, in [`Field::ALL`] order.
+    pub fn fields(&self, target: Target) -> Result<Vec<FieldState>, LibraryError> {
+        let scope = match target {
+            Target::Track(_) => Scope::Track,
+            Target::Release(_) => Scope::Release,
+        };
+        let edits: HashMap<Field, Row> = edits_of(&self.conn, target)?.into_iter().collect();
+        Field::ALL
+            .into_iter()
+            .filter(|field| field.scope() == scope)
+            .map(|field| {
+                let row = edits.get(&field);
+                Ok(FieldState {
+                    field,
+                    values: shown_values(&self.conn, target, field, row)?,
+                    edited: row.is_some(),
+                    review: row.is_some_and(|row| row.review),
+                })
+            })
+            .collect()
+    }
+
+    /// The revisions of `targets` now, for [`Library::commit_edits`] after
+    /// an editor showed them.
+    pub fn revisions(&self, targets: &[Target]) -> Result<Revisions, LibraryError> {
+        let mut revisions = BTreeMap::new();
+        for &target in targets {
+            if let Some(revision) = revision(&self.conn, target)? {
+                revisions.insert(target, revision);
+            }
+        }
+        Ok(Revisions(revisions))
+    }
+
     /// What a track's file says, as last read.
     pub fn file_values(&self, track: i64) -> Result<Vec<FileValue>, LibraryError> {
         shown::file_values(&self.conn, track)
@@ -473,7 +550,13 @@ struct Plan {
 /// equal to what is in force changes nothing; one over a stronger origin's
 /// edit is held.
 fn plan(conn: &Connection, changes: &[EditChange], origin: &Origin) -> Result<Plan, LibraryError> {
-    for change in changes {
+    let changes: Vec<_> = changes.iter().map(|change| (change, origin)).collect();
+    plan_each(conn, &changes)
+}
+
+/// [`plan`], each change with its own origin.
+fn plan_each(conn: &Connection, changes: &[(&EditChange, &Origin)]) -> Result<Plan, LibraryError> {
+    for (change, _) in changes {
         check(conn, change)?;
     }
     // What the changes so far leave, for a field changed twice.
@@ -482,7 +565,7 @@ fn plan(conn: &Connection, changes: &[EditChange], origin: &Origin) -> Result<Pl
         steps: Vec::new(),
         held: Vec::new(),
     };
-    for change in changes {
+    for &(change, origin) in changes {
         let key = (change.target, change.field);
         let before = match current.get(&key) {
             Some(row) => row.clone(),

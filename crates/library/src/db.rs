@@ -64,7 +64,7 @@ impl fmt::Display for LibraryError {
             Self::NotADirectory(path) => write!(f, "{} is not a folder", path.display()),
             Self::Invalid(reason) => f.write_str(reason),
             Self::InvalidEdit { field, problem, .. } => {
-                write!(f, "{} {}", field.name(), problem.message())
+                write!(f, "{} {}", field.label(), problem.message())
             }
             Self::Stale => f.write_str("The library changed in the meantime; nothing was saved."),
             Self::UndoConflict => {

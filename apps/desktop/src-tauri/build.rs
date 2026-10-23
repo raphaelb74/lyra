@@ -48,6 +48,13 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "set_volume",
             "get_diagnostics",
             "probe_device",
+            "album_editor",
+            "save_album_edits",
+            "undo_edit",
+            "choose_artwork",
+            "reset_artwork",
+            "propose_fixes",
+            "apply_fixes",
         ]));
     tauri_build::try_build(attributes)?;
     Ok(())

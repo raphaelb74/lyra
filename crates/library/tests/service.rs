@@ -308,3 +308,35 @@ fn release_edits_follow_their_tracks_into_a_merged_release() {
     assert!(library.undo_edits().unwrap());
     assert_eq!(values(&library, Target::Release(merged)), []);
 }
+
+#[test]
+fn fixes_of_several_rules_save_and_undo_as_one_step() {
+    let dir = temp_dir("fixes_of_several_rules_save_and_undo_as_one_step");
+    let root = dir.join("music");
+    let (mut library, [first, second], _) = edited_library(&dir, &root);
+    let rule = |name: &str| Origin::Rule(name.to_owned());
+    library
+        .save_edits_each(&[
+            (
+                set(Target::Track(first), Field::Title, "One"),
+                rule("capitals"),
+            ),
+            (
+                set(Target::Track(second), Field::Title, "Two"),
+                rule("text_hygiene"),
+            ),
+        ])
+        .unwrap();
+    assert_eq!(
+        values(&library, Target::Track(second)),
+        [(
+            Field::Title,
+            Some("Two".to_owned()),
+            "rule:text_hygiene".to_owned()
+        )]
+    );
+    assert!(library.undo_edits().unwrap());
+    assert_eq!(title_of(&library, first), "Mysterons");
+    assert_eq!(title_of(&library, second), "Sour Times");
+    assert!(!library.undo_edits().unwrap(), "it was one step");
+}

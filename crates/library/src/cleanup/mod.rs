@@ -45,6 +45,39 @@ pub enum Rule {
 }
 
 impl Rule {
+    pub const ALL: [Rule; 10] = [
+        Rule::TextHygiene,
+        Rule::EncodingRepair,
+        Rule::Numbers,
+        Rule::Dates,
+        Rule::Genres,
+        Rule::Capitals,
+        Rule::FeaturedArtists,
+        Rule::DuplicateArtists,
+        Rule::AlbumArtist,
+        Rule::SortNames,
+    ];
+
+    pub fn from_name(name: &str) -> Option<Rule> {
+        Rule::ALL.into_iter().find(|rule| rule.name() == name)
+    }
+
+    /// The rule's name for people.
+    pub fn label(self) -> &'static str {
+        match self {
+            Rule::TextHygiene => "Spaces and invisible characters",
+            Rule::EncodingRepair => "Broken accents",
+            Rule::Numbers => "Track and disc numbers",
+            Rule::Dates => "Dates",
+            Rule::Genres => "Genres",
+            Rule::Capitals => "Capitals",
+            Rule::FeaturedArtists => "Featured artists",
+            Rule::DuplicateArtists => "Artist spellings",
+            Rule::AlbumArtist => "Album artist",
+            Rule::SortNames => "Sort names",
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Rule::TextHygiene => "text_hygiene",
