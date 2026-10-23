@@ -32,6 +32,10 @@ pub struct Scanned {
     pub disc: Option<u32>,
     pub year: Option<i32>,
     pub genre: Option<String>,
+    /// MusicBrainz release ID: one edition of an album.
+    pub release_id: Option<String>,
+    /// Tagged as a compilation (various artists).
+    pub compilation: bool,
     /// `flac`, `wav`, `dsf` or `dff`.
     pub codec: &'static str,
     /// PCM sample rate, or DSD bit rate per channel.
@@ -137,6 +141,8 @@ fn apply_standard(scanned: &mut Scanned, tag: StandardTag) {
         StandardTag::Album(value) => set(&mut scanned.album, &value),
         StandardTag::AlbumArtist(value) => set(&mut scanned.album_artist, &value),
         StandardTag::Genre(value) => set(&mut scanned.genre, &value),
+        StandardTag::MusicBrainzAlbumId(value) => set(&mut scanned.release_id, &value),
+        StandardTag::CompilationFlag(flag) => scanned.compilation |= flag,
         StandardTag::TrackNumber(number) => {
             scanned.track = scanned.track.or(u32::try_from(number).ok());
         }
@@ -246,6 +252,18 @@ fn apply_id3(scanned: &mut Scanned, tag: &id3::Tag) {
     scanned.album_artist = tag.album_artist().and_then(text);
     // ID3 genres may be numeric ("(17)"); this gives the name.
     scanned.genre = tag.genre_parsed().as_deref().and_then(text);
+    scanned.release_id = tag
+        .extended_texts()
+        .find(|frame| {
+            frame
+                .description
+                .eq_ignore_ascii_case("MusicBrainz Album Id")
+        })
+        .and_then(|frame| text(&frame.value));
+    scanned.compilation = tag
+        .get("TCMP")
+        .and_then(|frame| frame.content().text())
+        .is_some_and(|value| value.trim_matches(|c: char| c.is_whitespace() || c == '\0') == "1");
     scanned.track = tag.track();
     scanned.disc = tag.disc();
     scanned.year = tag

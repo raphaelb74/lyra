@@ -106,10 +106,38 @@ const MIGRATIONS: &[Migration] = &[
     ),
     // 4: artists are one per matching key, not per ASCII-caseless name.
     Migration::Code(artist_keys),
+    // 5: an album is a release, found by `grouping` (see `scan::grouping`),
+    // not by its title and artist. Existing albums get a placeholder; the
+    // next scan reads every track again and regroups them. A release whose
+    // tracks all move to a new grouping keeps its ID and artwork.
+    Migration::Sql(
+        "
+    CREATE TABLE albums_new (
+        id INTEGER PRIMARY KEY,
+        title TEXT NOT NULL COLLATE NOCASE,
+        artist_id INTEGER NOT NULL REFERENCES artists(id),
+        year INTEGER,
+        art TEXT,
+        art_bytes INTEGER NOT NULL DEFAULT 0,
+        grouping BLOB NOT NULL UNIQUE
+    );
+    INSERT INTO albums_new (id, title, artist_id, year, art, art_bytes, grouping)
+        SELECT id, title, artist_id, year, art, art_bytes, CAST('old:' || id AS BLOB)
+        FROM albums;
+    DROP TABLE albums;
+    ALTER TABLE albums_new RENAME TO albums;
+    ALTER TABLE tracks ADD COLUMN album_artist_id INTEGER REFERENCES artists(id);
+    ALTER TABLE tracks ADD COLUMN compilation INTEGER NOT NULL DEFAULT 0;
+    UPDATE tracks SET mtime_ns = -1;
+    ",
+    ),
 ];
 
 /// Shown when a file has no artist tag.
 pub const UNKNOWN_ARTIST: &str = "Unknown Artist";
+/// Album artist of a compilation, or of an album whose tracks have no
+/// album-artist tag and different artists.
+pub const VARIOUS_ARTISTS: &str = "Various Artists";
 
 #[derive(Debug)]
 pub enum LibraryError {
@@ -685,7 +713,8 @@ pub(crate) fn prune(conn: &Connection) -> Result<Vec<String>, LibraryError> {
     )?;
     conn.execute(
         "DELETE FROM artists WHERE id NOT IN (SELECT artist_id FROM tracks)
-         AND id NOT IN (SELECT artist_id FROM albums)",
+         AND id NOT IN (SELECT artist_id FROM albums)
+         AND id NOT IN (SELECT album_artist_id FROM tracks WHERE album_artist_id IS NOT NULL)",
         [],
     )?;
     Ok(unused)
@@ -791,6 +820,17 @@ mod tests {
             .map(|entry| entry.track.id)
             .collect();
         assert_eq!(playlist, [3, 4, 5]);
+        // Migration 5: albums wait for the next scan to regroup them.
+        let waiting: (i64, i64) = library
+            .conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM albums WHERE grouping = CAST('old:' || id AS BLOB)),
+                        (SELECT COUNT(*) FROM tracks WHERE mtime_ns = -1)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(waiting, (3, 5));
         let broken: i64 = library
             .conn
             .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {

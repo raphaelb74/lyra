@@ -13,14 +13,14 @@ MT1 changes the library database so that later phases can edit, clean up, match 
 | Artist | unique `name COLLATE NOCASE`                      | `NOCASE` folds ASCII only: `BEYONCÉ` and `Beyoncé`, or the two Unicode forms of `é`, are separate artists               |
 | Values | the cleaned, capped text in `tracks` and `albums` | No record of what the file said, no place for edits, and the 1024-byte display cap is the only copy                     |
 
-## Block 1: matching keys and backup (migration 4)
+## Block 1: matching keys and backup (migration 4) — done
 
 - **Backup.** Before any migration runs, `VACUUM INTO 'library-v{N}-{date}.db'` writes a consistent copy next to the database. It is safe with WAL and needs no extra crate. The last three backups are kept.
 - **Matching keys.** `key(text)` is NFC, then full Unicode lower-casing, then collapsed whitespace, with invisible format characters removed. Examples: `Beyonce` + combining accent, `BEYONCÉ` and `beyoncé` share one key, while `AC/DC` and `Simon & Garfunkel` keep theirs as they are. Adds `unicode-normalization` (MIT/Apache-2.0, no dependencies).
 - **Artists** get a `key` column, unique, replacing `UNIQUE (name COLLATE NOCASE)`. Rows that now share a key merge: tracks and albums point at the row with the most tracks, and its spelling is shown.
 - **Rebuilding a table.** SQLite cannot drop a constraint in place, so `artists` and `albums` are rebuilt. Foreign-key checks pause for the migration (`PRAGMA foreign_keys` cannot change inside a transaction), then `PRAGMA foreign_key_check` must come back empty before the commit. That step lives in the migration runner and is tested on a copy of a version 3 database.
 
-## Block 2: release identity
+## Block 2: release identity (migration 5) — done
 
 An album row becomes a **release**: a stable `id` that edits, artwork and later matches attach to, plus a `grouping` string recording why its tracks belong together. The table keeps the name `albums`, so queries and the UI change little.
 
@@ -32,7 +32,9 @@ How a scanned track finds its release, first rule that applies:
 
 The `grouping` string is evidence, not identity. When files move but stay together, the release follows them: if every track of a release now computes the same new grouping, the release's `grouping` is updated and its `id` stays. Only a real split or merge creates or removes a release.
 
-**Migration.** Existing albums may merge editions, and the database does not record each track's album-artist tag, so they cannot be split reliably in SQL. Migration 4 marks every track for a re-read, as migration 3 did for genres, and the next scan regroups them. Track IDs, and so playlists, are kept because tracks are matched by path. Album IDs and artwork file names change once. Nothing stores album IDs yet, which is why this is the moment to do it.
+**Disc numbers.** A track without a disc tag in a disc folder takes the folder's number, so `CD1/01` plays before `CD2/01`.
+
+**Migration 5.** Existing albums may merge editions, and the database does not record each track's album-artist tag, so they cannot be split reliably in SQL. Migration 5 gives every album a placeholder grouping and marks every track for a re-read, as migration 3 did for genres; the next scan regroups them. Track IDs, and so playlists, are kept because tracks are matched by path. The same rule that lets a release follow its tracks keeps album IDs and artwork: a new release whose tracks all came from one old album, now empty, takes that album's place. Only a merged edition gets a new ID, for its second part. Tracks also gain their album-artist tag (`album_artist_id`, empty when untagged) and compilation flag, so the album artist is decided from the tracks after each scan.
 
 ## Block 3: path-independent tracks
 
