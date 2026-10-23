@@ -17,7 +17,7 @@ The [Windows plan](M6_WINDOWS_IMPLEMENTATION.md) shares decisions about path ide
 - [x] Audit current ID3/FLAC readers and candidate writers for unknown-frame/block preservation, duplicate/multi-value fields, ID3 versions, malformed inputs and supported container variants ([decision record](METADATA_DECISIONS.md)).
 - [x] Compare focused `metaflac` + existing `id3` with `lofty` where relevant. Read exact-version licences and sources; test capabilities rather than adopting a generic supported-format claim. Outcome: `lofty` for FLAC (and later formats) behind Lyra's own before/after checks, since it silently drops malformed comments; `id3` + own container patch for DSF/DFF.
 - [x] Document FLAC, DSF, WAV and DFF writer capabilities separately (capability matrix in the decision record; WAV and DFF stay library-edit-only). Refusal behaviour for links and filesystems is defined with the MT5a write protocol.
-- [ ] Confirm MusicBrainz API use and a field/content licensing map; confirm Cover Art Archive image handling. Keep Discogs, AcoustID and editorial integrations outside the initial dependency set.
+- [x] Confirm MusicBrainz API use and a field/content licensing map; confirm Cover Art Archive image handling ([decision](METADATA_DECISIONS.md) 11). Keep Discogs, AcoustID and editorial integrations outside the initial dependency set.
 - [ ] Record an initial 10k-track scan/playback baseline and choose concurrency/I/O budgets from measurement.
 
 **Done when:** missing/unreadable storage and root consolidation preserve user references in tests; a short decision record names exact candidate dependencies, supported write formats and unresolved cases; no music-file writer is exposed yet. MT14 is covered.
