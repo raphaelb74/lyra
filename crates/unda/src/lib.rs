@@ -10,6 +10,7 @@ mod dop;
 pub mod mock;
 mod order;
 mod player;
+mod readahead;
 mod sink;
 mod source;
 mod status;

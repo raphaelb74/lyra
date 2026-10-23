@@ -23,11 +23,13 @@
 
 ## Why
 
+I built Lyra for myself. I wanted a player for my local library, on Linux, that sends each file to my DAC exactly as it is, native DSD included, and stays light. None of the players I tried did all of that, so I wrote one.
+
 On a Linux desktop, music usually goes through the sound server first: mixed with everything else, often resampled, sometimes turned down in software. You paid for a DAC; it rarely gets the file you bought.
 
 Lyra takes the short road. Its engine, **UNDA**, written in Rust, opens the DAC directly through ALSA and hands it the samples untouched, at the file's own rate and depth. PCM stays PCM. DSD goes out as native DSD, or as DoP when that is what the DAC speaks. When something can't be played bit-perfectly, Lyra says so instead of quietly converting it.
 
-And it stays light. No bundled browser, no background services. **Efficiency is a product goal**: every feature has to justify its memory and CPU.
+And it stays light. No bundled browser, no background services. **Efficiency is a product goal**: every feature has to justify its memory and CPU. Idle, Lyra wakes about three times a second and uses a tenth of a percent of one core.
 
 - **Direct to hardware.** Rust straight to an ALSA `hw:` device. No Web Audio, PulseAudio or PipeWire in the playback path.
 - **No hidden processing.** No resampling, no software volume. If the DAC can't take a format, you're told why.
@@ -41,6 +43,7 @@ And it stays light. No bundled browser, no background services. **Efficiency is 
 | FLAC, WAV (16–32 bit, any rate the DAC takes) | PCM at the exact rate, lossless layout | iFi ZEN ONE: 16/44.1, 24/48, 24/96 · iFi USB Audio SE: 16/44.1, 24/96 |
 | DSF, DFF (DSD64–DSD512) | Native DSD, otherwise DoP | ZEN ONE: native DSD64–256, DoP DSD64–128 · USB Audio SE: native DSD64 |
 | DSF, DFF on a device without DSD (opt-in) | 24-bit PCM at 88.2 or 44.1 kHz, labelled *not bit-perfect* | Built-in audio (CS4208) |
+| Multichannel DSF, DFF (up to 6 channels) | As above, on a DAC with as many channels | Not yet on stereo DACs (see below) |
 
 Any ALSA device should work for PCM. DSD needs a DAC that exposes native DSD or decodes DoP. Per-DAC evidence lives in the [hardware reports](docs/hardware/).
 
@@ -49,6 +52,8 @@ Any ALSA device should work for PCM. DSD needs a DAC that exposes native DSD or 
 - **Signal path, always visible.** Source, processing, DAC volume, output and device for the playing track, with a bit-perfect verdict.
 - **A real library.** Add a folder (or drop it on the window). Albums, artists, tracks and cover art from FLAC, WAV, DSF and DFF; rescans only what changed.
 - **Gapless queue and playlists**, keyboard shortcuts, media keys.
+- **Reads ahead.** About 30 seconds of the playing file sits in memory, and the next track opens before its turn, so a slow disk or a network share doesn't interrupt the music. The seek bar shows how far is loaded.
+- **Follows your DACs.** Plug one in or pull it out and the device list follows.
 - **Tag tools that never touch your files.** Edit albums, tidy messy tags, match editions against MusicBrainz. Every change lives in Lyra and can be undone.
 - **Hardware volume only.** The DAC's own control, from Lyra, the keyboard or your desktop's volume keys. Locked at 0 dB during DoP, where any change would turn DSD into noise.
 - **DAC-friendly format changes.** A short silence while the DAC switches rate or mode, a warm-up for DACs that need one, and a clean DSD ending when you stop.
@@ -58,8 +63,9 @@ Any ALSA device should work for PCM. DSD needs a DAC that exposes native DSD or 
 ### Not there yet
 
 - Packages (`.deb`, `.rpm`, AppImage, Flatpak, AUR)
-- Read-ahead buffering for NAS and network shares
+- Multichannel DSD (5.1, 6 channels) on stereo DACs: these files are refused today
 - Volume levelling (ReplayGain), through the DAC's own volume
+- Writing tags back to files, and organising folders
 - Windows and macOS
 
 ### Not for you?

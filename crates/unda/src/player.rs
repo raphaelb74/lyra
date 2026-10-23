@@ -7,7 +7,8 @@
 //! - the **writer** owns the sink and only moves full buffers to it.
 //!
 //! The pool is the bounded buffer: the controller waits for an empty buffer
-//! before decoding more, so at most [`POOL_SIZE`] blocks are queued. Seek,
+//! (back through its inbox, so it blocks on one channel only) before
+//! decoding more, so at most [`POOL_SIZE`] blocks are queued. Seek,
 //! skip and stop bump a generation counter; the writer skips blocks from
 //! older generations, so the device never plays audio from before the change.
 //!
@@ -27,6 +28,7 @@ use std::time::Duration;
 use crate::controller::Controller;
 use crate::order::{Edit, Repeat};
 use crate::sink::{AudioSink, DsdPolicy, HardwareVolume};
+use crate::source::Source;
 use crate::status::{ErrorKind, PlaybackState, PlayerError, PlayerStatus};
 use crate::writer::{Writer, WriterEvent};
 
@@ -50,6 +52,9 @@ pub(crate) struct Shared {
     pub paused: AtomicBool,
     /// Frames handed to the device in the current track.
     pub position: AtomicU64,
+    /// Source frame of the current track up to which its file is in memory;
+    /// [`UNKNOWN`] when that cannot be told.
+    pub buffered: AtomicU64,
     pub status: Mutex<PlayerStatus>,
     /// The queue, for [`Player::queue`]; replaced as a whole.
     pub queue: Mutex<Arc<[QueueItem]>>,
@@ -113,10 +118,20 @@ impl Shared {
     }
 }
 
+/// [`Shared::buffered`] without a value.
+pub(crate) const UNKNOWN: u64 = u64::MAX;
+
 #[derive(Debug)]
 pub(crate) enum Inbox {
     Command(Command),
     Writer(WriterEvent),
+    /// An empty buffer back from the writer.
+    Free(Vec<u8>),
+    /// A track opened ahead of its turn, on a thread of its own.
+    Prepared {
+        path: PathBuf,
+        result: Result<Source, PlayerError>,
+    },
 }
 
 #[derive(Debug)]
@@ -185,6 +200,7 @@ impl Player {
             generation: AtomicU64::new(0),
             paused: AtomicBool::new(false),
             position: AtomicU64::new(0),
+            buffered: AtomicU64::new(UNKNOWN),
             status: Mutex::new(PlayerStatus::STOPPED),
             queue: Mutex::new(Arc::from([])),
             resync_ms: AtomicU64::new(0),
@@ -192,16 +208,9 @@ impl Player {
         });
         let (inbox_tx, inbox_rx) = mpsc::channel();
         let (writer_tx, writer_rx) = mpsc::channel();
-        let (free_tx, free_rx) = mpsc::channel();
-        for _ in 0..POOL_SIZE {
-            // The receiver is alive: it is held right here.
-            let _ = free_tx.send(Vec::new());
-        }
-
         let writer = Writer {
             sink,
             input: writer_rx,
-            free: free_tx.clone(),
             events: inbox_tx.clone(),
             shared: Arc::clone(&shared),
         };
@@ -211,10 +220,9 @@ impl Player {
 
         let controller = Controller::new(
             inbox_rx,
+            inbox_tx.clone(),
             writer_tx,
             writer_thread.thread().clone(),
-            free_rx,
-            free_tx,
             Arc::clone(&shared),
             Box::new(on_change),
         );
@@ -391,6 +399,12 @@ impl Player {
     /// audible by the device buffer (tens of milliseconds).
     pub fn position(&self) -> u64 {
         self.shared.position.load(Ordering::Acquire)
+    }
+
+    /// Frames of the current track whose file data is in memory, from its
+    /// start; `None` when unknown. Approximate: drawn on the seek bar.
+    pub fn buffered(&self) -> Option<u64> {
+        Some(self.shared.buffered.load(Ordering::Acquire)).filter(|&frames| frames != UNKNOWN)
     }
 
     fn send(&self, command: Command) -> Result<(), PlayerError> {

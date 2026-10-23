@@ -5,24 +5,28 @@
 //! a few hundred bytes, read twice a second.
 
 use std::io;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter};
+
+use audio_alsa::Wake;
 
 /// Event with no payload: list the devices again.
 pub const DEVICES_CHANGED_EVENT: &str = "devices-changed";
 
 const INTERVAL: Duration = Duration::from_millis(500);
 
-pub fn spawn(handle: AppHandle) -> io::Result<()> {
+/// `volume` is woken too: the card it follows may have come or gone.
+pub fn spawn(handle: AppHandle, volume: Arc<Wake>) -> io::Result<()> {
     thread::Builder::new()
         .name("lyra-devices".into())
-        .spawn(move || watch(&handle))
+        .spawn(move || watch(&handle, &volume))
         .map(drop)
 }
 
-fn watch(handle: &AppHandle) {
+fn watch(handle: &AppHandle, volume: &Wake) {
     let mut announced = audio_alsa::card_list().ok();
     let mut last = announced.clone();
     loop {
@@ -32,6 +36,7 @@ fn watch(handle: &AppHandle) {
         // appeared may not have its devices ready yet.
         if cards == last && cards != announced {
             let _ = handle.emit(DEVICES_CHANGED_EVENT, ());
+            volume.notify();
             announced.clone_from(&cards);
         }
         last = cards;

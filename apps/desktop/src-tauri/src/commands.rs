@@ -17,10 +17,11 @@ use unda::{Player, QueueItem};
 use crate::ipc::{
     AcceptIn, AlbumEditor, AlbumInfo, AppInfo, ArtistInfo, CapabilitiesInfo, ChangeIn, DeviceInfo,
     DiagnosticsInfo, EditorTrack, FieldInfo, FolderInfo, IpcError, LibraryTrack, PlaylistEntry,
-    PlaylistInfo, ProposalInfo, QueueEntry, RepeatMode, RevisionInfo, ScanStatus, Status,
+    PlaylistInfo, Position, ProposalInfo, QueueEntry, RepeatMode, RevisionInfo, ScanStatus, Status,
     TrackDetails, VolumeInfo, art_url, file_name, frames_to_seconds, ms_to_seconds, thumb_url,
 };
 use crate::settings::Settings;
+use audio_alsa::Wake;
 
 /// Event telling the UI to reload folders and albums.
 pub const LIBRARY_CHANGED_EVENT: &str = "library-changed";
@@ -43,6 +44,8 @@ pub struct AppState {
     settings_path: PathBuf,
     /// Device whose volume the UI shows, for the volume watcher.
     watched: Mutex<Option<String>>,
+    /// Tells the volume watcher `watched` changed.
+    volume_wake: Arc<Wake>,
     /// MusicBrainz and the Cover Art Archive, for ID Match. Makes no request
     /// until a command asks, and those refuse while lookups are off.
     pub musicbrainz: musicbrainz::Client,
@@ -52,6 +55,10 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "wiring at start-up: each part is made once, in setup"
+    )]
     pub fn new(
         player: Player,
         sink_stats: Arc<SinkStats>,
@@ -60,6 +67,7 @@ impl AppState {
         scan_status: Arc<Mutex<ScanStatus>>,
         art_dir: PathBuf,
         settings_path: PathBuf,
+        volume_wake: Arc<Wake>,
     ) -> Self {
         let state = Self {
             player,
@@ -71,6 +79,7 @@ impl AppState {
             settings: Mutex::new(Settings::default()),
             settings_path,
             watched: Mutex::new(None),
+            volume_wake,
             musicbrainz: musicbrainz::Client::new(
                 musicbrainz::Service::official(),
                 env!("CARGO_PKG_VERSION"),
@@ -142,17 +151,25 @@ impl AppState {
             .map_err(IpcError::from)
     }
 
-    /// Seconds of the current track handed to the device.
-    pub fn position(&self) -> f64 {
+    /// The current track's position, and how far its file is read ahead.
+    pub fn position(&self) -> Position {
         let rate = self
             .player
             .status()
             .track
             .map_or(0, |track| track.source.frame_rate());
         if rate == 0 {
-            0.0
-        } else {
-            frames_to_seconds(self.player.position(), rate)
+            return Position {
+                seconds: 0.0,
+                buffered_seconds: None,
+            };
+        }
+        Position {
+            seconds: frames_to_seconds(self.player.position(), rate),
+            buffered_seconds: self
+                .player
+                .buffered()
+                .map(|frames| frames_to_seconds(frames, rate)),
         }
     }
 
@@ -558,9 +575,9 @@ pub fn get_status(state: State<'_, AppState>) -> Status {
     Status::from(&state.player.status())
 }
 
-/// Seconds of the current track handed to the device.
+/// The current track's position, and how far its file is read ahead.
 #[tauri::command]
-pub fn get_position(state: State<'_, AppState>) -> f64 {
+pub fn get_position(state: State<'_, AppState>) -> Position {
     state.position()
 }
 
@@ -626,7 +643,10 @@ pub fn get_volume(
     state: State<'_, AppState>,
 ) -> Result<Option<VolumeInfo>, IpcError> {
     let device = hardware_device(device)?;
-    *locked(&state.watched) = Some(device.clone());
+    let previous = locked(&state.watched).replace(device.clone());
+    if previous.as_deref() != Some(device.as_str()) {
+        state.volume_wake.notify();
+    }
     let level = audio_alsa::volume(&device).map_err(|error| volume_error(&error))?;
     Ok(level.map(|level| volume_info(level, state.player.status().volume_lock(&device))))
 }

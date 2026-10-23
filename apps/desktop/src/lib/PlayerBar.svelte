@@ -12,6 +12,8 @@
   interface Props {
     status: PlayerStatus;
     position: number;
+    /** Read into memory up to here, in seconds; null when unknown. */
+    buffered: number | null;
     /** Library data of the playing track, when it comes from the library. */
     details: TrackDetails | null;
     /** Volume, first on the right: the control reached for most. */
@@ -34,6 +36,7 @@
   const {
     status,
     position,
+    buffered,
     details,
     volume,
     output,
@@ -200,6 +203,7 @@
       value={shown}
       max={duration}
       step={0.1}
+      {buffered}
       valueText={`${clock(shown)} of ${clock(duration)}`}
       disabled={!active || duration === 0}
       onInput={(seconds: number) => {

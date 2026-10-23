@@ -203,13 +203,11 @@ def check_appearance(execute, prefix):
             if current[identifier]['meta'] is not None:
                 assert contrast(current[identifier]['meta'], current[identifier]['background']) >= 4.5, current
 
+        # No window resize: WebKitWebDriver crashes on /window/rect under Xvfb.
         hover('idle')
-        for width in (900, 1440):
-            request('POST', prefix + '/window/rect', {'width': width, 'height': 800})
-            hover('idle')
-            until_state(lambda current: current['idle']['background'] == current['hover'])
-            png = request('GET', prefix + '/screenshot')
-            (ARTIFACTS / f'ui-{selected_theme}-{width}.png').write_bytes(base64.b64decode(png))
+        until_state(lambda current: current['idle']['background'] == current['hover'])
+        png = request('GET', prefix + '/screenshot')
+        (ARTIFACTS / f'ui-{selected_theme}.png').write_bytes(base64.b64decode(png))
         reports.append(snapshot())
 
     (ARTIFACTS / 'ui-states.json').write_text(json.dumps(reports, indent=2) + '\n')

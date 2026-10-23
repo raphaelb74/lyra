@@ -2,18 +2,20 @@
 //! sound menu and tools such as `playerctl` control Lyra over the session
 //! bus, and show what is playing.
 //!
-//! One thread owns the connection. It answers method calls and, when the
-//! player's status changes, tells listeners which properties changed.
+//! One thread owns the connection. It sleeps until a message arrives or the
+//! player's status changes, answers method calls, and tells listeners which
+//! properties changed.
 //! Without a session bus Lyra simply has no media-key support.
 
 use std::io;
-use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
 use dbus::arg::{PropMap, RefArg, Variant};
 use dbus::blocking::Connection;
 use dbus::blocking::stdintf::org_freedesktop_dbus::RequestNameReply;
+use dbus::channel::{BusType, Channel};
 use dbus::channel::{MatchingReceiver, Sender as _};
 use dbus::message::MatchRule;
 use dbus::strings::{Interface, Member, Path};
@@ -22,6 +24,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::commands::AppState;
 use crate::ipc::{ART_URL, IpcError, Status};
+use audio_alsa::Wake;
 
 const NAME: &str = "org.mpris.MediaPlayer2.lyra";
 const OBJECT: &str = "/org/mpris/MediaPlayer2";
@@ -31,23 +34,24 @@ const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 const INTROSPECTABLE: &str = "org.freedesktop.DBus.Introspectable";
 const PEER: &str = "org.freedesktop.DBus.Peer";
 const NO_TRACK: &str = "/org/mpris/MediaPlayer2/TrackList/NoTrack";
-/// How long a pass over the bus waits; also how soon status changes go out.
-const POLL: Duration = Duration::from_millis(100);
 const MICROS: f64 = 1_000_000.0;
 
-/// Serves MPRIS until `changes` disconnects (the app exits). Each `()` on
-/// `changes` means the player's status changed.
-pub fn spawn(handle: AppHandle, changes: Receiver<()>) -> io::Result<()> {
+/// Serves MPRIS while the app runs. `changes` wakes it when the player's
+/// status changed.
+pub fn spawn(handle: AppHandle, changes: Arc<Wake>) -> io::Result<()> {
     thread::Builder::new()
         .name("lyra-mpris".into())
         .spawn(move || serve(&handle, &changes))
         .map(drop)
 }
 
-fn serve(handle: &AppHandle, changes: &Receiver<()>) {
-    let Ok(bus) = Connection::new_session() else {
+fn serve(handle: &AppHandle, changes: &Wake) {
+    let Ok(mut channel) = Channel::get_private(BusType::Session) else {
         return;
     };
+    // Exposes the connection's descriptor, to sleep on it.
+    channel.set_watch_enabled(true);
+    let bus = Connection::from(channel);
     // A second Lyra takes a per-process name, as the spec allows.
     let owned = |name: &str| {
         matches!(
@@ -71,18 +75,20 @@ fn serve(handle: &AppHandle, changes: &Receiver<()>) {
 
     let mut shown = Snapshot::read(handle, None);
     loop {
-        if bus.process(POLL).is_err() {
-            return;
-        }
-        let mut pending = false;
+        // Everything received so far, including what libdbus read while
+        // sending; then the replies go out.
         loop {
-            match changes.try_recv() {
-                Ok(()) => pending = true,
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => return,
+            match bus.process(Duration::ZERO) {
+                Ok(true) => {}
+                Ok(false) => break,
+                Err(_) => return,
             }
         }
-        if pending && let Some(now) = Snapshot::read(handle, shown.as_ref()) {
+        bus.channel().flush();
+        changes.wait(Some(bus.channel().watch().fd), None);
+        if changes.drain()
+            && let Some(now) = Snapshot::read(handle, shown.as_ref())
+        {
             let props = now.changed_since(shown.as_ref());
             if !props.is_empty() {
                 let _ = bus.send(properties_changed(props));
@@ -284,7 +290,11 @@ fn answer(handle: &AppHandle, call: &Message) -> Vec<Message> {
         (PLAYER, "Next") => done(player.next()),
         (PLAYER, "Previous") => done(player.previous()),
         (PLAYER, "Seek") => match call.read1::<i64>() {
-            Ok(offset) => seek_to(call, &state, state.position() + micros_to_seconds(offset)),
+            Ok(offset) => seek_to(
+                call,
+                &state,
+                state.position().seconds + micros_to_seconds(offset),
+            ),
             Err(error) => vec![MethodErr::from(error).to_message(call)],
         },
         (PLAYER, "SetPosition") => match call.read2::<Path, i64>() {
@@ -339,7 +349,7 @@ fn properties(state: &AppState, interface: &str) -> PropMap {
             props = snapshot.changed_since(None);
             props.insert(
                 "Position".into(),
-                value(seconds_to_micros(state.position())),
+                value(seconds_to_micros(state.position().seconds)),
             );
             props.insert("Rate".into(), value(1.0_f64));
             props.insert("MinimumRate".into(), value(1.0_f64));

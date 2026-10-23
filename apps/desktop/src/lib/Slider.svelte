@@ -6,6 +6,8 @@
     min?: number;
     max: number;
     step?: number;
+    /** Ready ahead of `value` (e.g. read into memory), drawn as a band. */
+    buffered?: number | null;
     /** Spoken value, e.g. "1:23 of 4:56". */
     valueText: string;
     disabled?: boolean;
@@ -22,6 +24,7 @@
     min = 0,
     max,
     step = 1,
+    buffered = null,
     valueText,
     disabled = false,
     title,
@@ -33,11 +36,15 @@
   let held = $state<number | null>(null);
 
   const shown = $derived(held ?? value);
-  const fill = $derived(
-    max > min
-      ? ((Math.min(max, Math.max(min, shown)) - min) / (max - min)) * 100
-      : 0,
-  );
+  /** Percent of the track up to `at`. */
+  function percent(at: number): number {
+    return max > min
+      ? ((Math.min(max, Math.max(min, at)) - min) / (max - min)) * 100
+      : 0;
+  }
+
+  const fill = $derived(percent(shown));
+  const ready = $derived(Math.max(fill, percent(buffered ?? min)));
 </script>
 
 <input
@@ -52,6 +59,7 @@
   value={shown}
   {disabled}
   style:--fill={`${String(fill)}%`}
+  style:--ready={`${String(ready)}%`}
   oninput={(event) => {
     held = event.currentTarget.valueAsNumber;
     onInput?.(held);
@@ -67,6 +75,7 @@
   .slider {
     --track: 2px;
     --thumb: 12px;
+    --ready-band: color-mix(in srgb, var(--text-muted) 45%, var(--line-strong));
 
     appearance: none;
     /* Fills its row and shrinks with it, beside labels and icons. */
@@ -98,7 +107,8 @@
     background: linear-gradient(
       to right,
       var(--accent) var(--fill),
-      var(--line-strong) var(--fill)
+      var(--ready-band) var(--fill) var(--ready),
+      var(--line-strong) var(--ready)
     );
     transition: height var(--dur-fast) var(--ease);
   }
@@ -107,7 +117,8 @@
     background: linear-gradient(
       to right,
       var(--accent-light) var(--fill),
-      var(--line-strong) var(--fill)
+      var(--ready-band) var(--fill) var(--ready),
+      var(--line-strong) var(--ready)
     );
   }
   .slider::-webkit-slider-thumb {

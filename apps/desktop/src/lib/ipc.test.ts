@@ -324,6 +324,24 @@ describe('playback commands', () => {
     ).rejects.toMatchObject({ code: 'invalid_response' });
   });
 
+  it('accepts a position with or without a buffered range', async () => {
+    const position = (value: JsonValue) =>
+      backend(() => Promise.resolve(value), true).position();
+
+    const now = { seconds: 12.5, bufferedSeconds: 40 };
+
+    await expect(position(now)).resolves.toEqual(now);
+    await expect(
+      position({ seconds: 0, bufferedSeconds: null }),
+    ).resolves.toEqual({ seconds: 0, bufferedSeconds: null });
+    await expect(position(12.5)).rejects.toMatchObject({
+      code: 'invalid_response',
+    });
+    await expect(position({ seconds: 1 })).rejects.toMatchObject({
+      code: 'invalid_response',
+    });
+  });
+
   it('accepts a card volume, or none, and nothing malformed', async () => {
     const level = {
       percent: 63,

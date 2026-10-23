@@ -25,6 +25,7 @@ import type {
   PlaybackDiagnostics,
   PlayerStatus,
   Playlist,
+  Position,
   PlaylistEntry,
   QueueEntry,
   ScanReport,
@@ -428,6 +429,14 @@ export function isIpcError(
     typeof value.code === 'string' &&
     'message' in value &&
     typeof value.message === 'string'
+  );
+}
+
+export function isPosition(value: JsonValue): value is JsonValue & Position {
+  return (
+    isRecord(value) &&
+    isNumber(value.seconds) &&
+    isNullableNumber(value.bufferedSeconds)
   );
 }
 
