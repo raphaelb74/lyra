@@ -10,7 +10,9 @@
   import { openMenu } from './menu.svelte';
   import { DRAG_THRESHOLD, dropAfter, gapAt } from './reorder';
   import { rowEvents } from './rows';
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
+
+  import { onLibraryChanged } from './events';
 
   interface Props {
     api: Backend;
@@ -74,6 +76,19 @@
 
   $effect(() => {
     void load(revision);
+  });
+
+  // An edit may rename queued tracks.
+  onMount(() => {
+    const unlisten = onLibraryChanged(() => {
+      void load(revision);
+    });
+
+    return () => {
+      void unlisten.then((stop) => {
+        stop();
+      });
+    };
   });
 
   /** Plays entry `index`; a stopped queue starts again from it. */

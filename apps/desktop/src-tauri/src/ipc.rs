@@ -8,7 +8,10 @@ use std::path::Path;
 use audio_alsa::{Capabilities, Device, KernelReport, SinkReport};
 use format_dsd::Container;
 use format_pcm::{Codec, SampleEncoding};
-use library::{Album, Artist, Entry, Folder, Playlist, ScanSummary};
+use library::{
+    Album, Artist, Edit, EditChange, Entry, Field, FieldState, Folder, Playlist, Proposal, Rule,
+    ScanSummary, Target,
+};
 use serde::{Deserialize, Serialize};
 use unda::{
     BitPerfect, ConversionStats, Encoding, ErrorKind, HardwareVolume, NowPlaying, PlaybackState,
@@ -756,5 +759,191 @@ mod tests {
         assert_eq!(half["playback"]["underruns"], 2);
         assert_eq!(half["playback"]["takenFrom"], "pipewire");
         assert!(json(peak(0.0))["playback"]["conversion"]["peakDb"].is_null());
+    }
+}
+
+/// A track or album, as edits name them: `{ "kind": "track", "id": 3 }`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "id", rename_all = "camelCase")]
+pub enum TargetRef {
+    Track(i64),
+    Release(i64),
+}
+
+impl From<Target> for TargetRef {
+    fn from(target: Target) -> Self {
+        match target {
+            Target::Track(id) => Self::Track(id),
+            Target::Release(id) => Self::Release(id),
+        }
+    }
+}
+
+impl From<TargetRef> for Target {
+    fn from(target: TargetRef) -> Self {
+        match target {
+            TargetRef::Track(id) => Self::Track(id),
+            TargetRef::Release(id) => Self::Release(id),
+        }
+    }
+}
+
+/// One field in the editor.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldInfo {
+    /// Stable name, sent back in a change.
+    pub field: &'static str,
+    pub label: &'static str,
+    pub values: Vec<String>,
+    /// May hold several values.
+    pub multiple: bool,
+    /// An edit is in force over the files.
+    pub edited: bool,
+    /// The file changed under the edit.
+    pub review: bool,
+}
+
+impl From<FieldState> for FieldInfo {
+    fn from(state: FieldState) -> Self {
+        Self {
+            field: state.field.name(),
+            label: state.field.label(),
+            values: state.values,
+            multiple: state.field.is_multiple(),
+            edited: state.edited,
+            review: state.review,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorTrack {
+    pub id: i64,
+    pub file_name: String,
+    pub fields: Vec<FieldInfo>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct RevisionInfo {
+    pub target: TargetRef,
+    pub revision: i64,
+}
+
+/// Everything the album editor shows, and the revisions it saw.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumEditor {
+    pub album_id: i64,
+    pub art: Option<String>,
+    pub fields: Vec<FieldInfo>,
+    pub tracks: Vec<EditorTrack>,
+    pub revisions: Vec<RevisionInfo>,
+}
+
+/// A change from the editor.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ChangeIn {
+    pub target: TargetRef,
+    pub field: String,
+    pub edit: EditIn,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum EditIn {
+    Set { values: Vec<String> },
+    Clear,
+    Reset,
+}
+
+impl ChangeIn {
+    pub fn into_change(self) -> Result<EditChange, IpcError> {
+        let field = Field::from_name(&self.field)
+            .ok_or_else(|| IpcError::invalid_request("Unknown field."))?;
+        let edit = match self.edit {
+            EditIn::Set { values } => Edit::Set(values.join("\0")),
+            EditIn::Clear => Edit::Clear,
+            EditIn::Reset => Edit::Reset,
+        };
+        Ok(EditChange {
+            target: self.target.into(),
+            field,
+            edit,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RuleInfo {
+    pub name: &'static str,
+    pub label: &'static str,
+}
+
+/// A fix the cleanup rules propose.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalInfo {
+    pub target: TargetRef,
+    pub field: &'static str,
+    pub field_label: &'static str,
+    /// What it changes: `Album` or `Track — Album`.
+    pub item: String,
+    pub before: Vec<String>,
+    pub after: Vec<String>,
+    pub rules: Vec<RuleInfo>,
+}
+
+impl ProposalInfo {
+    pub fn new(proposal: Proposal, item: String) -> Self {
+        Self {
+            target: proposal.target.into(),
+            field: proposal.field.name(),
+            field_label: proposal.field.label(),
+            item,
+            before: proposal.before,
+            after: proposal.after,
+            rules: proposal
+                .rules
+                .into_iter()
+                .map(|rule| RuleInfo {
+                    name: rule.name(),
+                    label: rule.label(),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// An accepted fix.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AcceptIn {
+    pub target: TargetRef,
+    pub field: String,
+    pub values: Vec<String>,
+    pub rules: Vec<String>,
+}
+
+impl AcceptIn {
+    /// The change, and its rules' names joined as an origin (`a+b`).
+    pub fn into_change(self) -> Result<(EditChange, String), IpcError> {
+        let unknown = || IpcError::invalid_request("Unknown fix rule.");
+        let mut names = Vec::with_capacity(self.rules.len());
+        for name in &self.rules {
+            names.push(Rule::from_name(name).ok_or_else(unknown)?.name());
+        }
+        if names.is_empty() {
+            return Err(unknown());
+        }
+        let change = ChangeIn {
+            target: self.target,
+            field: self.field,
+            edit: EditIn::Set {
+                values: self.values,
+            },
+        }
+        .into_change()?;
+        Ok((change, names.join("+")))
     }
 }

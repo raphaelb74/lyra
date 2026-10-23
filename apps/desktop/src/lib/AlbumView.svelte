@@ -21,10 +21,21 @@
     /** Library id of the playing track, to mark it. */
     playingId: number | null;
     onBack: () => void;
+    onEdit: () => void;
+    onFixTags: () => void;
     onError: (message: string) => void;
   }
 
-  const { album, api, device, playingId, onBack, onError }: Props = $props();
+  const {
+    album,
+    api,
+    device,
+    playingId,
+    onBack,
+    onEdit,
+    onFixTags,
+    onError,
+  }: Props = $props();
 
   /** The row a click selected; a double click plays. */
   let selected = $state<number | null>(null);
@@ -100,11 +111,38 @@
     ><Icon name="chevron-left" size={16} />All albums</button
   >
   <header>
-    {#if album.art}
-      <img class="art" src={album.art} alt="" width="200" height="200" />
-    {:else}
-      <div class="art" aria-hidden="true"><Icon name="disc-3" size={48} /></div>
-    {/if}
+    <div class="cover">
+      {#if album.art}
+        <img class="art" src={album.art} alt="" width="200" height="200" />
+      {:else}
+        <div class="art" aria-hidden="true">
+          <Icon name="disc-3" size={48} />
+        </div>
+      {/if}
+      <button
+        type="button"
+        class="change-cover"
+        aria-haspopup="menu"
+        aria-label="Change cover"
+        title="Change cover"
+        onclick={(event) => {
+          openMenu(event, [
+            {
+              label: 'Choose image…',
+              icon: 'image',
+              run: () =>
+                void attempt(() => api.chooseArtwork(album.id), onError),
+            },
+            {
+              label: 'Use the files’ cover',
+              icon: 'rotate-ccw',
+              run: () =>
+                void attempt(() => api.resetArtwork(album.id), onError),
+            },
+          ]);
+        }}><Icon name="image" size={16} /></button
+      >
+    </div>
     <div class="details">
       <h3 id="album-title">{album.title}</h3>
       <p class="artist">{album.artist}</p>
@@ -142,6 +180,12 @@
           text="Add to playlist"
           {onError}
         />
+        <button type="button" class="with-icon" onclick={onEdit}
+          ><Icon name="pencil" size={16} />Edit</button
+        >
+        <button type="button" class="with-icon" onclick={onFixTags}
+          ><Icon name="sparkles" size={16} />Fix tags</button
+        >
       </div>
     </div>
   </header>
@@ -211,6 +255,35 @@
 </section>
 
 <style>
+  .cover {
+    position: relative;
+    flex-shrink: 0;
+  }
+  /* Over the cover's corner, shown while the cover is hovered or focused. */
+  .change-cover {
+    position: absolute;
+    right: var(--space-2);
+    bottom: var(--space-2);
+    display: grid;
+    place-items: center;
+    width: var(--hit);
+    height: var(--hit);
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-round);
+    background: var(--surface-raised);
+    color: var(--text);
+    box-shadow: var(--shadow-pop);
+    opacity: 0;
+    transition: opacity var(--dur-fast) var(--ease);
+  }
+  .cover:hover .change-cover,
+  .change-cover:focus-visible {
+    opacity: 1;
+  }
+  .change-cover:hover:not(:disabled) {
+    background: var(--surface-hover);
+  }
   /* The details go under the cover when the view is narrow (queue open). */
   header {
     display: flex;

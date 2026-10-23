@@ -28,14 +28,16 @@ pub(crate) struct TrackShown {
     pub genre: Option<String>,
 }
 
+/// What an edit's value shows: several values are NUL-separated, and rows
+/// show the first.
+fn edit_text(value: &str) -> Option<String> {
+    value.split('\0').next().and_then(values::text)
+}
+
 /// A field's shown text: the edit if there is one, else the file's.
 fn pick(values: &[FileValue], edited: &Edited, field: Field) -> Option<String> {
     match edited.get(&field) {
-        // Several values are NUL-separated; rows show the first.
-        Some(edit) => edit
-            .as_deref()
-            .and_then(|value| value.split('\0').next())
-            .and_then(values::text),
+        Some(edit) => edit.as_deref().and_then(edit_text),
         None => values::file_shown(values, field),
     }
 }
@@ -55,10 +57,7 @@ pub(crate) fn track_shown(path: &Path, values: &[FileValue], edited: &Edited) ->
         track: number(Field::Track),
         // A disc folder numbers what its tags do not, unless the user cleared it.
         disc: number(Field::Disc).or(folder_disc.filter(|_| !edited.contains_key(&Field::Disc))),
-        genre: match edited.get(&Field::Genre) {
-            Some(edit) => edit.as_deref().and_then(values::text),
-            None => values::first(values, Field::Genre).and_then(values::genre),
-        },
+        genre: pick(values, edited, Field::Genre),
     }
 }
 
@@ -108,6 +107,24 @@ pub(crate) fn artist_id(conn: &Connection, name: &str) -> Result<i64, LibraryErr
         .query_row([&key], |row| row.get(0))
         .optional()?;
     id.ok_or(LibraryError::Db(rusqlite::Error::QueryReturnedNoRows))
+}
+
+/// The artist `name` names, taking that spelling when it comes from an
+/// edit: spellings that share a key are one artist, and the spelling the
+/// user chose wins over the one read first.
+pub(crate) fn shown_artist_id(
+    conn: &Connection,
+    name: &str,
+    edited: bool,
+) -> Result<i64, LibraryError> {
+    let id = artist_id(conn, name)?;
+    if edited {
+        conn.prepare_cached(
+            "UPDATE artists SET name = ?2 WHERE id = ?1 AND name != ?2 COLLATE BINARY",
+        )?
+        .execute(params![id, name])?;
+    }
+    Ok(id)
 }
 
 /// A track's file values, each field's in file order.
@@ -170,7 +187,8 @@ pub(crate) fn refresh_track(conn: &Connection, track: i64) -> Result<Option<i64>
         values::file_shown(&values, field)
     })?;
     let shown = track_shown(&path_from(&path), &values, &edited);
-    let artist = artist_id(conn, &shown.artist)?;
+    let edited_artist = matches!(edited.get(&Field::Artist), Some(Some(_)));
+    let artist = shown_artist_id(conn, &shown.artist, edited_artist)?;
     conn.prepare_cached(
         "UPDATE tracks SET title = ?2, artist_id = ?3, track = ?4, disc = ?5, genre = ?6
          WHERE id = ?1",
@@ -200,21 +218,7 @@ struct ReleaseTrack {
 /// values and the release's edits. The file value of a release field is
 /// that of its first track (disc, track, path order) that has one.
 pub(crate) fn refresh_release(conn: &Connection, album: i64) -> Result<(), LibraryError> {
-    let tracks: Vec<ReleaseTrack> = conn
-        .prepare_cached(
-            "SELECT id, path, album_artist_id, artist_id, compilation FROM tracks
-             WHERE album_id = ?1 ORDER BY disc, track, path",
-        )?
-        .query_map([album], |row| {
-            Ok(ReleaseTrack {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                album_artist: row.get(2)?,
-                artist: row.get(3)?,
-                compilation: row.get(4)?,
-            })
-        })?
-        .collect::<Result<_, _>>()?;
+    let tracks = release_tracks(conn, album)?;
     let Some(first) = tracks.first() else {
         return Ok(());
     };
@@ -222,17 +226,10 @@ pub(crate) fn refresh_release(conn: &Connection, album: i64) -> Result<(), Libra
         .iter()
         .map(|track| file_values(conn, track.id))
         .collect::<Result<Vec<_>, _>>()?;
-    let file_value = |field| {
-        values
-            .iter()
-            .find_map(|values| values::file_shown(values, field))
-    };
+    let file_value = |field| first_shown(&values, field);
     let edited = edits::review(conn, Target::Release(album), file_value)?;
     let release = |field| match edited.get(&field) {
-        Some(edit) => edit
-            .as_deref()
-            .and_then(|value| value.split('\0').next())
-            .and_then(values::text),
+        Some(edit) => edit.as_deref().and_then(edit_text),
         None => file_value(field),
     };
 
@@ -240,7 +237,9 @@ pub(crate) fn refresh_release(conn: &Connection, album: i64) -> Result<(), Libra
         release(Field::Album).unwrap_or_else(|| file_label(release_dir(&path_from(&first.path)).0));
     let year = release(Field::Date).and_then(|date| values::year(&date));
     let artist = match edited.get(&Field::AlbumArtist) {
-        Some(Some(name)) => Some(artist_id(conn, name.split('\0').next().unwrap_or(name))?),
+        Some(Some(name)) => edit_text(name)
+            .map(|name| shown_artist_id(conn, &name, true))
+            .transpose()?,
         // Cleared: decided as if no track had an album-artist tag.
         edit => {
             let compilation = match edited.get(&Field::Compilation) {
@@ -263,6 +262,46 @@ pub(crate) fn refresh_release(conn: &Connection, album: i64) -> Result<(), Libra
     conn.prepare_cached("UPDATE albums SET title = ?2, year = ?3, artist_id = ?4 WHERE id = ?1")?
         .execute(params![album, title, year, artist])?;
     Ok(())
+}
+
+/// A release's tracks, in disc, track and path order.
+fn release_tracks(conn: &Connection, album: i64) -> Result<Vec<ReleaseTrack>, LibraryError> {
+    let tracks = conn
+        .prepare_cached(
+            "SELECT id, path, album_artist_id, artist_id, compilation FROM tracks
+             WHERE album_id = ?1 ORDER BY disc, track, path",
+        )?
+        .query_map([album], |row| {
+            Ok(ReleaseTrack {
+                id: row.get(0)?,
+                path: row.get(1)?,
+                album_artist: row.get(2)?,
+                artist: row.get(3)?,
+                compilation: row.get(4)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(tracks)
+}
+
+/// A release field's file value: that of its first track that has one.
+fn first_shown(tracks: &[Vec<FileValue>], field: Field) -> Option<String> {
+    tracks
+        .iter()
+        .find_map(|values| values::file_shown(values, field))
+}
+
+/// What a release's files say for `field`, as [`refresh_release`] reads it.
+pub(crate) fn release_file_value(
+    conn: &Connection,
+    album: i64,
+    field: Field,
+) -> Result<Option<String>, LibraryError> {
+    let values = release_tracks(conn, album)?
+        .iter()
+        .map(|track| file_values(conn, track.id))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(first_shown(&values, field))
 }
 
 /// A release's album artist from its tracks' (album-artist tag, artist):

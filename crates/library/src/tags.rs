@@ -4,7 +4,6 @@
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::Arc;
 
 use format_dsd::{Container, DsdReader};
 use symphonia::core::codecs::CodecParameters;
@@ -14,7 +13,7 @@ use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
 use symphonia::core::meta::{
-    MetadataOptions, RawTag, RawValue, StandardTag, StandardVisualKey, Visual,
+    MetadataOptions, MetadataRevision, RawTag, RawValue, StandardTag, StandardVisualKey, Visual,
 };
 
 use crate::values::{self, Field, FileValue};
@@ -121,38 +120,45 @@ fn read_pcm(path: &Path) -> Result<Scanned, String> {
         }
     };
 
+    // Oldest revision first. `pop` hands over every revision but the
+    // latest, which stays behind as `current`: a file's only tags are there.
     let mut metadata = reader.metadata();
     while let Some(revision) = metadata.pop() {
-        let containers = std::iter::once(revision.media)
-            .chain(revision.per_track.into_iter().map(|track| track.metadata));
-        for container in containers {
-            // One raw tag may give two standard ones (`3/12`: number and
-            // total): its value is kept once, under the first.
-            let mut last: Option<(RawTag, Field)> = None;
-            for tag in container.tags {
-                let Some(field) = tag
-                    .std
-                    .as_ref()
-                    .and_then(std_field)
-                    .or_else(|| key_field(&tag.raw.key))
-                else {
-                    continue;
-                };
-                if last
-                    .as_ref()
-                    .is_some_and(|(raw, seen)| same_raw(raw, &tag.raw) && *seen != field)
-                {
-                    continue;
-                }
-                push_raw(&mut scanned.values, field, &tag.raw.value);
-                last = Some((tag.raw, field));
-            }
-            if scanned.picture.is_none() {
-                scanned.picture = best_visual(container.visuals);
-            }
-        }
+        read_revision(&mut scanned, &revision);
+    }
+    if let Some(latest) = metadata.current() {
+        read_revision(&mut scanned, latest);
     }
     Ok(scanned)
+}
+
+fn read_revision(scanned: &mut Scanned, revision: &MetadataRevision) {
+    let containers = std::iter::once(&revision.media)
+        .chain(revision.per_track.iter().map(|track| &track.metadata));
+    for container in containers {
+        // Symphonia gives `TRACKNUMBER=3/12` twice: as the track number and
+        // as the track total. The value belongs once to the field its key
+        // names.
+        let mut last: Option<&RawTag> = None;
+        for tag in &container.tags {
+            let by_key = key_field(&tag.raw.key);
+            let field = match (tag.std.as_ref().and_then(std_field), by_key) {
+                (Some(std), Some(key)) if std != key => {
+                    if last.is_some_and(|raw| same_raw(raw, &tag.raw)) {
+                        continue;
+                    }
+                    key
+                }
+                (Some(field), _) | (None, Some(field)) => field,
+                (None, None) => continue,
+            };
+            push_raw(&mut scanned.values, field, &tag.raw.value);
+            last = Some(&tag.raw);
+        }
+        if scanned.picture.is_none() {
+            scanned.picture = best_visual(&container.visuals);
+        }
+    }
 }
 
 fn push_raw(values: &mut Vec<FileValue>, field: Field, raw: &RawValue) {
@@ -168,12 +174,11 @@ fn push_raw(values: &mut Vec<FileValue>, field: Field, raw: &RawValue) {
     }
 }
 
-/// The same raw tag, cloned by the reader for a second standard tag: its
-/// value is shared, not merely equal.
+/// Same key and same text value.
 fn same_raw(a: &RawTag, b: &RawTag) -> bool {
     a.key == b.key
         && match (&a.value, &b.value) {
-            (RawValue::String(a), RawValue::String(b)) => Arc::ptr_eq(a, b),
+            (RawValue::String(a), RawValue::String(b)) => a == b,
             _ => false,
         }
 }
@@ -254,23 +259,17 @@ fn txxx_field(description: &str) -> Option<Field> {
 }
 
 /// The front cover if there is one, else the first picture.
-fn best_visual(visuals: Vec<Visual>) -> Option<Picture> {
-    let mut first = None;
-    for visual in visuals {
-        let Some(mime) = visual.media_type.as_deref().and_then(image_mime) else {
-            continue;
-        };
-        let front = visual.usage == Some(StandardVisualKey::FrontCover);
-        let picture = Picture {
-            mime,
-            data: visual.data.into_vec(),
-        };
-        if front {
-            return Some(picture);
-        }
-        first.get_or_insert(picture);
-    }
-    first
+fn best_visual(visuals: &[Visual]) -> Option<Picture> {
+    let usable = |visual: &&Visual| visual.media_type.as_deref().and_then(image_mime).is_some();
+    let chosen = visuals
+        .iter()
+        .filter(usable)
+        .find(|visual| visual.usage == Some(StandardVisualKey::FrontCover))
+        .or_else(|| visuals.iter().find(usable))?;
+    Some(Picture {
+        mime: chosen.media_type.as_deref().and_then(image_mime)?,
+        data: chosen.data.to_vec(),
+    })
 }
 
 fn read_dsd(path: &Path) -> Result<Scanned, String> {

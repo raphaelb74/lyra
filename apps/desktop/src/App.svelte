@@ -14,13 +14,14 @@
     type Repeat,
     type TrackDetails,
   } from './lib/ipc';
-  import { onStatus } from './lib/events';
+  import { onLibraryChanged, onStatus } from './lib/events';
   import Library from './lib/Library.svelte';
   import NowPlaying from './lib/NowPlaying.svelte';
   import PlayerBar from './lib/PlayerBar.svelte';
   import Playlists from './lib/Playlists.svelte';
   import QueuePanel from './lib/QueuePanel.svelte';
   import Diagnostics from './lib/Diagnostics.svelte';
+  import FixTags from './lib/FixTags.svelte';
   import Licences from './lib/Licences.svelte';
   import Settings from './lib/Settings.svelte';
   import SignalPath from './lib/SignalPath.svelte';
@@ -44,7 +45,8 @@
     /* Opened from the player bar and from Settings, not the sidebar. */
     | 'now'
     | 'diagnostics'
-    | 'licences';
+    | 'licences'
+    | 'fixtags';
 
   const views: readonly { id: View; label: string; icon: IconName }[] = [
     { id: 'albums', label: 'Albums', icon: 'disc-3' },
@@ -79,6 +81,8 @@
   /** Where Now Playing and Diagnostics go back to. */
   let back = $state<View>('albums');
   let details = $state<TrackDetails | null>(null);
+  /** Bumped when the library changes: an edit may rename what plays. */
+  let libraryVersion = $state(0);
   /** The queue pane on the right, remembered between launches. */
   let queueOpen = $state(readFlag(QUEUE_OPEN_KEY));
 
@@ -145,7 +149,7 @@
   }
 
   /** Views with a way back instead of a sidebar entry. */
-  const DETAIL: readonly View[] = ['now', 'diagnostics', 'licences'];
+  const DETAIL: readonly View[] = ['now', 'diagnostics', 'licences', 'fixtags'];
 
   /** Opens a view that has a way back (Now Playing, Diagnostics, Licences). */
   function visit(next: View) {
@@ -258,6 +262,9 @@
       onStatus((next) => {
         status = next;
       }),
+      onLibraryChanged(() => {
+        libraryVersion += 1;
+      }),
     ];
 
     return () => {
@@ -272,6 +279,7 @@
   // Library data for the playing track (title, album, cover).
   $effect(() => {
     const id = libraryId;
+    const version = libraryVersion;
 
     if (id === null) {
       details = null;
@@ -280,7 +288,9 @@
     }
 
     void attempt(() => api.trackDetails(id), showError).then((found) => {
-      if (libraryId === id) details = found ?? null;
+      if (libraryId === id && libraryVersion === version) {
+        details = found ?? null;
+      }
     });
   });
 
@@ -324,7 +334,8 @@
           type="button"
           aria-current={view === 'settings' ||
           view === 'diagnostics' ||
-          view === 'licences'
+          view === 'licences' ||
+          view === 'fixtags'
             ? 'page'
             : undefined}
           title="Settings"
@@ -386,6 +397,18 @@
           onOpenLicences={() => {
             visit('licences');
           }}
+          onOpenFixTags={() => {
+            visit('fixtags');
+          }}
+          onError={showError}
+        />
+      {:else if view === 'fixtags'}
+        <FixTags
+          {api}
+          albumId={null}
+          scope="Whole library"
+          backLabel="Settings"
+          onBack={() => (view = 'settings')}
           onError={showError}
         />
       {:else if view === 'licences'}

@@ -5,6 +5,11 @@
 
 import type {
   Album,
+  AlbumEditor,
+  EditorTrack,
+  FieldInfo,
+  Proposal,
+  TargetRef,
   AppInfo,
   Artist,
   Capabilities,
@@ -49,7 +54,7 @@ export function isNumber(value: Field): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function isFlag(value: Field): value is boolean {
+export function isFlag(value: Field): value is boolean {
   return typeof value === 'boolean';
 }
 
@@ -439,4 +444,84 @@ export function isStatus(value: JsonValue): value is JsonValue & PlayerStatus {
 
 export function isNothing(value: JsonValue): value is null {
   return value === null;
+}
+
+function isTextList(value: Field): value is string[] {
+  return Array.isArray(value) && value.every(isText);
+}
+
+function isTarget(value: Field): value is JsonValue & TargetRef {
+  return (
+    isRecord(value) &&
+    (value.kind === 'track' || value.kind === 'release') &&
+    isNumber(value.id)
+  );
+}
+
+function isFieldInfo(value: JsonValue): value is JsonValue & FieldInfo {
+  return (
+    isRecord(value) &&
+    isText(value.field) &&
+    isText(value.label) &&
+    isTextList(value.values) &&
+    isFlag(value.multiple) &&
+    isFlag(value.edited) &&
+    isFlag(value.review)
+  );
+}
+
+function isFieldList(value: Field): value is JsonValue & FieldInfo[] {
+  return Array.isArray(value) && value.every(isFieldInfo);
+}
+
+function isEditorTrack(value: JsonValue): value is JsonValue & EditorTrack {
+  return (
+    isRecord(value) &&
+    isNumber(value.id) &&
+    isText(value.fileName) &&
+    isFieldList(value.fields)
+  );
+}
+
+export function isAlbumEditor(
+  value: JsonValue,
+): value is JsonValue & AlbumEditor {
+  return (
+    isRecord(value) &&
+    isNumber(value.albumId) &&
+    isNullableText(value.art) &&
+    isFieldList(value.fields) &&
+    Array.isArray(value.tracks) &&
+    value.tracks.every(isEditorTrack) &&
+    Array.isArray(value.revisions) &&
+    value.revisions.every(isRevision)
+  );
+}
+
+function isRevision(value: JsonValue): boolean {
+  return isRecord(value) && isTarget(value.target) && isNumber(value.revision);
+}
+
+function isRule(value: JsonValue): boolean {
+  return isRecord(value) && isText(value.name) && isText(value.label);
+}
+
+function isProposal(value: JsonValue): value is JsonValue & Proposal {
+  return (
+    isRecord(value) &&
+    isTarget(value.target) &&
+    isText(value.field) &&
+    isText(value.fieldLabel) &&
+    isText(value.item) &&
+    isTextList(value.before) &&
+    isTextList(value.after) &&
+    Array.isArray(value.rules) &&
+    value.rules.every(isRule)
+  );
+}
+
+export function isProposalList(
+  value: JsonValue,
+): value is JsonValue & Proposal[] {
+  return Array.isArray(value) && value.every(isProposal);
 }

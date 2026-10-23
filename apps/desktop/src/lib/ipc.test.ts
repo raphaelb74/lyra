@@ -227,4 +227,85 @@ describe('playback commands', () => {
       code: 'invalid_response',
     });
   });
+
+  it('accepts the album editor and nothing malformed', async () => {
+    const field = {
+      field: 'title',
+      label: 'Title',
+      values: ['Mysterons'],
+      multiple: false,
+      edited: false,
+      review: false,
+    };
+
+    const editor = {
+      albumId: 1,
+      art: null,
+      fields: [{ ...field, field: 'album', label: 'Album' }],
+      tracks: [{ id: 2, fileName: '1.flac', fields: [field] }],
+      revisions: [{ target: { kind: 'track', id: 2 }, revision: 7 }],
+    };
+
+    const load = (value: JsonValue) =>
+      backend(() => Promise.resolve(value), true).albumEditor(1);
+
+    await expect(load(editor)).resolves.toEqual(editor);
+    await expect(
+      load({ ...editor, revisions: [{ target: { kind: 'disc', id: 2 } }] }),
+    ).rejects.toMatchObject({ code: 'invalid_response' });
+    await expect(
+      load({
+        ...editor,
+        tracks: [{ id: 2, fields: [{ ...field, values: 'x' }] }],
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_response' });
+  });
+
+  it('sends edits with the revisions the editor saw', async () => {
+    const runCommand = vi.fn(() => Promise.resolve(null));
+    const target = { kind: 'track', id: 2 } as const;
+
+    await backend(runCommand, true).saveAlbumEdits(
+      [
+        {
+          target,
+          field: 'genre',
+          edit: { kind: 'set', values: ['Rock', 'Pop'] },
+        },
+      ],
+      [{ target, revision: 7 }],
+    );
+    expect(runCommand).toHaveBeenCalledExactlyOnceWith('save_album_edits', {
+      changes: [
+        {
+          target,
+          field: 'genre',
+          edit: { kind: 'set', values: ['Rock', 'Pop'] },
+        },
+      ],
+      revisions: [{ target, revision: 7 }],
+    });
+  });
+
+  it('accepts fixes by their new values and rule names', async () => {
+    const runCommand = vi.fn(() => Promise.resolve(null));
+    const target = { kind: 'release', id: 1 } as const;
+
+    await backend(runCommand, true).applyFixes([
+      {
+        target,
+        field: 'album',
+        fieldLabel: 'Album',
+        item: 'DUMMY',
+        before: ['DUMMY'],
+        after: ['Dummy'],
+        rules: [{ name: 'capitals', label: 'Capitals' }],
+      },
+    ]);
+    expect(runCommand).toHaveBeenCalledExactlyOnceWith('apply_fixes', {
+      accepted: [
+        { target, field: 'album', values: ['Dummy'], rules: ['capitals'] },
+      ],
+    });
+  });
 });

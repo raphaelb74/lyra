@@ -6,6 +6,7 @@
     type DeviceInfo,
     type Settings,
   } from './ipc';
+  import Icon from './Icon.svelte';
   import LibraryFolders from './LibraryFolders.svelte';
   import ShortcutList from './ShortcutList.svelte';
   import Segmented from './Segmented.svelte';
@@ -22,6 +23,7 @@
     onCheck: () => void;
     onOpenDiagnostics: () => void;
     onOpenLicences: () => void;
+    onOpenFixTags: () => void;
     onError: (message: string) => void;
   }
 
@@ -34,6 +36,7 @@
     onCheck,
     onOpenDiagnostics,
     onOpenLicences,
+    onOpenFixTags,
     onError,
   }: Props = $props();
 
@@ -110,7 +113,6 @@
 
   let settings = $state<Settings | null>(null);
   let saved = $state(false);
-
   const converting = $derived(
     settings?.dsdFallback === 'convert' && settings.dsdTransport === 'auto',
   );
@@ -186,6 +188,17 @@
 
   <h3 class="group-title">Library</h3>
   <LibraryFolders {api} {onError} />
+  <div class="panel match">
+    <div class="setting">
+      <div class="setting-text">
+        <h4>Fix tags</h4>
+        <p class="muted">Review messy tags across the library. Offline.</p>
+      </div>
+      <button type="button" class="small with-icon" onclick={onOpenFixTags}
+        ><Icon name="sparkles" size={14} />Review fixes…</button
+      >
+    </div>
+  </div>
 
   <h3 class="group-title">Playback</h3>
   {#if settings}
@@ -330,6 +343,10 @@
   .settings {
     max-width: 760px;
   }
+  .match {
+    margin-top: var(--space-3);
+  }
+
   .heading {
     justify-content: flex-start;
     margin-bottom: var(--space-5);

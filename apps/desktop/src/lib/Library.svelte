@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
 
+  import AlbumEditor from './AlbumEditor.svelte';
+  import FixTags from './FixTags.svelte';
   import AlbumGrid from './AlbumGrid.svelte';
   import AlbumView from './AlbumView.svelte';
   import ArtistList from './ArtistList.svelte';
@@ -41,12 +43,41 @@
   let scan = $state<ScanStatus | null>(null);
   /** A sentence about the last drop, e.g. a file instead of a folder. */
   let notice = $state<string | null>(null);
-  /** The album opened, and the section it was opened from. */
-  let opened = $state<{ album: Album; from: Props['section'] } | null>(null);
+  /** What an open album shows: the album, its editor, or its tag fixes. */
+  type Page = 'view' | 'edit' | 'fix';
+
+  /** The album opened, the section it was opened from, and its page. */
+  let opened = $state<{
+    album: Album;
+    from: Props['section'];
+    page: Page;
+  } | null>(null);
 
   /** Shown only in its own section: another sidebar choice leaves it. */
   const openAlbum = $derived(opened?.from === section ? opened.album : null);
   const titles = { albums: 'Albums', artists: 'Artists', tracks: 'Tracks' };
+
+  /** A save the user can still undo from here. */
+  let undoable = $state(false);
+  let undoNotice = $state<string | null>(null);
+
+  /** Opens an album straight on its editor. */
+  function edit(album: Album) {
+    undoNotice = null;
+    void showAlbum(album, 'edit');
+  }
+
+  function turnTo(page: Page) {
+    if (opened) opened.page = page;
+    scroller()?.scrollTo({ top: 0 });
+  }
+
+  async function undo() {
+    undoable = false;
+    const undone = await attempt(api.undoEdit, onError);
+
+    undoNotice = undone ? 'Undone.' : null;
+  }
 
   /** Filters stay while an album is open and between sections. */
   let albumFilter = $state({ ...NO_ALBUM_FILTER });
@@ -119,7 +150,7 @@
     // An open album may be gone or changed: keep it only if still there.
     const album = albums.find((a) => a.id === opened?.album.id);
 
-    opened = album && opened ? { album, from: opened.from } : null;
+    opened = album && opened ? { ...opened, album } : null;
     loaded = true;
     version += 1;
   }
@@ -132,9 +163,9 @@
     return document.querySelector('main');
   }
 
-  async function showAlbum(album: Album) {
+  async function showAlbum(album: Album, page: Page = 'view') {
     listScroll = scroller()?.scrollTop ?? 0;
-    opened = { album, from: section };
+    opened = { album, from: section, page };
     await tick();
     scroller()?.scrollTo({ top: 0 });
   }
@@ -174,6 +205,13 @@
         icon: 'disc-3',
         run: () => void showAlbum(album),
       },
+      {
+        label: 'Edit…',
+        icon: 'pencil',
+        run: () => {
+          edit(album);
+        },
+      },
       'separator',
       addToPlaylist(api, () => albumTrackIds(album), onError),
     ]);
@@ -208,7 +246,44 @@
   });
 </script>
 
-{#if openAlbum}
+{#if undoable || undoNotice}
+  <p class="muted saved" role="status">
+    {#if undoable}
+      Saved in Lyra; your music files are unchanged.
+      <button type="button" class="tertiary small" onclick={() => void undo()}
+        >Undo</button
+      >
+    {:else}
+      {undoNotice}
+    {/if}
+  </p>
+{/if}
+
+{#if openAlbum && opened?.page === 'edit'}
+  <AlbumEditor
+    {api}
+    album={openAlbum}
+    onBack={() => {
+      turnTo('view');
+    }}
+    onSaved={() => {
+      undoable = true;
+      turnTo('view');
+    }}
+    {onError}
+  />
+{:else if openAlbum && opened?.page === 'fix'}
+  <FixTags
+    {api}
+    albumId={openAlbum.id}
+    scope={openAlbum.title}
+    backLabel="Back to album"
+    onBack={() => {
+      turnTo('view');
+    }}
+    {onError}
+  />
+{:else if openAlbum}
   <AlbumView
     album={openAlbum}
     {api}
@@ -216,6 +291,13 @@
     {playingId}
     {onError}
     onBack={closeAlbum}
+    onEdit={() => {
+      undoNotice = null;
+      turnTo('edit');
+    }}
+    onFixTags={() => {
+      turnTo('fix');
+    }}
   />
 {:else}
   <section
@@ -343,6 +425,9 @@
   }
   .tools input {
     width: 220px;
+  }
+  .saved {
+    margin: 0 0 var(--space-3);
   }
   .scanning {
     margin: 0 0 var(--space-4);

@@ -98,6 +98,25 @@ Text, `id3`: v2.4 round-trips all eleven samples. v2.3 turns a NUL inside a valu
 
 A test corpus of badly tagged fixtures covers every rule, including names a rule must leave alone. Online lookups (MT4) are a separate, later source of proposals.
 
+**As built (MT2 block 1).**
+
+- **Chaining.** Rules run in the table's order, each on what the ones before left. A field gets one proposal, which names every rule that changed it. Accepting all proposals and running the rules again proposes nothing; a test checks this.
+- **Encoding repair.** Only mojibake for now. Raw Latin-1 bytes need the raw comment reader that comes with MT5a.
+- **Featured artists.** There is no separate featuring field, so the guest joins the artist credit, as MusicBrainz writes it: `Song (feat. X)` by A becomes title `Song`, artist `A feat. X`.
+- **Album artist.** Guests do not make an album a compilation: tracks agree on their main artist, the part before `feat.`.
+- **Capitals.** Only text of two words or more. A single word in one case is usually meant (`ABBA`, `MGMT`, `deadmau5`). Artist names are changed only from ALL CAPS, because lower case is a style too (`k.d. lang`).
+- **Duplicates.** The most used spelling is proposed; the editor (MT3) lets the user pick another. An edited spelling names the artist, since spellings that share a matching key are one artist.
+
+**As built (MT2 block 2): edit service.**
+
+- **Revisions.** One counter rises on every change. A track takes its value when its edits or its file change, a release when its edits or its tracks change. Database triggers set them, so no writer can forget (migration 9).
+- **Preview, then commit.** `preview_edits` lists each field's shown values before and after, the tracks and releases it rewrites, and the revisions it saw. `commit_edits` checks the changes again and plans them in its write transaction. If one of those revisions has moved, it saves nothing (`Stale`). `save_edits` still saves without a preview.
+- **Setting a field to its file value is an edit.** It pins the value, so a later change to the file does not change what is shown. A preview lists it.
+- **Undo** refuses a step whose edits are no longer what it saved (`UndoConflict`) and changes nothing. Every save is a step, so this guards against other writers and against MT5 file writes. `reset_edits` drops all edits of some tracks or releases, as one step.
+- **Validation** has typed problems: wrong scope, unknown target, empty, control characters, over 1024 bytes, several values where one is allowed, duplicates, numbers written as a scan shows them (`3`, not `03`), dates that exist, and MusicBrainz IDs as lowercase UUIDs. Artist, album artist, composer, genre and the two artist IDs may have several values.
+- **Source preference.** A fixed order, not a setting: manual over provider over rule. A weaker origin's change to a stronger one's field is held, and the preview names the stronger origin. Cleanup does not propose over manual or provider edits. A setting can come later if real use asks for one.
+- **Release edits follow their tracks.** A release a scan empties hands its edits to the releases created for its tracks (two discs merged into one album). Older releases go first; a field already edited stays as it is. The edits' history moves too, so their steps still undo. A release that already existed keeps its own edits. When a release is split, the part that keeps the old ID keeps the edits, as before.
+
 ## Capability matrix
 
 | Format | Library edits and cleanup (MT3) | File writes                       | Gate                                                                                                  |

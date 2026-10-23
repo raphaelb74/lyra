@@ -5,7 +5,8 @@
 //! not read again. Tags are read outside transactions and written in small
 //! batches, so the UI can read (WAL) and edit folders while a scan runs.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
@@ -202,6 +203,7 @@ pub fn scan(
     art::delete_art(art_dir, &replaced);
     let unused = prune(conn)?;
     art::delete_art(art_dir, &unused);
+    art::restore_chosen(conn, art_dir)?;
     conn.execute(
         "UPDATE scan_runs SET finished_at = ?2, added = ?3, updated = ?4, removed = ?5,
          failed = ?6 WHERE id = ?1",
@@ -361,7 +363,8 @@ fn write_track(
         None => Edited::new(),
     };
     let shown = shown::track_shown(&file.path, &scanned.values, &edited);
-    let artist_id = shown::artist_id(conn, &shown.artist)?;
+    let edited_artist = matches!(edited.get(&Field::Artist), Some(Some(_)));
+    let artist_id = shown::shown_artist_id(conn, &shown.artist, edited_artist)?;
 
     // The release is found by what the file says; edits do not move tracks.
     let album_artist = scanned.shown(Field::AlbumArtist);
@@ -515,6 +518,12 @@ fn follow_moves(
     Ok(())
 }
 
+/// Every `tracks` column a read of the file sets: what a moved track takes
+/// from its new file. A test checks it against the schema.
+const FILE_COLUMNS: &str = "folder_id, size, mtime_ns, album_id, artist_id, title, disc, track,
+    duration_ms, codec, sample_rate, bits_per_sample, channels, genre, album_artist_id,
+    compilation, audio_id";
+
 /// Gives track `old` everything of track `new`, its moved file, then
 /// deletes `new`.
 fn move_track(conn: &Connection, old: i64, new: i64) -> Result<(), LibraryError> {
@@ -532,15 +541,11 @@ fn move_track(conn: &Connection, old: i64, new: i64) -> Result<(), LibraryError>
         [new],
     )?;
     conn.execute(
-        "UPDATE tracks SET path = ?3,
-             (folder_id, size, mtime_ns, album_id, artist_id, title, disc, track, duration_ms,
-              codec, sample_rate, bits_per_sample, channels, genre, album_artist_id,
-              compilation, audio_id) =
-             (SELECT folder_id, size, mtime_ns, album_id, artist_id, title, disc, track,
-                     duration_ms, codec, sample_rate, bits_per_sample, channels, genre,
-                     album_artist_id, compilation, audio_id
-              FROM tracks AS moved WHERE moved.id = ?2)
-         WHERE id = ?1",
+        &format!(
+            "UPDATE tracks SET path = ?3, ({FILE_COLUMNS}) =
+                 (SELECT {FILE_COLUMNS} FROM tracks AS moved WHERE moved.id = ?2)
+             WHERE id = ?1"
+        ),
         params![old, new, path],
     )?;
     conn.execute("DELETE FROM file_values WHERE track_id = ?1", [old])?;
@@ -665,6 +670,7 @@ fn settle(conn: &mut Connection, regroup: Regroup) -> Result<Vec<String>, Librar
         }
     }
 
+    hand_over_edits(&transaction, &regroup)?;
     for album in regroup.touched {
         shown::refresh_release(&transaction, album)?;
     }
@@ -672,7 +678,75 @@ fn settle(conn: &mut Connection, regroup: Regroup) -> Result<Vec<String>, Librar
     Ok(unused)
 }
 
+/// A release this scan emptied hands its edits to the releases created for
+/// its tracks (a merge of discs, say), rather than losing them when it is
+/// pruned; older releases first. A release that already existed keeps its
+/// own edits.
+fn hand_over_edits(conn: &Connection, regroup: &Regroup) -> Result<(), LibraryError> {
+    let mut went: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
+    for (&track, &previous) in &regroup.previous {
+        if let Some(old) = previous {
+            went.entry(old).or_default().push(track);
+        }
+    }
+    for (old, tracks) in went {
+        let emptied: bool = conn
+            .prepare_cached(
+                "SELECT EXISTS (SELECT 1 FROM albums WHERE id = ?1)
+                 AND NOT EXISTS (SELECT 1 FROM tracks WHERE album_id = ?1)",
+            )?
+            .query_row([old], |row| row.get(0))?;
+        if !emptied {
+            continue;
+        }
+        let mut counts: HashMap<i64, usize> = HashMap::new();
+        for track in tracks {
+            let now: Option<i64> = conn
+                .prepare_cached("SELECT album_id FROM tracks WHERE id = ?1")?
+                .query_row([track], |row| row.get(0))
+                .optional()?;
+            if let Some(now) = now.filter(|now| regroup.created.contains(now)) {
+                *counts.entry(now).or_default() += 1;
+            }
+        }
+        let mut to: Vec<(i64, usize)> = counts.into_iter().collect();
+        to.sort_unstable_by_key(|&(id, count)| (Reverse(count), id));
+        let to: Vec<i64> = to.into_iter().map(|(id, _)| id).collect();
+        edits::follow(conn, old, &to)?;
+    }
+    Ok(())
+}
+
 /// SQLite integers are signed 64-bit.
 fn count(value: usize) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::FILE_COLUMNS;
+    use crate::db::Library;
+
+    #[test]
+    fn a_move_copies_every_file_column() {
+        let library = Library::in_memory().unwrap();
+        let columns: BTreeSet<String> = library
+            .conn
+            .prepare("SELECT name FROM pragma_table_info('tracks')")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let mut expected: BTreeSet<String> = FILE_COLUMNS
+            .split(',')
+            .map(|column| column.trim().to_owned())
+            .collect();
+        // Identity, the path the move sets itself, and the revision its
+        // triggers set.
+        expected.extend(["id".to_owned(), "path".to_owned(), "revision".to_owned()]);
+        assert_eq!(columns, expected);
+    }
 }
