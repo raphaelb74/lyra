@@ -140,6 +140,55 @@ const MIGRATIONS: &[Migration] = &[
     UPDATE tracks SET mtime_ns = -1;
     ",
     ),
+    // 7: what files say, exactly (`file_values`), and the user's edits on
+    // top, with a history for undo. The `tracks` and `albums` columns hold
+    // what is shown (see `shown`). Every track is read again to fill it in.
+    Migration::Sql(
+        "
+    CREATE TABLE file_values (
+        track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+        field TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        value TEXT NOT NULL,
+        cut INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (track_id, field, position)
+    ) WITHOUT ROWID;
+    CREATE TABLE edits (
+        id INTEGER PRIMARY KEY,
+        track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+        album_id INTEGER REFERENCES albums(id) ON DELETE CASCADE,
+        field TEXT NOT NULL,
+        value TEXT,
+        origin TEXT NOT NULL,
+        base TEXT,
+        review INTEGER NOT NULL DEFAULT 0,
+        edited_at INTEGER NOT NULL,
+        CHECK ((track_id IS NULL) <> (album_id IS NULL))
+    );
+    CREATE UNIQUE INDEX edits_track ON edits (track_id, field) WHERE track_id IS NOT NULL;
+    CREATE UNIQUE INDEX edits_album ON edits (album_id, field) WHERE album_id IS NOT NULL;
+    CREATE TABLE edit_changes (
+        id INTEGER PRIMARY KEY,
+        made_at INTEGER NOT NULL
+    );
+    CREATE TABLE edit_history (
+        id INTEGER PRIMARY KEY,
+        change_id INTEGER NOT NULL REFERENCES edit_changes(id) ON DELETE CASCADE,
+        track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+        album_id INTEGER REFERENCES albums(id) ON DELETE CASCADE,
+        field TEXT NOT NULL,
+        had_before INTEGER NOT NULL,
+        before_value TEXT,
+        before_origin TEXT,
+        before_base TEXT,
+        before_review INTEGER,
+        had_after INTEGER NOT NULL,
+        after_value TEXT
+    );
+    CREATE INDEX edit_history_change ON edit_history (change_id);
+    UPDATE tracks SET mtime_ns = -1;
+    ",
+    ),
 ];
 
 /// Shown when a file has no artist tag.
@@ -720,13 +769,19 @@ pub(crate) fn prune(conn: &Connection) -> Result<Vec<String>, LibraryError> {
         "DELETE FROM albums WHERE id NOT IN (SELECT album_id FROM tracks)",
         [],
     )?;
+    prune_artists(conn)?;
+    Ok(unused)
+}
+
+/// Deletes artists nothing refers to.
+pub(crate) fn prune_artists(conn: &Connection) -> Result<(), LibraryError> {
     conn.execute(
         "DELETE FROM artists WHERE id NOT IN (SELECT artist_id FROM tracks)
          AND id NOT IN (SELECT artist_id FROM albums)
          AND id NOT IN (SELECT album_artist_id FROM tracks WHERE album_artist_id IS NOT NULL)",
         [],
     )?;
-    Ok(unused)
+    Ok(())
 }
 
 #[cfg(test)]

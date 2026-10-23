@@ -4,39 +4,31 @@
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
+use std::sync::Arc;
 
 use format_dsd::{Container, DsdReader};
-use id3::TagLike;
 use symphonia::core::codecs::CodecParameters;
 use symphonia::core::codecs::audio::VerificationCheck;
 use symphonia::core::common::Limit;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
-use symphonia::core::meta::{MetadataOptions, StandardTag, StandardVisualKey, Visual};
+use symphonia::core::meta::{
+    MetadataOptions, RawTag, RawValue, StandardTag, StandardVisualKey, Visual,
+};
+
+use crate::values::{self, Field, FileValue};
 
 /// Largest embedded picture kept (bigger ones are skipped).
 pub const MAX_PICTURE_BYTES: usize = 16 * 1024 * 1024;
 /// Largest ID3v2 tag read from a DSF/DFF file.
 const MAX_ID3_BYTES: u32 = 32 * 1024 * 1024;
-/// Longest text field kept, in bytes.
-const MAX_TEXT_BYTES: usize = 1024;
 
 /// One audio file, as the library stores it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Scanned {
-    pub title: Option<String>,
-    pub artist: Option<String>,
-    pub album: Option<String>,
-    pub album_artist: Option<String>,
-    pub track: Option<u32>,
-    pub disc: Option<u32>,
-    pub year: Option<i32>,
-    pub genre: Option<String>,
-    /// MusicBrainz release ID: one edition of an album.
-    pub release_id: Option<String>,
-    /// Tagged as a compilation (various artists).
-    pub compilation: bool,
+    /// What the tags say, exactly, in file order.
+    pub values: Vec<FileValue>,
     /// `flac`, `wav`, `dsf` or `dff`.
     pub codec: &'static str,
     /// PCM sample rate, or DSD bit rate per channel.
@@ -51,6 +43,13 @@ pub struct Scanned {
     /// encoder left it blank.
     pub audio_md5: Option<[u8; 16]>,
     pub picture: Option<Picture>,
+}
+
+impl Scanned {
+    /// What the library shows for `field` from this file alone.
+    pub fn shown(&self, field: Field) -> Option<String> {
+        values::file_shown(&self.values, field)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,10 +126,26 @@ fn read_pcm(path: &Path) -> Result<Scanned, String> {
         let containers = std::iter::once(revision.media)
             .chain(revision.per_track.into_iter().map(|track| track.metadata));
         for container in containers {
+            // One raw tag may give two standard ones (`3/12`: number and
+            // total): its value is kept once, under the first.
+            let mut last: Option<(RawTag, Field)> = None;
             for tag in container.tags {
-                if let Some(std) = tag.std {
-                    apply_standard(&mut scanned, std);
+                let Some(field) = tag
+                    .std
+                    .as_ref()
+                    .and_then(std_field)
+                    .or_else(|| key_field(&tag.raw.key))
+                else {
+                    continue;
+                };
+                if last
+                    .as_ref()
+                    .is_some_and(|(raw, seen)| same_raw(raw, &tag.raw) && *seen != field)
+                {
+                    continue;
                 }
+                push_raw(&mut scanned.values, field, &tag.raw.value);
+                last = Some((tag.raw, field));
             }
             if scanned.picture.is_none() {
                 scanned.picture = best_visual(container.visuals);
@@ -140,34 +155,102 @@ fn read_pcm(path: &Path) -> Result<Scanned, String> {
     Ok(scanned)
 }
 
-fn apply_standard(scanned: &mut Scanned, tag: StandardTag) {
-    let set = |field: &mut Option<String>, value: &str| {
-        if field.is_none() {
-            *field = text(value);
+fn push_raw(values: &mut Vec<FileValue>, field: Field, raw: &RawValue) {
+    match raw {
+        RawValue::String(value) => values.push(FileValue::new(field, value)),
+        RawValue::StringList(list) => {
+            values.extend(list.iter().map(|value| FileValue::new(field, value)));
         }
-    };
-    match tag {
-        StandardTag::TrackTitle(value) => set(&mut scanned.title, &value),
-        StandardTag::Artist(value) => set(&mut scanned.artist, &value),
-        StandardTag::Album(value) => set(&mut scanned.album, &value),
-        StandardTag::AlbumArtist(value) => set(&mut scanned.album_artist, &value),
-        StandardTag::Genre(value) => set(&mut scanned.genre, &value),
-        StandardTag::MusicBrainzAlbumId(value) => set(&mut scanned.release_id, &value),
-        StandardTag::CompilationFlag(flag) => scanned.compilation |= flag,
-        StandardTag::TrackNumber(number) => {
-            scanned.track = scanned.track.or(u32::try_from(number).ok());
-        }
-        StandardTag::DiscNumber(number) => {
-            scanned.disc = scanned.disc.or(u32::try_from(number).ok());
-        }
-        StandardTag::ReleaseYear(year) | StandardTag::RecordingYear(year) => {
-            scanned.year = scanned.year.or(Some(i32::from(year)));
-        }
-        StandardTag::ReleaseDate(date) | StandardTag::RecordingDate(date) => {
-            scanned.year = scanned.year.or_else(|| year_of(&date));
-        }
+        RawValue::UnsignedInt(n) => values.push(FileValue::new(field, &n.to_string())),
+        RawValue::SignedInt(n) => values.push(FileValue::new(field, &n.to_string())),
+        RawValue::Boolean(on) => values.push(FileValue::new(field, if *on { "1" } else { "0" })),
         _ => {}
     }
+}
+
+/// The same raw tag, cloned by the reader for a second standard tag: its
+/// value is shared, not merely equal.
+fn same_raw(a: &RawTag, b: &RawTag) -> bool {
+    a.key == b.key
+        && match (&a.value, &b.value) {
+            (RawValue::String(a), RawValue::String(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+}
+
+/// The field a standard tag fills.
+fn std_field(tag: &StandardTag) -> Option<Field> {
+    Some(match tag {
+        StandardTag::TrackTitle(_) => Field::Title,
+        StandardTag::Artist(_) => Field::Artist,
+        StandardTag::Album(_) => Field::Album,
+        StandardTag::AlbumArtist(_) => Field::AlbumArtist,
+        StandardTag::TrackNumber(_) => Field::Track,
+        StandardTag::TrackTotal(_) => Field::TrackTotal,
+        StandardTag::DiscNumber(_) => Field::Disc,
+        StandardTag::DiscTotal(_) => Field::DiscTotal,
+        StandardTag::ReleaseDate(_)
+        | StandardTag::ReleaseYear(_)
+        | StandardTag::RecordingDate(_)
+        | StandardTag::RecordingYear(_) => Field::Date,
+        StandardTag::OriginalReleaseDate(_)
+        | StandardTag::OriginalReleaseYear(_)
+        | StandardTag::OriginalRecordingDate(_) => Field::OriginalDate,
+        StandardTag::Genre(_) => Field::Genre,
+        StandardTag::Composer(_) => Field::Composer,
+        StandardTag::CompilationFlag(_) => Field::Compilation,
+        StandardTag::SortTrackTitle(_) => Field::TitleSort,
+        StandardTag::SortArtist(_) => Field::ArtistSort,
+        StandardTag::SortAlbum(_) => Field::AlbumSort,
+        StandardTag::SortAlbumArtist(_) => Field::AlbumArtistSort,
+        StandardTag::MusicBrainzAlbumId(_) => Field::ReleaseId,
+        StandardTag::MusicBrainzReleaseGroupId(_) => Field::ReleaseGroupId,
+        StandardTag::MusicBrainzRecordingId(_) | StandardTag::MusicBrainzTrackId(_) => {
+            Field::RecordingId
+        }
+        StandardTag::MusicBrainzReleaseTrackId(_) => Field::ReleaseTrackId,
+        StandardTag::MusicBrainzArtistId(_) => Field::ArtistId,
+        StandardTag::MusicBrainzAlbumArtistId(_) => Field::AlbumArtistId,
+        _ => return None,
+    })
+}
+
+/// The field of a tag key whose value the reader could not parse (` 3`
+/// as a track number): Vorbis comment names, RIFF INFO chunks and ID3
+/// frames, without case.
+fn key_field(key: &str) -> Option<Field> {
+    Some(match key.to_ascii_lowercase().as_str() {
+        "title" | "inam" | "tit2" => Field::Title,
+        "artist" | "iart" | "tpe1" => Field::Artist,
+        "album" | "iprd" | "talb" => Field::Album,
+        "albumartist" | "album artist" | "tpe2" => Field::AlbumArtist,
+        "tracknumber" | "itrk" | "trck" => Field::Track,
+        "tracktotal" | "totaltracks" => Field::TrackTotal,
+        "discnumber" | "tpos" => Field::Disc,
+        "disctotal" | "totaldiscs" => Field::DiscTotal,
+        "date" | "year" | "icrd" | "tdrc" | "tyer" | "tdrl" => Field::Date,
+        "originaldate" | "originalyear" | "tdor" | "tory" => Field::OriginalDate,
+        "genre" | "ignr" | "tcon" => Field::Genre,
+        "composer" | "tcom" => Field::Composer,
+        "compilation" | "tcmp" => Field::Compilation,
+        "titlesort" | "tsot" => Field::TitleSort,
+        "artistsort" | "tsop" => Field::ArtistSort,
+        "albumsort" | "tsoa" => Field::AlbumSort,
+        "albumartistsort" | "tso2" => Field::AlbumArtistSort,
+        _ => return None,
+    })
+}
+
+/// MusicBrainz IDs in ID3 user text frames, by description (Picard's).
+fn txxx_field(description: &str) -> Option<Field> {
+    Some(match description.to_ascii_lowercase().as_str() {
+        "musicbrainz album id" => Field::ReleaseId,
+        "musicbrainz release group id" => Field::ReleaseGroupId,
+        "musicbrainz release track id" => Field::ReleaseTrackId,
+        "musicbrainz artist id" => Field::ArtistId,
+        "musicbrainz album artist id" => Field::AlbumArtistId,
+        _ => return None,
+    })
 }
 
 /// The front cover if there is one, else the first picture.
@@ -258,30 +341,24 @@ impl<R: Read> Seek for SeekableTake<R> {
 }
 
 fn apply_id3(scanned: &mut Scanned, tag: &id3::Tag) {
-    scanned.title = tag.title().and_then(text);
-    scanned.artist = tag.artist().and_then(text);
-    scanned.album = tag.album().and_then(text);
-    scanned.album_artist = tag.album_artist().and_then(text);
-    // ID3 genres may be numeric ("(17)"); this gives the name.
-    scanned.genre = tag.genre_parsed().as_deref().and_then(text);
-    scanned.release_id = tag
-        .extended_texts()
-        .find(|frame| {
-            frame
-                .description
-                .eq_ignore_ascii_case("MusicBrainz Album Id")
-        })
-        .and_then(|frame| text(&frame.value));
-    scanned.compilation = tag
-        .get("TCMP")
-        .and_then(|frame| frame.content().text())
-        .is_some_and(|value| value.trim_matches(|c: char| c.is_whitespace() || c == '\0') == "1");
-    scanned.track = tag.track();
-    scanned.disc = tag.disc();
-    scanned.year = tag
-        .year()
-        .or_else(|| tag.date_released().map(|date| date.year))
-        .or_else(|| tag.date_recorded().map(|date| date.year));
+    for frame in tag.frames() {
+        let content = frame.content();
+        if let Some(text) = content.extended_text() {
+            if let Some(field) = txxx_field(&text.description) {
+                push_id3(&mut scanned.values, field, &text.value);
+            }
+        } else if let Some(id) = content.unique_file_identifier() {
+            if id.owner_identifier == "http://musicbrainz.org"
+                && let Ok(value) = std::str::from_utf8(&id.identifier)
+            {
+                scanned
+                    .values
+                    .push(FileValue::new(Field::RecordingId, value));
+            }
+        } else if let (Some(field), Some(text)) = (key_field(frame.id()), content.text()) {
+            push_id3(&mut scanned.values, field, text);
+        }
+    }
     let mut first = None;
     for picture in tag.pictures() {
         let Some(mime) = image_mime(&picture.mime_type) else {
@@ -315,41 +392,21 @@ pub fn image_mime(mime: &str) -> Option<&'static str> {
     }
 }
 
-/// Trimmed, non-empty, capped at [`MAX_TEXT_BYTES`] on a character boundary.
-fn text(value: &str) -> Option<String> {
-    let value = value.trim_matches(|c: char| c.is_whitespace() || c == '\0');
-    if value.is_empty() {
-        return None;
-    }
-    let mut end = value.len().min(MAX_TEXT_BYTES);
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    Some(value[..end].to_owned())
-}
-
-/// `1973`, `1973-04-13` → 1973.
-fn year_of(date: &str) -> Option<i32> {
-    let digits = date.trim().get(..4)?;
-    digits
-        .bytes()
-        .all(|byte| byte.is_ascii_digit())
-        .then(|| digits.parse().ok())
-        .flatten()
+/// ID3 v2.4 separates values with NUL.
+fn push_id3(values: &mut Vec<FileValue>, field: Field, text: &str) {
+    values.extend(
+        text.split('\0')
+            .filter(|value| !value.is_empty())
+            .map(|value| FileValue::new(field, value)),
+    );
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{image_mime, text, year_of};
+    use super::image_mime;
 
     #[test]
-    fn cleans_untrusted_text() {
-        assert_eq!(text("  Aladdin Sane\0"), Some("Aladdin Sane".into()));
-        assert_eq!(text(" \0 "), None);
-        let long = "é".repeat(600); // 1200 bytes
-        assert_eq!(text(&long).map(|value| value.len()), Some(1024));
-        assert_eq!(year_of("1973-04-13"), Some(1973));
-        assert_eq!(year_of("73"), None);
+    fn only_shown_image_types_are_kept() {
         assert_eq!(image_mime("IMAGE/JPG"), Some("image/jpeg"));
         assert_eq!(image_mime("image/tiff"), None);
     }

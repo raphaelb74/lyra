@@ -5,9 +5,7 @@
 //! not read again. Tags are read outside transactions and written in small
 //! batches, so the UI can read (WAL) and edit folders while a scan runs.
 
-use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
@@ -17,11 +15,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::art;
-use crate::db::{
-    Library, LibraryError, UNKNOWN_ARTIST, VARIOUS_ARTISTS, now, path_bytes, path_from, prune,
-};
+use crate::db::{Library, LibraryError, now, path_bytes, path_from, prune};
+use crate::edits::{self, Target};
 use crate::key::key;
+use crate::shown::{self, Edited};
 use crate::tags::{self, Scanned};
+use crate::values::Field;
 
 /// Tag results written per transaction.
 const BATCH: usize = 64;
@@ -349,46 +348,43 @@ fn write_track(
     regroup: &mut Regroup,
 ) -> Result<(), LibraryError> {
     let dir = file.path.parent().unwrap_or(Path::new("/"));
-    // `Album/CD1` and `Album/CD2` are one release, in `Album`.
-    let folder_disc = dir.file_name().and_then(disc_folder);
-    let release_dir = match folder_disc {
-        Some(_) => dir.parent().unwrap_or(dir),
-        None => dir,
+    let (release_dir, _) = shown::release_dir(&file.path);
+    let existing: Option<(i64, i64)> = conn
+        .prepare_cached("SELECT id, album_id FROM tracks WHERE path = ?1")?
+        .query_row([path_bytes(&file.path)], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .optional()?;
+    let previous = existing.map(|(_, album)| album);
+    let edited = match existing {
+        Some((id, _)) => edits::review(conn, Target::Track(id), |field| scanned.shown(field))?,
+        None => Edited::new(),
     };
-    let artist = scanned.artist.as_deref().unwrap_or(UNKNOWN_ARTIST);
-    let album_title = scanned
-        .album
-        .clone()
-        .unwrap_or_else(|| file_label(release_dir));
-    let title = scanned.title.clone().unwrap_or_else(|| {
-        file.path
-            .file_stem()
-            .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned())
-    });
+    let shown = shown::track_shown(&file.path, &scanned.values, &edited);
+    let artist_id = shown::artist_id(conn, &shown.artist)?;
 
-    let artist_id = artist_id(conn, artist)?;
-    let album_artist_id = match scanned.album_artist.as_deref() {
-        Some(name) => Some(artist_id_or(conn, name, artist, artist_id)?),
-        None => None,
-    };
+    // The release is found by what the file says; edits do not move tracks.
+    let album_artist = scanned.shown(Field::AlbumArtist);
+    let album_artist_id = album_artist
+        .as_deref()
+        .map(|name| shown::artist_id(conn, name))
+        .transpose()?;
+    let album_title = scanned
+        .shown(Field::Album)
+        .unwrap_or_else(|| shown::file_label(release_dir));
     let grouping = grouping(
-        scanned.release_id.as_deref(),
+        scanned.shown(Field::ReleaseId).as_deref(),
         release_dir,
         &album_title,
-        scanned.album_artist.as_deref(),
+        album_artist.as_deref(),
     );
     let (album_id, has_art) = release(
         conn,
         &grouping,
         &album_title,
         album_artist_id.unwrap_or(artist_id),
-        scanned.year,
         regroup,
     )?;
-    let previous: Option<i64> = conn
-        .prepare_cached("SELECT album_id FROM tracks WHERE path = ?1")?
-        .query_row([path_bytes(&file.path)], |row| row.get(0))
-        .optional()?;
     regroup.touched.insert(album_id);
     regroup.touched.extend(previous);
 
@@ -414,22 +410,23 @@ fn write_track(
                 file.mtime_ns,
                 album_id,
                 artist_id,
-                title,
-                scanned.disc.or(folder_disc),
-                scanned.track,
+                shown.title,
+                shown.disc,
+                shown.track,
                 scanned.duration_ms.and_then(|ms| i64::try_from(ms).ok()),
                 scanned.codec,
                 scanned.sample_rate,
                 scanned.bits_per_sample,
                 scanned.channels,
-                scanned.genre,
+                shown.genre,
                 album_artist_id,
-                scanned.compilation,
+                scanned.shown(Field::Compilation).as_deref() == Some("1"),
                 audio_id(file.size, &scanned),
             ],
             |row| row.get(0),
         )?;
     regroup.previous.insert(track_id, previous);
+    shown::store_file_values(conn, track_id, &scanned.values)?;
 
     if !has_art {
         let picture = match scanned.picture {
@@ -546,34 +543,36 @@ fn move_track(conn: &Connection, old: i64, new: i64) -> Result<(), LibraryError>
          WHERE id = ?1",
         params![old, new, path],
     )?;
+    conn.execute("DELETE FROM file_values WHERE track_id = ?1", [old])?;
+    conn.execute(
+        "UPDATE file_values SET track_id = ?1 WHERE track_id = ?2",
+        [old, new],
+    )?;
     conn.execute("DELETE FROM tracks WHERE id = ?1", [new])?;
+    // The new file's values, with the track's edits on top.
+    shown::refresh_track(conn, old)?;
     Ok(())
 }
 
 /// The release with `grouping`, created if new, and whether it has
-/// artwork. A new release's `artist_id` is provisional: [`settle`] decides it
-/// once every track is in.
+/// artwork. A new release's title and artist are provisional: [`settle`]
+/// decides them once every track is in.
 fn release(
     conn: &Connection,
     grouping: &[u8],
     title: &str,
     artist_id: i64,
-    year: Option<i32>,
     regroup: &mut Regroup,
 ) -> Result<(i64, bool), LibraryError> {
     let found: Option<(i64, bool)> = conn
         .prepare_cached("SELECT id, art IS NOT NULL FROM albums WHERE grouping = ?1")?
         .query_row([grouping], |row| Ok((row.get(0)?, row.get(1)?)))
         .optional()?;
-    if let Some((id, has_art)) = found {
-        conn.prepare_cached("UPDATE albums SET year = COALESCE(year, ?2) WHERE id = ?1")?
-            .execute(params![id, year])?;
-        return Ok((id, has_art));
+    if let Some(found) = found {
+        return Ok(found);
     }
-    conn.prepare_cached(
-        "INSERT INTO albums (title, artist_id, year, grouping) VALUES (?1, ?2, ?3, ?4)",
-    )?
-    .execute(params![title, artist_id, year, grouping])?;
+    conn.prepare_cached("INSERT INTO albums (title, artist_id, grouping) VALUES (?1, ?2, ?3)")?
+        .execute(params![title, artist_id, grouping])?;
     let id = conn.last_insert_rowid();
     regroup.created.insert(id);
     Ok((id, false))
@@ -606,26 +605,10 @@ fn grouping(
     grouping
 }
 
-/// The disc number of a disc folder (`CD1`, `CD 2`, `disc_3`, `Disk 2 -
-/// Live`), matched without case; `None` for any other folder name.
-fn disc_folder(name: &OsStr) -> Option<u32> {
-    let name = name.to_str()?.to_lowercase();
-    let rest = ["disc", "disk", "cd"]
-        .iter()
-        .find_map(|prefix| name.strip_prefix(prefix))?
-        .trim_start_matches([' ', '_', '-', '.']);
-    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-    let (number, after) = rest.split_at(digits);
-    if after.chars().next().is_some_and(char::is_alphanumeric) {
-        return None;
-    }
-    number.parse().ok()
-}
-
 /// Ends a scan. A release created in this scan whose tracks all came from
 /// one release, now empty, takes that release's place: the ID and artwork
 /// stay, so a retagged or regrouped album is still the same album. Then
-/// every touched release gets its album artist. Returns artwork files no
+/// every touched release gets its shown title, year and album artist. Returns artwork files no
 /// longer used.
 ///
 /// A scan cancelled halfway through moving a release leaves it split; the
@@ -657,24 +640,10 @@ fn settle(conn: &mut Connection, regroup: Regroup) -> Result<Vec<String>, Librar
         else {
             continue;
         };
-        let (grouping, title, year, art, art_bytes): (
-            Vec<u8>,
-            String,
-            Option<i32>,
-            Option<String>,
-            i64,
-        ) = transaction.query_row(
-            "SELECT grouping, title, year, art, art_bytes FROM albums WHERE id = ?1",
+        let (grouping, art, art_bytes): (Vec<u8>, Option<String>, i64) = transaction.query_row(
+            "SELECT grouping, art, art_bytes FROM albums WHERE id = ?1",
             [new],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            },
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
         transaction.execute(
             "UPDATE tracks SET album_id = ?1 WHERE album_id = ?2",
@@ -683,8 +652,8 @@ fn settle(conn: &mut Connection, regroup: Regroup) -> Result<Vec<String>, Librar
         // The grouping is unique: the new row goes before the old one takes it.
         transaction.execute("DELETE FROM albums WHERE id = ?1", [new])?;
         transaction.execute(
-            "UPDATE albums SET grouping = ?2, title = ?3, year = COALESCE(?4, year) WHERE id = ?1",
-            params![old, grouping, title, year],
+            "UPDATE albums SET grouping = ?2 WHERE id = ?1",
+            params![old, grouping],
         )?;
         if old_art.is_none() {
             transaction.execute(
@@ -696,119 +665,14 @@ fn settle(conn: &mut Connection, regroup: Regroup) -> Result<Vec<String>, Librar
         }
     }
 
-    let mut various = None;
     for album in regroup.touched {
-        let tracks: Vec<(Option<i64>, i64, bool)> = transaction
-            .prepare_cached(
-                "SELECT album_artist_id, artist_id, compilation FROM tracks WHERE album_id = ?1",
-            )?
-            .query_map([album], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-            .collect::<Result<_, _>>()?;
-        if tracks.is_empty() {
-            continue;
-        }
-        let artist = match album_artist(&tracks) {
-            Some(id) => id,
-            None => match various {
-                Some(id) => id,
-                None => *various.insert(artist_id(&transaction, VARIOUS_ARTISTS)?),
-            },
-        };
-        transaction
-            .prepare_cached("UPDATE albums SET artist_id = ?2 WHERE id = ?1 AND artist_id != ?2")?
-            .execute([album, artist])?;
+        shown::refresh_release(&transaction, album)?;
     }
     transaction.commit()?;
     Ok(unused)
 }
 
-/// A release's album artist from its tracks' (album artist tag, artist,
-/// compilation flag): the album artist most tagged; else, unless it is a
-/// compilation, the artist when every track agrees. `None` is Various
-/// Artists.
-fn album_artist(tracks: &[(Option<i64>, i64, bool)]) -> Option<i64> {
-    let mut tagged: HashMap<i64, usize> = HashMap::new();
-    for &(album_artist, _, _) in tracks {
-        if let Some(id) = album_artist {
-            *tagged.entry(id).or_default() += 1;
-        }
-    }
-    if let Some((id, _)) = tagged
-        .into_iter()
-        .max_by_key(|&(id, count)| (count, Reverse(id)))
-    {
-        return Some(id);
-    }
-    if tracks.iter().any(|&(_, _, compilation)| compilation) {
-        return None;
-    }
-    let (_, first, _) = *tracks.first()?;
-    tracks
-        .iter()
-        .all(|&(_, artist, _)| artist == first)
-        .then_some(first)
-}
-
-fn artist_id(conn: &Connection, name: &str) -> Result<i64, LibraryError> {
-    let key = key(name);
-    conn.prepare_cached(
-        "INSERT INTO artists (name, key) VALUES (?1, ?2) ON CONFLICT (key) DO NOTHING",
-    )?
-    .execute([name, &key])?;
-    let id = conn
-        .prepare_cached("SELECT id FROM artists WHERE key = ?1")?
-        .query_row([&key], |row| row.get(0))
-        .optional()?;
-    id.ok_or(LibraryError::Db(rusqlite::Error::QueryReturnedNoRows))
-}
-
-/// `name`'s id, reusing `known_id` when it is the same artist.
-fn artist_id_or(
-    conn: &Connection,
-    name: &str,
-    known: &str,
-    known_id: i64,
-) -> Result<i64, LibraryError> {
-    if key(name) == key(known) {
-        Ok(known_id)
-    } else {
-        artist_id(conn, name)
-    }
-}
-
 /// SQLite integers are signed 64-bit.
 fn count(value: usize) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
-}
-
-/// Folder name as an album title for untagged files.
-fn file_label(dir: &Path) -> String {
-    dir.file_name().map_or_else(
-        || "Unknown Album".to_owned(),
-        |name| name.to_string_lossy().into_owned(),
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use std::ffi::OsStr;
-
-    use super::disc_folder;
-
-    #[test]
-    fn disc_folders_are_recognised() {
-        for (name, disc) in [
-            ("CD1", 1),
-            ("cd 2", 2),
-            ("Disc 03", 3),
-            ("disk_4", 4),
-            ("Disc 2 - Live", 2),
-            ("CD.1 (Remastered)", 1),
-        ] {
-            assert_eq!(disc_folder(OsStr::new(name)), Some(disc), "{name}");
-        }
-        for name in ["Discography", "CDs", "CD", "cd1a", "Disco 2", "Album CD1"] {
-            assert_eq!(disc_folder(OsStr::new(name)), None, "{name}");
-        }
-    }
 }

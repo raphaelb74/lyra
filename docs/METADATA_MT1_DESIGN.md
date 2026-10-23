@@ -52,7 +52,7 @@ A track keeps its `id` when its file moves or is renamed, whether by Lyra (MT6) 
 - A moved track takes the new file's values, and the release follows it as in block 2, so a renamed album folder keeps its album ID and artwork too.
 - Migration 6 adds `audio_id` and marks every track for a re-read to fill it in.
 
-## Block 4: layered values
+## Block 4: layered values (migration 7) — done
 
 | Table          | Holds                                                                                                                         |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -63,6 +63,16 @@ A track keeps its `id` when its file moves or is renamed, whether by Lyra (MT6) 
 - **Shown value** = the edit, if there is one, otherwise the file value (§5 of the [specification](METADATA_SPECIFICATION.md)). The existing columns in `tracks` and `albums` hold the shown value, so browsing queries stay as they are, and they are rewritten whenever an edit or a read changes it.
 - **A rescan** replaces `file_values` only. Edits survive, and an edit whose file value changed underneath it is flagged for review.
 - **Fields** are a fixed list in Rust, not free text: title, artist, album, album artist, track, track total, disc, disc total, date, original date, genre, composer, compilation, sort fields and MusicBrainz IDs. New fields need a code change, which keeps the contract typed.
+
+**As built.**
+
+- Each field has a scope: track (title, artist, numbers, genre, composer, sort names, recording IDs) or release (album, album artist, dates, disc total, compilation, album sort names, release IDs). A release field's file value is that of its first track, in disc and track order, that has one.
+- One module (`shown`) computes every shown column from the file values, the path and the edits, for scans, edits and undo alike, so clearing an edit shows exactly what a scan would.
+- Edits never regroup tracks: releases are found by what the files say.
+- File values over 64 KiB keep their start and are marked `cut`, so a later writer can refuse to write them back.
+- Undo reverses the last saved step. The rest is left to MT2: checking that nothing changed since, field validation beyond the basic forms, and previews.
+- Invalid bytes in tags are not yet kept as bytes, because Symphonia hands over decoded text. The raw comment reader that MT5a needs anyway will add that.
+- A release's edits go when the release is removed. That happens when all its tracks leave and no other release takes its place.
 
 ## Out of MT1
 

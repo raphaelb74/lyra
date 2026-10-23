@@ -9,7 +9,10 @@ use id3::{Tag, TagLike, Version};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use library::{Library, LibraryError, ScanEvent, ScanSummary, Scanner, scan};
+use library::{
+    Edit, EditChange, Field, Library, LibraryError, Origin, SavedEdit, ScanEvent, ScanSummary,
+    Scanner, Target, scan,
+};
 
 /// The smallest JPEG-looking payload: the scanner stores images as found.
 const JPEG: &[u8] = &[
@@ -1058,4 +1061,284 @@ fn an_unavailable_folder_is_never_a_move_source() {
     let after = track_ids(&library);
     assert_eq!(after.len(), 2);
     assert!(after.contains(&before[0]), "the drive's track is kept");
+}
+
+fn change(target: Target, field: Field, edit: Edit) -> EditChange {
+    EditChange {
+        target,
+        field,
+        edit,
+    }
+}
+
+fn set(target: Target, field: Field, value: &str) -> EditChange {
+    change(target, field, Edit::Set(value.to_owned()))
+}
+
+/// One album of two tracks, its track IDs, and the album's.
+fn edited_library(dir: &Path, root: &Path) -> (Library, [i64; 2], i64) {
+    for (file, title) in [("1.dsf", "Mysterons"), ("2.dsf", "Sour Times")] {
+        dsf(
+            &root.join("Dummy").join(file),
+            &Tags::new(title, "Portishead", "Dummy"),
+        );
+    }
+    let library = scanned_library(dir, root);
+    let tracks = track_ids(&library);
+    let album = library.albums().unwrap()[0].id;
+    (library, [tracks[0].0, tracks[1].0], album)
+}
+
+fn title_of(library: &Library, id: i64) -> String {
+    library.track(id).unwrap().unwrap().title
+}
+
+#[test]
+fn edits_survive_rescans_and_restarts() {
+    let dir = temp_dir("edits_survive_rescans_and_restarts");
+    let root = dir.join("music");
+    let (mut library, [first, _], album) = edited_library(&dir, &root);
+    library
+        .save_edits(
+            &[
+                set(Target::Track(first), Field::Title, "Mysterons (Live)"),
+                set(Target::Release(album), Field::Album, "Dummy (Deluxe)"),
+                set(Target::Release(album), Field::AlbumArtist, "Beth Gibbons"),
+            ],
+            &Origin::Manual,
+        )
+        .unwrap();
+    let check = |library: &Library| {
+        assert_eq!(title_of(library, first), "Mysterons (Live)");
+        let albums = library.albums().unwrap();
+        assert_eq!(
+            (albums[0].title.as_str(), albums[0].artist.as_str()),
+            ("Dummy (Deluxe)", "Beth Gibbons")
+        );
+    };
+    check(&library);
+
+    // The other file changes and is read again; a full re-read too.
+    dsf(
+        &root.join("Dummy/2.dsf"),
+        &Tags::new("Sour Times!", "Portishead", "Dummy"),
+    );
+    run_scan(&mut library, &dir.join("art"));
+    check(&library);
+    drop(library);
+    let mut library = Library::open(&dir.join("library.db")).unwrap();
+    check(&library);
+    let conn = rusqlite::Connection::open(dir.join("library.db")).unwrap();
+    conn.execute("UPDATE tracks SET mtime_ns = -1", []).unwrap();
+    drop(conn);
+    run_scan(&mut library, &dir.join("art"));
+    check(&library);
+    let edits = library.edits(Target::Track(first)).unwrap();
+    assert_eq!(edits.len(), 1);
+    assert_eq!(
+        (edits[0].origin.as_str(), edits[0].review),
+        ("manual", false)
+    );
+}
+
+#[test]
+fn resetting_or_clearing_an_edit_shows_the_file_again() {
+    let dir = temp_dir("resetting_or_clearing_an_edit_shows_the_file_again");
+    let root = dir.join("music");
+    let (mut library, [first, second], album) = edited_library(&dir, &root);
+    library
+        .save_edits(
+            &[
+                set(Target::Track(first), Field::Title, "Edited"),
+                set(Target::Release(album), Field::Album, "Edited Album"),
+            ],
+            &Origin::Manual,
+        )
+        .unwrap();
+    library
+        .save_edits(
+            &[
+                change(Target::Track(first), Field::Title, Edit::Reset),
+                change(Target::Release(album), Field::Album, Edit::Reset),
+                // Cleared: no title, so the file name shows.
+                change(Target::Track(second), Field::Title, Edit::Clear),
+            ],
+            &Origin::Manual,
+        )
+        .unwrap();
+    assert_eq!(title_of(&library, first), "Mysterons");
+    assert_eq!(title_of(&library, second), "2");
+    assert_eq!(library.albums().unwrap()[0].title, "Dummy");
+    assert_eq!(
+        library.edits(Target::Track(first)).unwrap(),
+        Vec::<SavedEdit>::new()
+    );
+    assert_eq!(library.edits(Target::Track(second)).unwrap()[0].value, None);
+}
+
+#[test]
+fn a_file_changed_under_an_edit_is_marked_for_review() {
+    let dir = temp_dir("a_file_changed_under_an_edit_is_marked_for_review");
+    let root = dir.join("music");
+    let (mut library, [first, second], _) = edited_library(&dir, &root);
+    library
+        .save_edits(
+            &[
+                set(Target::Track(first), Field::Title, "Mine"),
+                set(Target::Track(second), Field::Title, "Also mine"),
+            ],
+            &Origin::Rule("capitals".to_owned()),
+        )
+        .unwrap();
+    // Another tagger changes the first title, and only the artist of the second.
+    dsf(
+        &root.join("Dummy/1.dsf"),
+        &Tags::new("Mysterons (2024)", "Portishead", "Dummy"),
+    );
+    dsf(
+        &root.join("Dummy/2.dsf"),
+        &Tags::new("Sour Times", "PORTISHEAD", "Dummy"),
+    );
+    run_scan(&mut library, &dir.join("art"));
+
+    let first_edit = &library.edits(Target::Track(first)).unwrap()[0];
+    assert!(first_edit.review);
+    assert_eq!(first_edit.origin, "rule:capitals");
+    assert!(!library.edits(Target::Track(second)).unwrap()[0].review);
+    assert_eq!(title_of(&library, first), "Mine", "the edit still shows");
+}
+
+#[test]
+fn undo_steps_back_one_save_at_a_time() {
+    let dir = temp_dir("undo_steps_back_one_save_at_a_time");
+    let root = dir.join("music");
+    let (mut library, [first, _], album) = edited_library(&dir, &root);
+    library
+        .save_edits(
+            &[set(Target::Track(first), Field::Title, "One")],
+            &Origin::Manual,
+        )
+        .unwrap();
+    library
+        .save_edits(
+            &[
+                set(Target::Track(first), Field::Title, "Two"),
+                change(
+                    Target::Release(album),
+                    Field::Compilation,
+                    Edit::Set("1".into()),
+                ),
+            ],
+            &Origin::Manual,
+        )
+        .unwrap();
+    assert_eq!(library.albums().unwrap()[0].artist, "Various Artists");
+
+    assert!(library.undo_edits().unwrap());
+    assert_eq!(title_of(&library, first), "One");
+    assert_eq!(library.albums().unwrap()[0].artist, "Portishead");
+    assert_eq!(
+        library.edits(Target::Release(album)).unwrap(),
+        Vec::<SavedEdit>::new()
+    );
+    assert!(library.undo_edits().unwrap());
+    assert_eq!(title_of(&library, first), "Mysterons");
+    assert_eq!(
+        library.edits(Target::Track(first)).unwrap(),
+        Vec::<SavedEdit>::new()
+    );
+    assert!(!library.undo_edits().unwrap());
+}
+
+#[test]
+fn an_invalid_change_saves_nothing() {
+    let dir = temp_dir("an_invalid_change_saves_nothing");
+    let root = dir.join("music");
+    let (mut library, [first, _], album) = edited_library(&dir, &root);
+    for changes in [
+        vec![
+            set(Target::Track(first), Field::Title, "Fine"),
+            set(Target::Track(first), Field::Track, "three"),
+        ],
+        vec![set(
+            Target::Track(first),
+            Field::Album,
+            "A track has no album field",
+        )],
+        vec![set(Target::Release(album), Field::Date, "22.08.1994")],
+        vec![set(Target::Track(999), Field::Title, "No such track")],
+    ] {
+        let result = library.save_edits(&changes, &Origin::Manual);
+        assert!(
+            matches!(result, Err(LibraryError::Invalid(_))),
+            "{changes:?}"
+        );
+    }
+    assert_eq!(title_of(&library, first), "Mysterons");
+    assert_eq!(
+        library.edits(Target::Track(first)).unwrap(),
+        Vec::<SavedEdit>::new()
+    );
+    assert!(!library.undo_edits().unwrap(), "no step was recorded");
+}
+
+#[test]
+fn file_values_are_kept_exactly() {
+    let dir = temp_dir("file_values_are_kept_exactly");
+    let root = dir.join("music");
+    let mut tag = Tag::new();
+    tag.set_title("  Spaced\u{200B} ");
+    // ID3 v2.4 multi-value: two artists.
+    tag.set_artist("Air\0Beck");
+    tag.set_text("TRCK", "3/12");
+    tag.set_album("Beyonce\u{301}");
+    let mut bytes = Vec::new();
+    tag.write_to(&mut bytes, Version::Id3v24).unwrap();
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("a.dsf"), tagged_dsf(&bytes)).unwrap();
+    let library = scanned_library(&dir, &root);
+
+    let track = library.tracks().unwrap().remove(0);
+    let values: Vec<(Field, String)> = library
+        .file_values(track.id)
+        .unwrap()
+        .into_iter()
+        .map(|value| (value.field, value.value))
+        .collect();
+    for expected in [
+        (Field::Title, "  Spaced\u{200B} "),
+        (Field::Artist, "Air"),
+        (Field::Artist, "Beck"),
+        (Field::Track, "3/12"),
+        (Field::Album, "Beyonce\u{301}"),
+    ] {
+        assert!(
+            values.contains(&(expected.0, expected.1.to_owned())),
+            "{expected:?} in {values:?}"
+        );
+    }
+    // Shown: trimmed, first artist, track 3; the decomposed accent is kept.
+    assert_eq!(
+        (track.title.as_str(), track.artist.as_str(), track.track),
+        ("Spaced\u{200B}", "Air", Some(3))
+    );
+    assert_eq!(track.album, "Beyonce\u{301}");
+}
+
+#[test]
+fn a_moved_track_keeps_its_edits() {
+    let dir = temp_dir("a_moved_track_keeps_its_edits");
+    let root = dir.join("music");
+    let (mut library, [first, _], _) = edited_library(&dir, &root);
+    library
+        .save_edits(
+            &[set(Target::Track(first), Field::Title, "Mine")],
+            &Origin::Manual,
+        )
+        .unwrap();
+    fs::rename(root.join("Dummy"), root.join("Dummy (1994)")).unwrap();
+    let summary = run_scan(&mut library, &dir.join("art"));
+    assert_eq!(summary.moved, 2, "{summary:?}");
+    assert_eq!(title_of(&library, first), "Mine");
+    assert_eq!(library.edits(Target::Track(first)).unwrap().len(), 1);
 }

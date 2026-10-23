@@ -27,13 +27,13 @@ The [Windows plan](M6_WINDOWS_IMPLEMENTATION.md) shares decisions about path ide
 - [x] Add forward-only migrations after the current schema. Back up the database safely before migration (`VACUUM INTO`, newest three kept; migrations may run Rust code, with foreign keys checked before each commits).
 - [x] Separate stable local release identity from album title/artist; retain existing track/playlist IDs. Design conservative reconstruction for already-merged editions. _Migration 5: grouping by MusicBrainz release ID, else release folder (disc folders joined), album and album artist; the next scan regroups, and a release whose tracks all move keeps its ID and artwork._
 - [x] Track identity independent of the path: a move or rename (MT6, or done outside Lyra) updates the path, not the ID. _Migration 6: `audio_id` (FLAC audio MD5, else codec, size, rate, channels and length); only a unique match on both sides counts as a move._
-- [ ] Add file observations, manual overrides, source preferences and accepted provider IDs/values with typed fields and revisions.
-- [ ] Represent absent/set/clear/reset independently. Define release-wide versus track-specific field resolution.
+- [ ] Add file observations, manual overrides, source preferences and accepted provider IDs/values with typed fields and revisions. _File values, edits with origin (manual, rule, provider) and a fixed field list done (migration 7); source preferences and revisions remain._
+- [x] Represent absent/set/clear/reset independently. Define release-wide versus track-specific field resolution. _Each field has a track or release scope; a release field's file value is its first track's._
 - [ ] Distinguish artist credits from artist identity; allow offline entities with no provider ID.
 - [ ] Matching keys (NFC, full Unicode lower-casing, collapsed whitespace, invisible characters removed) for artists and releases, replacing SQLite's ASCII-only `NOCASE`; file values stored exactly, with an unreadable-text flag for invalid bytes ([decisions](METADATA_DECISIONS.md) 5–7). Adds `unicode-normalization`. _Artists (migration 4) and releases (album and album-artist keys in the grouping, migration 5) done; exact file values come with block 4._
 - [ ] Add durable artwork references, immutable asset digests and disposable thumbnail/cache accounting.
-- [ ] Add edit transaction history and a versioned backup/restore workflow covering the DB and selected artwork. Backup excludes credentials and evictable response caches.
-- [ ] Make rescans update only observations; preserve edits and surface unavailable tracks. Use revisions to reject stale scanner results.
+- [ ] Add edit transaction history and a versioned backup/restore workflow covering the DB and selected artwork. Backup excludes credentials and evictable response caches. _History and undo of saved steps done; backup/restore as a user action comes with the editor._
+- [ ] Make rescans update only observations; preserve edits and surface unavailable tracks. Use revisions to reject stale scanner results. _Rescans replace file values only; edits stay and are marked for review when the file changes under them. Revisions remain (MT2)._
 
 **Done when:** migration tests preserve IDs and playlists; two editions with identical display names remain separate; local overrides survive full/incremental scans and restart; backup restores a complete consistent library. Cover MT01, MT02, MT14 and MT15 model cases.
 
