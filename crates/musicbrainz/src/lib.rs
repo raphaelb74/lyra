@@ -17,6 +17,10 @@ pub use types::{
     Artist, ArtistCredit, Label, LabelInfo, Medium, Recording, Release, ReleaseGroup, Track,
 };
 
+/// The name a cover from the Cover Art Archive is saved under
+/// (`Library::set_artwork`), shown with it.
+pub const COVER_ART_ARCHIVE: &str = "Cover Art Archive";
+
 /// Whether `id` is a MusicBrainz ID: a lowercase UUID, as the API writes them.
 /// Checked before an ID goes into a URL.
 #[must_use]

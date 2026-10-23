@@ -42,8 +42,17 @@ pub(crate) fn store(
         _ => "jpg",
     };
     // A new name per store, so the webview never shows a stale image when an
-    // album id is reused.
-    let name = format!("{album_id}-{}.{extension}", now());
+    // album id is reused. Names count seconds, and the album's previous file
+    // is deleted after this store by name: two stores in one second must not
+    // share one.
+    let mut time = now();
+    let name = loop {
+        let name = format!("{album_id}-{time}.{extension}");
+        if !art_dir.join(&name).exists() {
+            break name;
+        }
+        time += 1;
+    };
     fs::create_dir_all(art_dir)?;
     let partial = art_dir.join(format!("{name}.part"));
     fs::write(&partial, &picture.data)?;
@@ -105,20 +114,36 @@ impl Library {
         album: i64,
         image: &Path,
     ) -> Result<(), LibraryError> {
-        let invalid = |reason: &str| LibraryError::Invalid(reason.to_owned());
         if fs::metadata(image)?.len() > MAX_PICTURE_BYTES as u64 {
-            return Err(invalid("That image is too large (16 MB at most)."));
+            return Err(too_large());
         }
-        let data = fs::read(image)?;
+        self.set_artwork(art_dir, album, fs::read(image)?, None)
+    }
+
+    /// Makes `data` the album's artwork, as [`Library::choose_artwork`] does
+    /// with a file. `source` names where it came from, such as an online
+    /// archive; `None` is the user's own file. Only JPEG, PNG and WebP images
+    /// of 16 MB at most are taken.
+    pub fn set_artwork(
+        &mut self,
+        art_dir: &Path,
+        album: i64,
+        data: Vec<u8>,
+        source: Option<&str>,
+    ) -> Result<(), LibraryError> {
+        let invalid = |reason: &str| LibraryError::Invalid(reason.to_owned());
+        if data.len() > MAX_PICTURE_BYTES {
+            return Err(too_large());
+        }
         let mime = sniff(&data).ok_or_else(|| invalid("That is not a JPEG, PNG or WebP image."))?;
         let picture = Picture { mime, data };
         let transaction = self.conn.transaction()?;
         let old = current_art(&transaction, album)?
             .ok_or_else(|| invalid("That album is no longer in the library."))?;
         transaction.execute(
-            "INSERT INTO chosen_art (album_id, mime, data) VALUES (?1, ?2, ?3)
-             ON CONFLICT (album_id) DO UPDATE SET mime = ?2, data = ?3",
-            params![album, picture.mime, picture.data],
+            "INSERT INTO chosen_art (album_id, mime, data, source) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (album_id) DO UPDATE SET mime = ?2, data = ?3, source = ?4",
+            params![album, picture.mime, picture.data, source],
         )?;
         if !store(&transaction, art_dir, album, &picture)? {
             return Err(invalid("The artwork cache is full."));
@@ -126,6 +151,23 @@ impl Library {
         transaction.commit()?;
         delete_art(art_dir, &old);
         Ok(())
+    }
+
+    /// Where the album's artwork comes from.
+    pub fn artwork_source(&self, album: i64) -> Result<ArtworkSource, LibraryError> {
+        let chosen: Option<Option<String>> = self
+            .conn
+            .query_row(
+                "SELECT source FROM chosen_art WHERE album_id = ?1",
+                [album],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(match chosen {
+            None => ArtworkSource::Files,
+            Some(None) => ArtworkSource::Picked,
+            Some(Some(name)) => ArtworkSource::Online(name),
+        })
     }
 
     /// Shows the files' artwork again: the first embedded picture of the
@@ -191,6 +233,21 @@ pub(crate) fn restore_chosen(conn: &Connection, art_dir: &Path) -> Result<(), Li
         }
     }
     Ok(())
+}
+
+/// Where an album's artwork comes from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ArtworkSource {
+    /// The music files, or a cover image in their folder (or none).
+    Files,
+    /// An image file the user chose.
+    Picked,
+    /// An online source, by name.
+    Online(String),
+}
+
+fn too_large() -> LibraryError {
+    LibraryError::Invalid("That image is too large (16 MB at most).".to_owned())
 }
 
 /// The image type, from the first bytes.
