@@ -2,7 +2,7 @@ import type { VolumeInfo } from './ipc';
 
 /** Lowest point of a dB slider: below it, listening level is near silence
  * on any DAC, and the useful range gets squeezed into a few pixels. */
-export const FLOOR_DB = -60;
+const FLOOR_DB = -60;
 
 /** How the slider maps onto the device's volume. */
 export interface VolumeScale {

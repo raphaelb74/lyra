@@ -1,4 +1,4 @@
-import { wireLabel } from './format';
+import { decibels, wireLabel } from './format';
 import type { Output, Step, Track } from './ipc';
 
 /** One stage of the signal path, from the engine's report only. */
@@ -45,11 +45,6 @@ function volumeText(output: Output): string {
     case 'unknown':
       return 'Unknown';
   }
-}
-
-/** `−12.5 dB`. */
-function decibels(value: number): string {
-  return `${value < 0 ? '−' : ''}${String(Math.abs(value))} dB`;
 }
 
 /** Source, processing, DAC volume, output and device, in that order. */

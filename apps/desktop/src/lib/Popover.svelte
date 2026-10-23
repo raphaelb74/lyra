@@ -9,6 +9,9 @@
     triggerClass?: string;
     /** Opens upwards, for controls at the bottom of the window. */
     above?: boolean;
+    /** The panel's edge lined up with the trigger's: its right edge (the
+     * default), or centred on it. */
+    align?: 'end' | 'center';
     /** With `above`: an ancestor (CSS selector) the panel opens clear of,
      * e.g. the player bar, so it never covers its other controls. */
     clear?: string;
@@ -24,6 +27,7 @@
     trigger,
     triggerClass = '',
     above = false,
+    align = 'end',
     clear,
     onOpen,
     children,
@@ -122,6 +126,7 @@
     <div
       class="panel"
       class:above
+      class:center={align === 'center'}
       role="dialog"
       aria-label={label}
       tabindex="-1"
@@ -160,6 +165,11 @@
     border-radius: var(--radius-m);
     box-shadow: var(--shadow-pop);
     animation: appear var(--dur-panel) var(--ease);
+  }
+  .panel.center {
+    right: auto;
+    left: 50%;
+    translate: -50% 0;
   }
   .panel.above {
     top: auto;

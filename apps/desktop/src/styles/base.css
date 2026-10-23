@@ -196,6 +196,13 @@
     white-space: nowrap;
   }
 
+  /* A button that holds content (an album card, an artist, the playing
+     track) rather than a label: body text, not control text. */
+  button.content {
+    font-size: var(--type-body);
+    line-height: var(--leading-body);
+  }
+
   button.small {
     min-height: var(--control-height-small);
     padding: 0 var(--space-2);

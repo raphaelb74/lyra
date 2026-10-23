@@ -1,4 +1,4 @@
-import { outputLabel, pcmBits } from './format';
+import { decibels, outputLabel, pcmBits } from './format';
 import type {
   Capabilities,
   ConversionInfo,
@@ -22,7 +22,7 @@ export function conversionLabel(conversion: ConversionInfo): string {
   const peak =
     conversion.peakDb === null
       ? 'Silence so far'
-      : `Peak ${conversion.peakDb.toFixed(1).replace('-', '−')} dBFS`;
+      : `Peak ${decibels(conversion.peakDb, 'dBFS')}`;
 
   const clipped =
     conversion.clipped === 0

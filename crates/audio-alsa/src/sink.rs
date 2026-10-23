@@ -278,13 +278,15 @@ impl AlsaSink {
 impl AudioSink for AlsaSink {
     fn open(&mut self, device: &str, stream: &StreamFormat) -> Result<OutputFormat, SinkError> {
         let mut result = self.open_stream(device, stream);
-        if let Ok(output) = result
-            && needs_warm_up(self.mode.as_ref(), &Mode::of(device, &output))
+        let mode = result.as_ref().ok().map(|output| Mode::of(device, output));
+        if let (Ok(output), Some(next)) = (&result, &mode)
+            && needs_warm_up(self.mode.as_ref(), next)
         {
-            self.warm_up(output);
+            self.warm_up(*output);
+            // The same request opens the same mode again.
             result = self.open_stream(device, stream);
         }
-        self.mode = result.as_ref().ok().map(|output| Mode::of(device, output));
+        self.mode = mode.filter(|_| result.is_ok());
         if result.is_err() {
             // Nothing is playing: the sound server may have the card back.
             self.stats.closed();

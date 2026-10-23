@@ -161,20 +161,19 @@ pub fn set_volume_db(device: &str, decibels: f64) -> Result<Option<VolumeLevel>,
     let card = card_control(device);
     let mixer = open_mixer(device, &card)?;
     let usb = is_usb_audio(&card);
-    let controls: Vec<_> = controls(&mixer, usb)
+    let (selems, ranges): (Vec<_>, Vec<_>) = controls(&mixer, usb)
         .into_iter()
         .filter_map(|selem| {
             let (MilliBel(min), MilliBel(max)) = selem.get_playback_db_range();
             (min < max).then_some((selem, (min, max)))
         })
-        .collect();
+        .unzip();
     #[expect(
         clippy::cast_possible_truncation,
         reason = "clamped to 0 dB and above −10⁶ dB"
     )]
     let target = (decibels.clamp(-1e6, 0.0) * 100.0).round() as i64;
-    let ranges: Vec<_> = controls.iter().map(|(_, range)| *range).collect();
-    for ((selem, _), centibels) in controls.iter().zip(split_attenuation(target, &ranges)) {
+    for (selem, centibels) in selems.iter().zip(split_attenuation(target, &ranges)) {
         selem
             .set_playback_db_all(MilliBel(centibels), Round::Floor)
             .map_err(|source| AlsaError::Alsa {
@@ -182,7 +181,6 @@ pub fn set_volume_db(device: &str, decibels: f64) -> Result<Option<VolumeLevel>,
                 source,
             })?;
     }
-    let selems: Vec<_> = controls.into_iter().map(|(selem, _)| selem).collect();
     Ok(level(&selems, usb))
 }
 

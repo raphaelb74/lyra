@@ -1,4 +1,5 @@
 import type { Option } from './segmented';
+import { readText, writeText } from './storage';
 
 export type Theme = 'champagne' | 'arctic-blue';
 
@@ -11,21 +12,11 @@ const THEME_KEY = 'lyra.appearance.theme';
 
 /** A viewer preference: keep it separate from the audio engine settings. */
 export function readTheme(): Theme {
-  try {
-    return localStorage.getItem(THEME_KEY) === 'arctic-blue'
-      ? 'arctic-blue'
-      : 'champagne';
-  } catch {
-    return 'champagne';
-  }
+  return readText(THEME_KEY) === 'arctic-blue' ? 'arctic-blue' : 'champagne';
 }
 
+/** Shows `theme` and remembers it for the next start. */
 export function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
-
-  try {
-    localStorage.setItem(THEME_KEY, theme);
-  } catch {
-    // The theme still works when the webview cannot persist preferences.
-  }
+  writeText(THEME_KEY, theme);
 }

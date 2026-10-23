@@ -1,6 +1,6 @@
 <script lang="ts">
   // The Lyra lyre (brand guide): decorative, drawn in the active accent.
-  // assets/lyra.svg is the same drawing for the app icon.
+  // assets/lyra.svg holds the same paths for the app icon: change both.
   const { size = 20 }: { size?: number } = $props();
 </script>
 

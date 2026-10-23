@@ -106,7 +106,7 @@
 <footer aria-label="Player">
   <button
     type="button"
-    class="now"
+    class="now content"
     aria-label={title === null ? 'Now playing' : `Now playing: ${title}`}
     title="Now playing"
     onclick={onOpen}
@@ -263,9 +263,6 @@
     border-top: 1px solid var(--line);
   }
   .now {
-    /* Content, not a control: keep body text. */
-    font-size: var(--type-body);
-    line-height: var(--leading-body);
     grid-row: 1 / span 2;
     display: flex;
     align-items: center;
@@ -331,8 +328,10 @@
   }
   .elapsed,
   .time {
-    min-height: 0;
     min-width: 4em;
+  }
+  .time {
+    min-height: 0;
   }
   .elapsed {
     text-align: right;

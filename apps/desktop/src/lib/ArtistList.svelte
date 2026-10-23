@@ -120,7 +120,7 @@
         <li>
           <button
             type="button"
-            class="artist"
+            class="artist content"
             data-id={artist.id}
             aria-current={artist.id === current?.id ? 'true' : undefined}
             onclick={() => {
@@ -208,9 +208,6 @@
     border-right: 1px solid var(--line);
   }
   .artist {
-    /* Content, not a control: keep body text. */
-    font-size: var(--type-body);
-    line-height: var(--leading-body);
     width: 100%;
     display: flex;
     align-items: center;

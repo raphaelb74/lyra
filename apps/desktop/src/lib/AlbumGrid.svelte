@@ -16,6 +16,7 @@
   {#each albums as album (album.id)}
     <li>
       <button
+        class="content"
         type="button"
         onclick={() => {
           onOpen(album);
@@ -62,9 +63,6 @@
   button {
     width: 100%;
     display: grid;
-    /* Content, not a control: keep body text. */
-    font-size: var(--type-body);
-    line-height: var(--leading-body);
     gap: var(--space-0);
     text-align: left;
     border: 0;

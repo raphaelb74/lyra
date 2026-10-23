@@ -12,6 +12,7 @@
   import type { IconName } from '../assets/icons/lucide';
   import Popover from './Popover.svelte';
   import Slider from './Slider.svelte';
+  import { decibels } from './format';
   import { snap, volumeScale, type VolumeScale } from './volume';
 
   interface Props {
@@ -83,29 +84,30 @@
     target = null;
   }
 
+  /** Moves from the last value asked for, so quick steps add up. */
+  function nudge(level: VolumeInfo, by: (scale: VolumeScale) => number) {
+    const scale = volumeScale(level);
+
+    void change(scale, (target ?? scale.value) + by(scale));
+  }
+
   function onKey(event: KeyboardEvent) {
     if (!event.ctrlKey || volume?.locked !== null) return;
 
-    const scale = volumeScale(volume);
+    const direction =
+      event.key === 'ArrowUp' ? 1 : event.key === 'ArrowDown' ? -1 : 0;
 
-    const step =
-      event.key === 'ArrowUp'
-        ? scale.jump
-        : event.key === 'ArrowDown'
-          ? -scale.jump
-          : 0;
-
-    if (step === 0) return;
+    if (direction === 0) return;
 
     event.preventDefault();
-    void change(scale, (target ?? scale.value) + step);
+    nudge(volume, (scale) => direction * scale.jump);
   }
 
   /** `−12.5 dB` where the card reports decibels, else `64 %`. */
   function valueText(level: VolumeInfo): string {
-    if (level.decibels === null) return `${String(level.percent)} %`;
-
-    return `${level.decibels.toFixed(1).replace('-', '−')} dB`;
+    return level.decibels === null
+      ? `${String(level.percent)} %`
+      : decibels(level.decibels);
   }
 
   /** Said only when something is off; shortcuts live in Settings › Keyboard. */
@@ -125,12 +127,7 @@
   function onWheel(event: WheelEvent, level: VolumeInfo) {
     if (level.locked !== null || event.deltaY === 0) return;
 
-    const scale = volumeScale(level);
-
-    void change(
-      scale,
-      (target ?? scale.value) + (event.deltaY < 0 ? scale.step : -scale.step),
-    );
+    nudge(level, (scale) => (event.deltaY < 0 ? scale.step : -scale.step));
   }
 
   /** Follows changes made outside Lyra; ignored while a change is sent. */
@@ -160,6 +157,8 @@
 {#if volume}
   {@const level = volume}
   {@const scale = volumeScale(volume)}
+  {@const text = valueText(volume)}
+  {@const note = hint(volume)}
   <div
     class="volume"
     class:warn={notBitPerfect}
@@ -168,15 +167,16 @@
     }}
   >
     <Popover
-      label={`Volume: ${valueText(level)}`}
+      label={`Volume: ${text}`}
       triggerClass="icon volume-trigger"
       above
+      align="center"
       clear="footer"
     >
       {#snippet trigger()}
         <Icon name={icon(level)} size={18} />
       {/snippet}
-      <p class="value num">{valueText(level)}</p>
+      <p class="value num">{text}</p>
       <div class="track">
         <Slider
           label="Volume"
@@ -184,12 +184,12 @@
           min={scale.min}
           max={scale.max}
           step={scale.step}
-          valueText={valueText(level)}
+          valueText={text}
           disabled={level.locked !== null}
           onInput={(value: number) => void change(scale, value)}
         />
       </div>
-      {#if hint(level)}<p class="hint">{hint(level)}</p>{/if}
+      {#if note}<p class="hint">{note}</p>{/if}
     </Popover>
   </div>
 {/if}
@@ -212,13 +212,10 @@
     border-radius: var(--radius-round);
     background: var(--warning);
   }
-  /* A narrow column centred over the button. */
+  /* A narrow column. */
   .volume :global(div.panel) {
-    left: 50%;
-    right: auto;
     width: 152px;
     min-width: 0;
-    margin-left: -76px;
     max-height: none;
     display: grid;
     justify-items: center;
