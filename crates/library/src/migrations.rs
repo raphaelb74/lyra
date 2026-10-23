@@ -247,6 +247,9 @@ const MIGRATIONS: &[Migration] = &[
     );
     ",
     ),
+    // 11: where chosen artwork came from: null for a file the user picked,
+    // else the online source's name.
+    Migration::Sql("ALTER TABLE chosen_art ADD COLUMN source TEXT;"),
 ];
 
 /// Brings the schema up to date, after a backup of an existing database

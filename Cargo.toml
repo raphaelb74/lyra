@@ -7,6 +7,7 @@ members = [
   "crates/format-dsd",
   "crates/format-pcm",
   "crates/library",
+  "crates/musicbrainz",
   "crates/unda",
 ]
 
@@ -27,6 +28,7 @@ format-pcm = { path = "crates/format-pcm", version = "0.1.0" }
 unda = { path = "crates/unda", version = "0.1.0" }
 audio-alsa = { path = "crates/audio-alsa", version = "0.1.0" }
 library = { path = "crates/library", version = "0.1.0" }
+musicbrainz = { path = "crates/musicbrainz", version = "0.1.0" }
 # Third party.
 alsa = "0.12.1"
 # Device reservation over D-Bus; already in the tree through Tauri.
@@ -39,6 +41,11 @@ serde_json = "1.0.154"
 tauri = "2.12.4"
 tauri-build = "2.7.3"
 tauri-plugin-dialog = "2.8.3"
+# HTTPS for MusicBrainz and the Cover Art Archive: blocking, rustls with ring and
+# bundled Mozilla roots, so it builds and behaves the same on Linux, Windows and macOS.
+ureq = "3.5.0"
+# Tests only: gzip bodies for the client's decompression limit; already in the tree through ureq.
+flate2 = "1.1.10"
 # Library matching keys (NFC); no dependencies of its own.
 unicode-normalization = "0.1.26"
 

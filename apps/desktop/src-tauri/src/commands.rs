@@ -43,6 +43,12 @@ pub struct AppState {
     settings_path: PathBuf,
     /// Device whose volume the UI shows, for the volume watcher.
     watched: Mutex<Option<String>>,
+    /// MusicBrainz and the Cover Art Archive, for ID Match. Makes no request
+    /// until a command asks, and those refuse while lookups are off.
+    pub musicbrainz: musicbrainz::Client,
+    /// The last cover ID Match showed, by release ID, so saving it does not
+    /// fetch it again.
+    pub match_cover: Mutex<Option<(String, Vec<u8>)>>,
 }
 
 impl AppState {
@@ -65,6 +71,11 @@ impl AppState {
             settings: Mutex::new(Settings::default()),
             settings_path,
             watched: Mutex::new(None),
+            musicbrainz: musicbrainz::Client::new(
+                musicbrainz::Service::official(),
+                env!("CARGO_PKG_VERSION"),
+            ),
+            match_cover: Mutex::new(None),
         };
         state.apply_settings(Settings::load(&state.settings_path));
         state
@@ -74,7 +85,7 @@ impl AppState {
         locked(&self.watched).clone()
     }
 
-    fn settings(&self) -> Settings {
+    pub fn settings(&self) -> Settings {
         locked(&self.settings).clone()
     }
 
@@ -199,7 +210,7 @@ pub fn list_devices() -> Result<Vec<DeviceInfo>, IpcError> {
 }
 
 /// Runs one library call and converts its error for the UI.
-fn query<T>(
+pub fn query<T>(
     state: &AppState,
     run: impl FnOnce(&mut Library) -> Result<T, LibraryError>,
 ) -> Result<T, IpcError> {

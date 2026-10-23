@@ -23,6 +23,8 @@
     onBack: () => void;
     onEdit: () => void;
     onFixTags: () => void;
+    /** Opens ID Match: the album compared with MusicBrainz. */
+    onMatch: () => void;
     onError: (message: string) => void;
   }
 
@@ -34,6 +36,7 @@
     onBack,
     onEdit,
     onFixTags,
+    onMatch,
     onError,
   }: Props = $props();
 
@@ -185,6 +188,9 @@
         >
         <button type="button" class="with-icon" onclick={onFixTags}
           ><Icon name="sparkles" size={16} />Fix tags</button
+        >
+        <button type="button" class="with-icon" onclick={onMatch}
+          ><Icon name="search" size={16} />ID Match</button
         >
       </div>
     </div>

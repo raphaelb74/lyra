@@ -98,6 +98,16 @@ Text, `id3`: v2.4 round-trips all eleven samples. v2.3 turns a NUL inside a valu
 
 A test corpus of badly tagged fixtures covers every rule, including names a rule must leave alone. Online lookups (MT4) are a separate, later source of proposals.
 
+11. **Online sources (MT4): MusicBrainz and Cover Art Archive, read-only.** Checked against their pages on 2026-10-23.
+    - **No account or token.** Search, release lookup and cover images are public reads. MusicBrainz asks for a login only for submissions and user data (tags, ratings, collections); a login, if ever added, uses OAuth (digest tokens end in August 2027) and the system keyring, as its own opt-in.
+    - **User-Agent:** `Lyra/<version> ( lyra-player.doorman433@slmails.com )`, a project alias. It names the app, the same for every user; nothing about the user or their files is sent beyond the search terms.
+    - **One request per second** across all of Lyra, through one limiter. MusicBrainz answers `503` to an IP above about one per second, and then refuses everything until the rate drops, so a `503` backs off (2, 4, 8 s) instead of retrying at once. No requests at startup, during scans or on a timer.
+    - **Requests:** `https://musicbrainz.org/ws/2/` with `fmt=json`. Search `release/?query=` (fields `release`, `artist`, `tracks`, `reid`); lookup `release/<id>?inc=recordings+artist-credits+release-groups+labels+media`. Cover Art Archive `release/<id>/` and `front-500`/`front-1200`, which redirect (`307`) to `archive.org`; only HTTPS redirects to `coverartarchive.org` and `archive.org` hosts are followed.
+    - **Licences.** Releases, release groups, recordings, artists, labels and mediums are MusicBrainz core data, [CC0](https://musicbrainz.org/doc/MusicBrainz_Database). Tags, genres, ratings and annotations are supplementary data under CC BY-NC-SA 3.0, so Lyra does not fetch them: genre stays the user's or the file's. Cover images stay copyrighted by their owners ([Cover Art Archive](https://coverartarchive.org/)); Lyra stores a chosen cover for the user's own library only, shows where it came from, and never redistributes it.
+    - **Fields taken:** album, album artist and its sort name, date, original date (release group's first release), disc and track numbers and totals, title, artist and its sort name, compilation (release group type or Various Artists), and the six MusicBrainz IDs. Composer needs work relationships, one more request per release; it is left for later.
+    - **Kept:** only what the user accepts, as provider edits (`Origin::Provider("MusicBrainz")`), and a chosen cover through the existing artwork store. Responses are kept in memory for the session to avoid asking twice; nothing else is cached on disk.
+    - **Attribution:** the match screen says the data comes from MusicBrainz and the cover from the Cover Art Archive, with links.
+
 **As built (MT2 block 1).**
 
 - **Chaining.** Rules run in the table's order, each on what the ones before left. A field gets one proposal, which names every rule that changed it. Accepting all proposals and running the rules again proposes nothing; a test checks this.
@@ -129,6 +139,5 @@ A test corpus of badly tagged fixtures covers every rule, including names a rule
 ## Still open
 
 - **Read by other taggers.** No independent tagger is installed here (exiftool, kid3, Mp3tag). A dated manual report should read Lyra-written FLAC and DSF files before MT5 ships.
-- **Online sources.** The MusicBrainz and Cover Art Archive licensing map is deferred to MT4, which is when network access is decided.
 - **10k-track baseline.** Deferred along with A07.
 - **Scope change.** [SPECIFICATION.md](SPECIFICATION.md) still describes music folders as read-only. MT1–MT3 (edits, cleanup and the offline editor) do not change files, so they need no scope change. MT5 (file writes) does.

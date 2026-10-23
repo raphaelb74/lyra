@@ -32,6 +32,10 @@ allow = [
   "Zlib",
   "Unicode-3.0",
   "MPL-2.0",
+  # rustls, ring and untrusted (HTTPS for MusicBrainz): permissive, MIT-like.
+  "ISC",
+  # webpki-roots: the Mozilla root certificate list, a permissive data licence.
+  "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.93
 

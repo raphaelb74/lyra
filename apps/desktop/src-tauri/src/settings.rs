@@ -38,6 +38,9 @@ pub struct Settings {
     /// ALSA devices the user says decode DoP (`hw:CARD=…,DEV=…`). Others get
     /// DoP only when they also expose native DSD.
     pub dop_devices: Vec<String>,
+    /// ID Match may ask MusicBrainz and the Cover Art Archive. Off until the
+    /// user turns it on; nothing goes online at startup or during scans.
+    pub online_lookups: bool,
 }
 
 impl Default for Settings {
@@ -49,6 +52,7 @@ impl Default for Settings {
             // Enough for the DACs tested so far to switch between PCM and DSD.
             resync_delay_ms: 500,
             dop_devices: Vec::new(),
+            online_lookups: false,
         }
     }
 }
@@ -154,6 +158,7 @@ mod tests {
             conversion_gain_db: 3,
             resync_delay_ms: 1000,
             dop_devices: vec!["hw:CARD=E30,DEV=0".to_owned()],
+            online_lookups: true,
         };
         settings.save(&path).unwrap();
         assert_eq!(Settings::load(&path), settings);
@@ -178,6 +183,8 @@ mod tests {
             std::fs::write(&path, content).unwrap();
             assert_eq!(Settings::load(&path), Settings::default(), "{content}");
         }
+        // Online lookups stay off unless the file turns them on.
+        assert!(!Settings::default().online_lookups);
         // Unknown and missing fields are fine: older and newer files load.
         std::fs::write(&path, r#"{"dsdFallback": "convert", "theme": "dark"}"#).unwrap();
         assert_eq!(Settings::load(&path).dsd_fallback, Fallback::Convert);

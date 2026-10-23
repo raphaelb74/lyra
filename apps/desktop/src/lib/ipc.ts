@@ -22,6 +22,9 @@ import {
   isAlbumEditor,
   isFlag,
   isProposalList,
+  isCandidateList,
+  isMatchInfo,
+  isCover,
   type Guard,
 } from './guards';
 
@@ -254,6 +257,8 @@ export interface Settings {
   resyncDelayMs: number;
   /** Devices (`hw:CARD=…,DEV=…`) the user says decode DoP. */
   dopDevices: string[];
+  /** ID Match may ask MusicBrainz and the Cover Art Archive. Off by default. */
+  onlineLookups: boolean;
 }
 
 /** Mirrors Rust's `DiagnosticsInfo`: one device, read now. */
@@ -342,6 +347,108 @@ export interface FieldChange {
   target: TargetRef;
   field: string;
   edit: FieldEdit;
+}
+
+/** Mirrors Rust's `EvidenceInfo`: what agrees between album and edition. */
+export interface Evidence {
+  releaseId: boolean;
+  trackCount: boolean;
+  title: boolean;
+  artist: boolean;
+  year: boolean;
+}
+
+/** Mirrors Rust's `CandidateInfo`: one edition ID Match found. */
+export interface Candidate {
+  releaseId: string;
+  title: string;
+  artist: string;
+  disambiguation: string | null;
+  date: string | null;
+  country: string | null;
+  status: string | null;
+  /** `Label catalogue-number`. */
+  labels: string[];
+  /** `2×CD`, `12" Vinyl`, … */
+  formats: string[];
+  trackCount: number | null;
+  evidence: Evidence;
+}
+
+/** A release track: its medium and place, from 0. */
+export interface Slot {
+  medium: number;
+  index: number;
+}
+
+export interface ReleaseTrack {
+  /** As printed: `3`, `A1`. */
+  number: string;
+  title: string;
+  seconds: number | null;
+}
+
+export interface Medium {
+  position: number;
+  format: string | null;
+  title: string | null;
+  tracks: ReleaseTrack[];
+}
+
+export interface MatchTrack {
+  id: number;
+  disc: string | null;
+  number: string | null;
+  title: string | null;
+  seconds: number | null;
+}
+
+export type PairedBy = 'id' | 'number' | 'runningNumber' | 'order' | 'hand';
+
+export interface Pair {
+  track: number;
+  slot: Slot;
+  by: PairedBy;
+  /** Album length minus release length. */
+  lengthDifferenceSeconds: number | null;
+  lengthsAgree: boolean | null;
+}
+
+export interface Suggestion {
+  target: TargetRef;
+  field: string;
+  fieldLabel: string;
+  before: string[];
+  after: string[];
+  /** The listener edited this field; that edit is kept. */
+  kept: boolean;
+}
+
+/** Mirrors Rust's `MatchInfo`: an edition compared with the album. */
+export interface MatchInfo {
+  release: Candidate;
+  /** The release's page on MusicBrainz. */
+  url: string;
+  media: Medium[];
+  tracks: MatchTrack[];
+  pairs: Pair[];
+  unpaired: number[];
+  missing: Slot[];
+  suggestions: Suggestion[];
+  /** What a save is checked against. */
+  revisions: RevisionInfo[];
+}
+
+/** A pair the listener chose. */
+export interface PairChoice {
+  track: number;
+  slot: Slot;
+}
+
+/** A suggestion the listener accepted. */
+export interface FieldKey {
+  target: TargetRef;
+  field: string;
 }
 
 /** Mirrors Rust's `ProposalInfo`: a fix the cleanup rules propose. */
@@ -576,9 +683,66 @@ export function backend(
           rules: p.rules.map((rule) => rule.name),
         })),
       }),
+    /**
+     * Editions for an album: automatic without a title, else for what was
+     * typed. Fails with `online_off` while online lookups are off.
+     */
+    matchCandidates: (
+      albumId: number,
+      title: string | null = null,
+      artist: string | null = null,
+    ) => run('match_candidates', isCandidateList, { albumId, title, artist }),
+    /** One edition compared with the album; `pairs` as chosen by hand. */
+    matchRelease: (
+      albumId: number,
+      releaseId: string,
+      pairs: PairChoice[] | null = null,
+    ) =>
+      run('match_release', isMatchInfo, {
+        albumId,
+        releaseId,
+        pairs: pairs && copyPairs(pairs),
+      }),
+    /** The edition's front cover as a `data:` URL, or null. */
+    matchCover: (releaseId: string) =>
+      run<string | null>('match_cover', isCover, { releaseId }),
+    /**
+     * Saves the accepted suggestions (values come from MusicBrainz, in
+     * Rust) and the cover if asked; `changed_meanwhile` when stale.
+     */
+    applyMatch: (
+      albumId: number,
+      releaseId: string,
+      pairs: PairChoice[] | null,
+      accepted: FieldKey[],
+      revisions: RevisionInfo[],
+      cover: boolean,
+    ) =>
+      run('apply_match', isNothing, {
+        albumId,
+        releaseId,
+        pairs: pairs && copyPairs(pairs),
+        accepted: accepted.map((key) => ({
+          target: { ...key.target },
+          field: key.field,
+        })),
+        revisions: revisions.map((revision) => ({
+          target: { ...revision.target },
+          revision: revision.revision,
+        })),
+        cover,
+      }),
     setSettings: (settings: Settings) =>
       run('set_settings', isSettings, { settings: { ...settings } }),
   };
 }
 
 export type Backend = ReturnType<typeof backend>;
+
+/** Plain copies: reactive proxies do not cross IPC. */
+function copyPairs(pairs: PairChoice[]) {
+  return pairs.map((pair) => ({
+    track: pair.track,
+    slot: { medium: pair.slot.medium, index: pair.slot.index },
+  }));
+}

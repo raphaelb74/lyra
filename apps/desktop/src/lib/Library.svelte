@@ -3,6 +3,7 @@
 
   import AlbumEditor from './AlbumEditor.svelte';
   import FixTags from './FixTags.svelte';
+  import IdMatch from './IdMatch.svelte';
   import AlbumGrid from './AlbumGrid.svelte';
   import AlbumView from './AlbumView.svelte';
   import ArtistList from './ArtistList.svelte';
@@ -43,8 +44,9 @@
   let scan = $state<ScanStatus | null>(null);
   /** A sentence about the last drop, e.g. a file instead of a folder. */
   let notice = $state<string | null>(null);
-  /** What an open album shows: the album, its editor, or its tag fixes. */
-  type Page = 'view' | 'edit' | 'fix';
+  /** What an open album shows: the album, its editor, its tag fixes, or
+   * ID Match. */
+  type Page = 'view' | 'edit' | 'fix' | 'match';
 
   /** The album opened, the section it was opened from, and its page. */
   let opened = $state<{
@@ -283,6 +285,18 @@
     }}
     {onError}
   />
+{:else if openAlbum && opened?.page === 'match'}
+  <IdMatch
+    {api}
+    album={openAlbum}
+    onBack={() => {
+      turnTo('view');
+    }}
+    onSaved={() => {
+      undoable = true;
+      turnTo('view');
+    }}
+  />
 {:else if openAlbum}
   <AlbumView
     album={openAlbum}
@@ -297,6 +311,10 @@
     }}
     onFixTags={() => {
       turnTo('fix');
+    }}
+    onMatch={() => {
+      undoNotice = null;
+      turnTo('match');
     }}
   />
 {:else}

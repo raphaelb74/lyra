@@ -17,7 +17,9 @@ mod shown;
 mod tags;
 mod values;
 
-pub use art::{MAX_CACHE_BYTES, THUMB_DIR, delete_art, is_art_name};
+pub use art::{
+    ArtworkSource, MAX_CACHE_BYTES, THUMB_DIR, delete_art, is_art_name, sniff as image_type,
+};
 pub use cleanup::{Proposal, Rule};
 pub use db::{
     Album, Artist, Folder, Library, LibraryError, Track, UNKNOWN_ARTIST, VARIOUS_ARTISTS,
@@ -25,6 +27,7 @@ pub use db::{
 pub use edits::{
     Edit, EditChange, FieldPreview, FieldState, Origin, Preview, Revisions, SavedEdit, Target,
 };
+pub use key::key as matching_key;
 pub use playlists::{Entry, Playlist};
 pub use scan::{ScanProgress, ScanSummary, is_audio_file, scan};
 pub use scanner::{ScanEvent, Scanner};

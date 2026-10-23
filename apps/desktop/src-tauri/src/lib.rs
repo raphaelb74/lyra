@@ -1,4 +1,5 @@
 mod commands;
+mod id_match;
 mod ipc;
 mod mpris;
 mod settings;
@@ -129,6 +130,10 @@ pub fn run() -> tauri::Result<()> {
             commands::reset_artwork,
             commands::propose_fixes,
             commands::apply_fixes,
+            id_match::match_candidates,
+            id_match::match_release,
+            id_match::match_cover,
+            id_match::apply_match,
         ])
         .build(tauri::generate_context!())?;
     app.run(|handle, event| {

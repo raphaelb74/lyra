@@ -12,6 +12,7 @@ use library::{
     Album, Artist, Edit, EditChange, Entry, Field, FieldState, Folder, Playlist, Proposal, Rule,
     ScanSummary, Target,
 };
+use musicbrainz::matching::{Candidate, credit_text};
 use serde::{Deserialize, Serialize};
 use unda::{
     BitPerfect, ConversionStats, Encoding, ErrorKind, HardwareVolume, NowPlaying, PlaybackState,
@@ -946,4 +947,196 @@ impl AcceptIn {
         .into_change()?;
         Ok((change, names.join("+")))
     }
+}
+
+/// One edition ID Match found, or the one being compared.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateInfo {
+    pub release_id: String,
+    pub title: String,
+    /// The credit as printed.
+    pub artist: String,
+    pub disambiguation: Option<String>,
+    pub date: Option<String>,
+    pub country: Option<String>,
+    pub status: Option<String>,
+    /// `Label catalogue-number`, one per label.
+    pub labels: Vec<String>,
+    /// `2×CD`, `12" Vinyl`, …
+    pub formats: Vec<String>,
+    pub track_count: Option<u32>,
+    pub evidence: EvidenceInfo,
+}
+
+/// What agrees between the album and an edition.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent facts, each shown to the listener"
+)]
+pub struct EvidenceInfo {
+    pub release_id: bool,
+    pub track_count: bool,
+    pub title: bool,
+    pub artist: bool,
+    pub year: bool,
+}
+
+impl From<Candidate> for CandidateInfo {
+    fn from(candidate: Candidate) -> Self {
+        let Candidate { release, evidence } = candidate;
+        let labels = release
+            .label_info
+            .iter()
+            .filter_map(|info| {
+                let name = info.label.as_ref().map(|label| label.name.as_str());
+                let number = info.catalog_number.as_deref();
+                match (name, number) {
+                    (Some(name), Some(number)) => Some(format!("{name} {number}")),
+                    (Some(text), None) | (None, Some(text)) => Some(text.to_owned()),
+                    (None, None) => None,
+                }
+            })
+            .collect();
+        let mut formats: Vec<(String, u32)> = Vec::new();
+        for medium in &release.media {
+            let format = medium
+                .format
+                .clone()
+                .unwrap_or_else(|| "Unknown".to_owned());
+            match formats.last_mut() {
+                Some((last, count)) if *last == format => *count += 1,
+                _ => formats.push((format, 1)),
+            }
+        }
+        let track_count = release.track_count.or_else(|| {
+            (!release.media.is_empty())
+                .then(|| release.media.iter().map(|medium| medium.track_count).sum())
+        });
+        Self {
+            artist: credit_text(&release.artist_credit),
+            release_id: release.id,
+            title: release.title,
+            disambiguation: release.disambiguation.filter(|text| !text.is_empty()),
+            date: release.date.filter(|date| !date.is_empty()),
+            country: release.country,
+            status: release.status,
+            labels,
+            formats: formats
+                .into_iter()
+                .map(|(format, count)| {
+                    if count > 1 {
+                        format!("{count}×{format}")
+                    } else {
+                        format
+                    }
+                })
+                .collect(),
+            track_count,
+            evidence: EvidenceInfo {
+                release_id: evidence.release_id,
+                track_count: evidence.track_count,
+                title: evidence.title,
+                artist: evidence.artist,
+                year: evidence.year,
+            },
+        }
+    }
+}
+
+/// An edition compared with the album: its tracks, the pairs, and what it
+/// would change.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchInfo {
+    pub release: CandidateInfo,
+    /// The release's page on MusicBrainz, for attribution.
+    pub url: String,
+    pub media: Vec<MediumInfo>,
+    /// The album's tracks, in album order.
+    pub tracks: Vec<LocalTrackInfo>,
+    pub pairs: Vec<PairInfo>,
+    /// Album tracks with no release track.
+    pub unpaired: Vec<i64>,
+    /// Release tracks the album lacks.
+    pub missing: Vec<SlotRef>,
+    pub suggestions: Vec<SuggestionInfo>,
+    /// What a save is checked against.
+    pub revisions: Vec<RevisionInfo>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediumInfo {
+    pub position: u32,
+    pub format: Option<String>,
+    pub title: Option<String>,
+    pub tracks: Vec<ReleaseTrackInfo>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseTrackInfo {
+    /// As printed: `3`, `A1`.
+    pub number: String,
+    pub title: String,
+    pub seconds: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalTrackInfo {
+    pub id: i64,
+    pub disc: Option<String>,
+    pub number: Option<String>,
+    pub title: Option<String>,
+    pub seconds: Option<f64>,
+}
+
+/// A release track: its medium and place, from 0.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlotRef {
+    pub medium: usize,
+    pub index: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairInfo {
+    pub track: i64,
+    pub slot: SlotRef,
+    /// `id`, `number`, `runningNumber`, `order` or `hand`.
+    pub by: &'static str,
+    /// Album length minus release length.
+    pub length_difference_seconds: Option<f64>,
+    pub lengths_agree: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestionInfo {
+    pub target: TargetRef,
+    pub field: &'static str,
+    pub field_label: &'static str,
+    pub before: Vec<String>,
+    pub after: Vec<String>,
+    /// The listener edited this field; that edit is kept.
+    pub kept: bool,
+}
+
+/// A pair the listener chose.
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub struct PairIn {
+    pub track: i64,
+    pub slot: SlotRef,
+}
+
+/// A suggested field the listener accepted.
+#[derive(Clone, Debug, Deserialize)]
+pub struct FieldRef {
+    pub target: TargetRef,
+    pub field: String,
 }
