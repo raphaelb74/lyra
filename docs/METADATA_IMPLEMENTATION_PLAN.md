@@ -26,7 +26,7 @@ The [Windows plan](M6_WINDOWS_IMPLEMENTATION.md) shares decisions about path ide
 
 - [x] Add forward-only migrations after the current schema. Back up the database safely before migration (`VACUUM INTO`, newest three kept; migrations may run Rust code, with foreign keys checked before each commits).
 - [x] Separate stable local release identity from album title/artist; retain existing track/playlist IDs. Design conservative reconstruction for already-merged editions. _Migration 5: grouping by MusicBrainz release ID, else release folder (disc folders joined), album and album artist; the next scan regroups, and a release whose tracks all move keeps its ID and artwork._
-- [ ] Track identity independent of the path: a move or rename (MT6, or done outside Lyra and recognised by size, stamp and tags) updates the path, not the ID.
+- [x] Track identity independent of the path: a move or rename (MT6, or done outside Lyra) updates the path, not the ID. _Migration 6: `audio_id` (FLAC audio MD5, else codec, size, rate, channels and length); only a unique match on both sides counts as a move._
 - [ ] Add file observations, manual overrides, source preferences and accepted provider IDs/values with typed fields and revisions.
 - [ ] Represent absent/set/clear/reset independently. Define release-wide versus track-specific field resolution.
 - [ ] Distinguish artist credits from artist identity; allow offline entities with no provider ID.

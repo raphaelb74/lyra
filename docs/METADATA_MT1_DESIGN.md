@@ -36,7 +36,7 @@ The `grouping` string is evidence, not identity. When files move but stay togeth
 
 **Migration 5.** Existing albums may merge editions, and the database does not record each track's album-artist tag, so they cannot be split reliably in SQL. Migration 5 gives every album a placeholder grouping and marks every track for a re-read, as migration 3 did for genres; the next scan regroups them. Track IDs, and so playlists, are kept because tracks are matched by path. The same rule that lets a release follow its tracks keeps album IDs and artwork: a new release whose tracks all came from one old album, now empty, takes that album's place. Only a merged edition gets a new ID, for its second part. Tracks also gain their album-artist tag (`album_artist_id`, empty when untagged) and compilation flag, so the album artist is decided from the tracks after each scan.
 
-## Block 3: path-independent tracks
+## Block 3: path-independent tracks (migration 6) — done
 
 A track keeps its `id` when its file moves or is renamed, whether by Lyra (MT6) or by another program.
 
@@ -48,6 +48,9 @@ A track keeps its `id` when its file moves or is renamed, whether by Lyra (MT6) 
 
 - **During a scan**, once every folder is walked, tracks no longer found are compared with files new to the library. A new file whose `audio_id` matches exactly one missing track, and only one, is that track moved: its path and folder are updated, and its ID, playlists and edits stay. Several candidates, or none, fall back to today's behaviour, so a wrong match is never made.
 - Tracks in unavailable folders (T01) are not candidates. Their files are not gone, only out of reach.
+- A scan that is cancelled moves and removes nothing: it may not have reached where a missing track went.
+- A moved track takes the new file's values, and the release follows it as in block 2, so a renamed album folder keeps its album ID and artwork too.
+- Migration 6 adds `audio_id` and marks every track for a re-read to fill it in.
 
 ## Block 4: layered values
 

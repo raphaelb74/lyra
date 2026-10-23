@@ -131,6 +131,15 @@ const MIGRATIONS: &[Migration] = &[
     UPDATE tracks SET mtime_ns = -1;
     ",
     ),
+    // 6: what identifies a track's audio whatever its path (see
+    // `scan::audio_id`), so a moved file keeps its track. Every track is
+    // read again to fill it in.
+    Migration::Sql(
+        "
+    ALTER TABLE tracks ADD COLUMN audio_id TEXT;
+    UPDATE tracks SET mtime_ns = -1;
+    ",
+    ),
 ];
 
 /// Shown when a file has no artist tag.

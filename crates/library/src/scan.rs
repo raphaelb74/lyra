@@ -6,8 +6,9 @@
 //! batches, so the UI can read (WAL) and edit folders while a scan runs.
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
+use std::fmt::Write as _;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -49,7 +50,10 @@ pub struct ScanProgress {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ScanSummary {
     pub added: usize,
+    /// Includes the tracks in `moved`.
     pub updated: usize,
+    /// Tracks whose file was moved or renamed: same track, new path.
+    pub moved: usize,
     pub removed: usize,
     pub failed: usize,
     /// The first failures: file and reason.
@@ -94,9 +98,11 @@ impl Walk {
 /// Releases this scan created or changed, for [`settle`].
 #[derive(Default)]
 struct Regroup {
-    /// New release → the releases its tracks were in before (`None`: a track
-    /// new to the library). Ordered, so the first created wins a tie.
-    created: BTreeMap<i64, HashSet<Option<i64>>>,
+    /// Releases created, in order, so the first created wins a tie.
+    created: BTreeSet<i64>,
+    /// Track written → the release it was in before (`None`: new to the
+    /// library).
+    previous: HashMap<i64, Option<i64>>,
     /// Releases that gained or lost a track: their album artist is decided
     /// again.
     touched: HashSet<i64>,
@@ -136,6 +142,8 @@ pub fn scan(
 
     let mut summary = ScanSummary::default();
     let mut regroup = Regroup::default();
+    // Tracks not found in a folder walked in full.
+    let mut missing = Vec::new();
     let mut done = 0;
     progress(ScanProgress { done, total });
     'folders: for (folder_id, root, mut walk) in found {
@@ -170,13 +178,21 @@ pub fn scan(
             progress(ScanProgress { done, total });
         }
         write_batch(conn, art_dir, &mut pending, &mut summary, &mut regroup)?;
-        // Whatever was not found any more is gone from disk, unless it sits
-        // where the walk could not look.
+        // Whatever was not found any more is moved or gone from disk,
+        // unless it sits where the walk could not look.
+        missing.extend(
+            known
+                .into_iter()
+                .filter(|(path, _)| !walk.covers(&path_from(path)))
+                .map(|(_, (id, _))| id),
+        );
+    }
+
+    // A cancelled scan may not have reached where a missing track went.
+    if !summary.cancelled {
+        follow_moves(conn, &mut missing, &mut regroup, &mut summary)?;
         let transaction = conn.transaction()?;
-        for (path, (id, _)) in known {
-            if walk.covers(&path_from(&path)) {
-                continue;
-            }
+        for id in missing {
             transaction.execute("DELETE FROM tracks WHERE id = ?1", [id])?;
             summary.removed += 1;
         }
@@ -373,41 +389,47 @@ fn write_track(
         .prepare_cached("SELECT album_id FROM tracks WHERE path = ?1")?
         .query_row([path_bytes(&file.path)], |row| row.get(0))
         .optional()?;
-    if let Some(sources) = regroup.created.get_mut(&album_id) {
-        sources.insert(previous);
-    }
     regroup.touched.insert(album_id);
     regroup.touched.extend(previous);
 
-    conn.prepare_cached(
-        "INSERT INTO tracks (folder_id, path, size, mtime_ns, album_id, artist_id, title,
+    let track_id: i64 = conn
+        .prepare_cached(
+            "INSERT INTO tracks (folder_id, path, size, mtime_ns, album_id, artist_id, title,
              disc, track, duration_ms, codec, sample_rate, bits_per_sample, channels, genre,
-             album_artist_id, compilation)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+             album_artist_id, compilation, audio_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+             ?18)
          ON CONFLICT (path) DO UPDATE SET folder_id = ?1, size = ?3, mtime_ns = ?4,
              album_id = ?5, artist_id = ?6, title = ?7, disc = ?8, track = ?9,
              duration_ms = ?10, codec = ?11, sample_rate = ?12, bits_per_sample = ?13,
-             channels = ?14, genre = ?15, album_artist_id = ?16, compilation = ?17",
-    )?
-    .execute(params![
-        folder_id,
-        path_bytes(&file.path),
-        file.size,
-        file.mtime_ns,
-        album_id,
-        artist_id,
-        title,
-        scanned.disc.or(folder_disc),
-        scanned.track,
-        scanned.duration_ms.and_then(|ms| i64::try_from(ms).ok()),
-        scanned.codec,
-        scanned.sample_rate,
-        scanned.bits_per_sample,
-        scanned.channels,
-        scanned.genre,
-        album_artist_id,
-        scanned.compilation,
-    ])?;
+             channels = ?14, genre = ?15, album_artist_id = ?16, compilation = ?17,
+             audio_id = ?18
+         RETURNING id",
+        )?
+        .query_row(
+            params![
+                folder_id,
+                path_bytes(&file.path),
+                file.size,
+                file.mtime_ns,
+                album_id,
+                artist_id,
+                title,
+                scanned.disc.or(folder_disc),
+                scanned.track,
+                scanned.duration_ms.and_then(|ms| i64::try_from(ms).ok()),
+                scanned.codec,
+                scanned.sample_rate,
+                scanned.bits_per_sample,
+                scanned.channels,
+                scanned.genre,
+                album_artist_id,
+                scanned.compilation,
+                audio_id(file.size, &scanned),
+            ],
+            |row| row.get(0),
+        )?;
+    regroup.previous.insert(track_id, previous);
 
     if !has_art {
         let picture = match scanned.picture {
@@ -419,6 +441,112 @@ fn write_track(
             art::store(conn, art_dir, album_id, &picture)?;
         }
     }
+    Ok(())
+}
+
+/// What identifies a file's audio whatever its name: the FLAC audio MD5,
+/// else the codec, file size, rate, channels and length together.
+fn audio_id(size: i64, scanned: &Scanned) -> Option<String> {
+    if let Some(md5) = scanned.audio_md5 {
+        let hex = md5.iter().fold(String::with_capacity(32), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        });
+        return Some(format!("md5:{hex}"));
+    }
+    let frames = scanned.frames?;
+    Some(format!(
+        "{}:{size}:{}:{}:{frames}",
+        scanned.codec, scanned.sample_rate, scanned.channels
+    ))
+}
+
+/// Missing tracks that were moved or renamed: a file new to the library
+/// with the same audio, the only candidate on both sides. The track takes
+/// the new file's path and values and keeps its ID, playlists and release;
+/// the new row goes. Moved tracks leave `missing`.
+fn follow_moves(
+    conn: &mut Connection,
+    missing: &mut Vec<i64>,
+    regroup: &mut Regroup,
+    summary: &mut ScanSummary,
+) -> Result<(), LibraryError> {
+    let arrived: Vec<i64> = regroup
+        .previous
+        .iter()
+        .filter(|(_, previous)| previous.is_none())
+        .map(|(&id, _)| id)
+        .collect();
+    if missing.is_empty() || arrived.is_empty() {
+        return Ok(());
+    }
+    let transaction = conn.transaction()?;
+    let by_audio = |ids: &[i64]| -> Result<HashMap<String, Vec<i64>>, LibraryError> {
+        let mut statement =
+            transaction.prepare_cached("SELECT audio_id FROM tracks WHERE id = ?1")?;
+        let mut found: HashMap<String, Vec<i64>> = HashMap::new();
+        for &id in ids {
+            let audio: Option<String> = statement.query_row([id], |row| row.get(0))?;
+            if let Some(audio) = audio {
+                found.entry(audio).or_default().push(id);
+            }
+        }
+        Ok(found)
+    };
+    let gone = by_audio(missing)?;
+    let new = by_audio(&arrived)?;
+    let mut moved = HashSet::new();
+    for (audio, olds) in gone {
+        let ([old], Some([arrival])) = (olds.as_slice(), new.get(&audio).map(Vec::as_slice)) else {
+            continue;
+        };
+        let album: i64 =
+            transaction.query_row("SELECT album_id FROM tracks WHERE id = ?1", [old], |row| {
+                row.get(0)
+            })?;
+        move_track(&transaction, *old, *arrival)?;
+        regroup.previous.remove(arrival);
+        regroup.previous.insert(*old, Some(album));
+        regroup.touched.insert(album);
+        moved.insert(*old);
+    }
+    transaction.commit()?;
+    missing.retain(|id| !moved.contains(id));
+    summary.moved += moved.len();
+    summary.added -= moved.len();
+    summary.updated += moved.len();
+    Ok(())
+}
+
+/// Gives track `old` everything of track `new`, its moved file, then
+/// deletes `new`.
+fn move_track(conn: &Connection, old: i64, new: i64) -> Result<(), LibraryError> {
+    let path: Vec<u8> = conn.query_row("SELECT path FROM tracks WHERE id = ?1", [new], |row| {
+        row.get(0)
+    })?;
+    // Added to a playlist while the scan ran.
+    conn.execute(
+        "UPDATE playlist_items SET track_id = ?1 WHERE track_id = ?2",
+        [old, new],
+    )?;
+    // Paths are unique and absolute: free this one for `old`.
+    conn.execute(
+        "UPDATE tracks SET path = CAST('moving:' || id AS BLOB) WHERE id = ?1",
+        [new],
+    )?;
+    conn.execute(
+        "UPDATE tracks SET path = ?3,
+             (folder_id, size, mtime_ns, album_id, artist_id, title, disc, track, duration_ms,
+              codec, sample_rate, bits_per_sample, channels, genre, album_artist_id,
+              compilation, audio_id) =
+             (SELECT folder_id, size, mtime_ns, album_id, artist_id, title, disc, track,
+                     duration_ms, codec, sample_rate, bits_per_sample, channels, genre,
+                     album_artist_id, compilation, audio_id
+              FROM tracks AS moved WHERE moved.id = ?2)
+         WHERE id = ?1",
+        params![old, new, path],
+    )?;
+    conn.execute("DELETE FROM tracks WHERE id = ?1", [new])?;
     Ok(())
 }
 
@@ -447,7 +575,7 @@ fn release(
     )?
     .execute(params![title, artist_id, year, grouping])?;
     let id = conn.last_insert_rowid();
-    regroup.created.insert(id, HashSet::new());
+    regroup.created.insert(id);
     Ok((id, false))
 }
 
@@ -505,7 +633,15 @@ fn disc_folder(name: &OsStr) -> Option<u32> {
 fn settle(conn: &mut Connection, regroup: Regroup) -> Result<Vec<String>, LibraryError> {
     let transaction = conn.transaction()?;
     let mut unused = Vec::new();
-    for (new, sources) in regroup.created {
+    for &new in &regroup.created {
+        let tracks: Vec<i64> = transaction
+            .prepare_cached("SELECT id FROM tracks WHERE album_id = ?1")?
+            .query_map([new], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+        let sources: HashSet<Option<i64>> = tracks
+            .iter()
+            .map(|id| regroup.previous.get(id).copied().flatten())
+            .collect();
         let mut sources = sources.into_iter();
         let (Some(Some(old)), None) = (sources.next(), sources.next()) else {
             continue;

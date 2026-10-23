@@ -8,6 +8,7 @@ use std::path::Path;
 use format_dsd::{Container, DsdReader};
 use id3::TagLike;
 use symphonia::core::codecs::CodecParameters;
+use symphonia::core::codecs::audio::VerificationCheck;
 use symphonia::core::common::Limit;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, TrackType};
@@ -44,6 +45,11 @@ pub struct Scanned {
     pub bits_per_sample: u32,
     pub channels: u32,
     pub duration_ms: Option<u64>,
+    /// Audio frames (samples per channel), when the header says.
+    pub frames: Option<u64>,
+    /// FLAC: MD5 of the decoded audio, from STREAMINFO; `None` when the
+    /// encoder left it blank.
+    pub audio_md5: Option<[u8; 16]>,
     pub picture: Option<Picture>,
 }
 
@@ -107,6 +113,11 @@ fn read_pcm(path: &Path) -> Result<Scanned, String> {
             duration_ms: track
                 .num_frames
                 .map(|frames| frames.saturating_mul(1000) / u64::from(sample_rate.max(1))),
+            frames: track.num_frames,
+            audio_md5: match params.verification_check {
+                Some(VerificationCheck::Md5(md5)) if md5 != [0; 16] => Some(md5),
+                _ => None,
+            },
             ..Scanned::default()
         }
     };
@@ -194,6 +205,7 @@ fn read_dsd(path: &Path) -> Result<Scanned, String> {
         duration_ms: Some(
             info.total_frames.saturating_mul(1000) / u64::from(info.frame_rate().max(1)),
         ),
+        frames: Some(info.total_frames),
         ..Scanned::default()
     };
     // A broken or missing tag leaves the file playable, just untitled.
