@@ -10,7 +10,14 @@
   import FormatLogo from './FormatLogo.svelte';
   import Icon from './Icon.svelte';
   import { attempt, type Album, type Backend, type LibraryTrack } from './ipc';
-  import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
+  import {
+    addToPlaylist,
+    openMenu,
+    playShuffled,
+    queueActions,
+    type MenuItem,
+  } from './menu.svelte';
+  import RowMenu from './RowMenu.svelte';
   import { rowEvents } from './rows';
 
   interface Props {
@@ -93,13 +100,25 @@
   /** Turns shuffle on and starts from a random track. */
   function shuffle() {
     const ids = tracks.map((t) => t.id);
-    const start = Math.floor(Math.random() * ids.length);
 
-    void attempt(async () => {
-      await api.setShuffle(true);
+    void attempt(() => playShuffled(api, ids, device), onError);
+  }
 
-      return api.playTracks(ids, start, device);
-    }, onError);
+  /** The row's menu: on right-click and behind its ⋯. */
+  function trackMenu(track: LibraryTrack, index: number): MenuItem[] {
+    return [
+      {
+        label: 'Play',
+        icon: 'play',
+        disabled: device === '',
+        run: () => {
+          play(index);
+        },
+      },
+      ...queueActions(api, () => Promise.resolve([track.id]), device, onError),
+      'separator',
+      addToPlaylist(api, () => Promise.resolve([track.id]), onError),
+    ];
   }
 
   function number(track: LibraryTrack): string {
@@ -219,24 +238,7 @@
             },
           )}
           oncontextmenu={(event) => {
-            openMenu(event, [
-              {
-                label: 'Play',
-                icon: 'play',
-                disabled: device === '',
-                run: () => {
-                  play(index);
-                },
-              },
-              ...queueActions(
-                api,
-                () => Promise.resolve([track.id]),
-                device,
-                onError,
-              ),
-              'separator',
-              addToPlaylist(api, () => Promise.resolve([track.id]), onError),
-            ]);
+            openMenu(event, trackMenu(track, index));
           }}
         >
           <span class="meta end">{number(track)}</span>
@@ -253,11 +255,9 @@
               : clock(track.durationSeconds)}</span
           >
         </button>
-        <AddToPlaylist
-          {api}
-          trackIds={[track.id]}
-          label={`Add ${track.title} to a playlist`}
-          {onError}
+        <RowMenu
+          label={`More for ${track.title}`}
+          items={() => trackMenu(track, index)}
         />
       </li>
     {/each}

@@ -98,11 +98,26 @@
     background: var(--surface-selected-hover);
   }
 
-  /* Playback wins over hover/selection; the edge is a non-colour cue. */
+  /* Playback wins over hover/selection; the mark is a non-colour cue. */
   .row[aria-current='true'] {
+    position: relative;
     background: var(--surface-playing);
     color: var(--accent);
-    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  /* The playing mark: a short rounded stroke, centred on the row's left. */
+  .row[aria-current='true']::before,
+  .playing-mark::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 3px;
+    height: 16px;
+    translate: 0 -50%;
+    /* Over half the width: fully round ends. */
+    border-radius: var(--radius-s);
+    background: var(--accent);
   }
 
   .row[aria-current='true']:where(:hover, :focus-visible) {

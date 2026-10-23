@@ -227,7 +227,7 @@
   <div class="scroll" bind:this={scroller}>
     {#if playing}
       <h3 class="group-title">Now playing</h3>
-      <div class="now">
+      <div class="now playing-mark">
         {#if playing.art}
           <img
             class="art"
@@ -397,8 +397,8 @@
     gap: var(--space-3);
     padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-s);
+    position: relative;
     background: var(--surface-playing);
-    box-shadow: inset 3px 0 0 var(--accent);
   }
   .now strong {
     font-weight: var(--weight-medium);

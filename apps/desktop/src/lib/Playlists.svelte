@@ -150,7 +150,7 @@
       </div>
     </header>
     {#if entries.length === 0}
-      <p class="muted">Empty. Add tracks with +.</p>
+      <p class="muted">Empty. Add tracks from their ⋯ menu.</p>
     {:else}
       <ol class="rows">
         {#each entries as entry, index (entry.entryId)}

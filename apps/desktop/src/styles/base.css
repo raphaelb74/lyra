@@ -11,6 +11,14 @@
 
   /* An application, not a page: text is not selectable or draggable,
      except where people read or type it. */
+  /* The window never scrolls as a page; views scroll inside it. */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   body {
     user-select: none;
     -webkit-user-select: none;

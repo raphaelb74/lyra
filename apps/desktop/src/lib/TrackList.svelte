@@ -1,10 +1,16 @@
 <script lang="ts">
-  import AddToPlaylist from './AddToPlaylist.svelte';
   import { sortTracks, type TrackColumn, type TrackSort } from './filters';
   import { clock, formatBadge } from './format';
   import Icon from './Icon.svelte';
   import { attempt, type Backend, type LibraryTrack } from './ipc';
-  import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
+  import {
+    addToPlaylist,
+    openMenu,
+    playShuffled,
+    queueActions,
+    type MenuItem,
+  } from './menu.svelte';
+  import RowMenu from './RowMenu.svelte';
   import { rowEvents } from './rows';
 
   interface Props {
@@ -81,20 +87,76 @@
 
     void attempt(() => api.playTracks(ids, index, device), onError);
   }
+
+  /** Every matching track, in the order shown, beyond the rows drawn. */
+  function playAll(shuffled: boolean) {
+    const ids = sorted.map((t) => t.id);
+
+    void attempt(
+      () =>
+        shuffled
+          ? playShuffled(api, ids, device)
+          : api.playTracks(ids, 0, device),
+      onError,
+    );
+  }
+
+  /** The row's menu: on right-click and behind its ⋯. */
+  function trackMenu(track: LibraryTrack, index: number): MenuItem[] {
+    return [
+      {
+        label: 'Play',
+        icon: 'play',
+        disabled: device === '',
+        run: () => {
+          play(index);
+        },
+      },
+      ...queueActions(api, () => Promise.resolve([track.id]), device, onError),
+      {
+        label: 'Go to album',
+        icon: 'disc-3',
+        run: () => {
+          onOpenAlbum(track.albumId);
+        },
+      },
+      'separator',
+      addToPlaylist(api, () => Promise.resolve([track.id]), onError),
+    ];
+  }
 </script>
 
 <div class="heading">
-  <input
-    type="search"
-    placeholder="Search title, artist or album"
-    aria-label="Search tracks"
-    bind:value={search}
-  />
-  <span class="muted num"
-    >{matches.length === tracks.length
-      ? `${String(tracks.length)} tracks`
-      : `${String(matches.length)} of ${String(tracks.length)}`}</span
-  >
+  <h2>Tracks</h2>
+  <div class="actions">
+    <span class="muted num"
+      >{matches.length === tracks.length
+        ? `${String(tracks.length)} tracks`
+        : `${String(matches.length)} of ${String(tracks.length)}`}</span
+    >
+    <input
+      type="search"
+      placeholder="Search title, artist or album"
+      aria-label="Search tracks"
+      bind:value={search}
+    />
+    <button
+      type="button"
+      class="with-icon"
+      disabled={sorted.length === 0 || device === ''}
+      onclick={() => {
+        playAll(true);
+      }}><Icon name="shuffle" size={16} />Shuffle</button
+    >
+    <button
+      type="button"
+      class="primary with-icon"
+      disabled={sorted.length === 0 || device === ''}
+      onclick={() => {
+        playAll(false);
+      }}><Icon name="play" size={16} />Play</button
+    >
+  </div>
 </div>
 <div class="table">
   <div class="columns">
@@ -135,31 +197,7 @@
             },
           )}
           oncontextmenu={(event) => {
-            openMenu(event, [
-              {
-                label: 'Play',
-                icon: 'play',
-                disabled: device === '',
-                run: () => {
-                  play(index);
-                },
-              },
-              ...queueActions(
-                api,
-                () => Promise.resolve([track.id]),
-                device,
-                onError,
-              ),
-              {
-                label: 'Go to album',
-                icon: 'disc-3',
-                run: () => {
-                  onOpenAlbum(track.albumId);
-                },
-              },
-              'separator',
-              addToPlaylist(api, () => Promise.resolve([track.id]), onError),
-            ]);
+            openMenu(event, trackMenu(track, index));
           }}
         >
           <span class="title">{track.title}</span>
@@ -172,11 +210,9 @@
               : clock(track.durationSeconds)}</span
           >
         </button>
-        <AddToPlaylist
-          {api}
-          trackIds={[track.id]}
-          label={`Add ${track.title} to a playlist`}
-          {onError}
+        <RowMenu
+          label={`More for ${track.title}`}
+          items={() => trackMenu(track, index)}
         />
       </li>
     {/each}
@@ -190,10 +226,10 @@
 
 <style>
   input {
-    width: min(100%, 360px);
+    width: 260px;
   }
-  .heading {
-    justify-content: flex-start;
+  .heading .actions {
+    gap: var(--space-3);
   }
   .table {
     --columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) 6em 4em;

@@ -304,47 +304,50 @@
     class:fill={section === 'artists'}
     aria-label={titles[section]}
   >
-    <div class="heading">
-      <h2>{titles[section]}</h2>
-      {#if section === 'albums' && albums.length > 0}
-        <div class="tools">
-          <span class="muted num"
-            >{shownAlbums.length === albums.length
-              ? `${String(albums.length)} albums`
-              : `${String(shownAlbums.length)} of ${String(albums.length)}`}</span
-          >
-          <input
-            type="search"
-            placeholder="Filter albums"
-            aria-label="Filter albums by title, artist or year"
-            bind:value={albumFilter.query}
-          />
-          <FilterMenu
-            label="Filter and sort albums"
-            groups={albumGroups}
-            active={albumsFiltered}
-            onReset={() => {
-              albumFilter = { ...NO_ALBUM_FILTER, query: albumFilter.query };
-            }}
-          />
-        </div>
-      {:else if section === 'artists' && albums.length > 0}
-        <div class="tools">
-          <input
-            type="search"
-            placeholder="Filter artists"
-            aria-label="Filter artists by name"
-            bind:value={artistQuery}
-          />
-          <FilterMenu
-            label="Sort artists"
-            groups={artistGroups}
-            active={artistSort !== 'name'}
-            onReset={() => (artistSort = 'name')}
-          />
-        </div>
-      {/if}
-    </div>
+    <!-- Tracks draws its own, with its search and Play. -->
+    {#if section !== 'tracks' || albums.length === 0}
+      <div class="heading">
+        <h2>{titles[section]}</h2>
+        {#if section === 'albums' && albums.length > 0}
+          <div class="tools">
+            <span class="muted num"
+              >{shownAlbums.length === albums.length
+                ? `${String(albums.length)} albums`
+                : `${String(shownAlbums.length)} of ${String(albums.length)}`}</span
+            >
+            <input
+              type="search"
+              placeholder="Filter albums"
+              aria-label="Filter albums by title, artist or year"
+              bind:value={albumFilter.query}
+            />
+            <FilterMenu
+              label="Filter and sort albums"
+              groups={albumGroups}
+              active={albumsFiltered}
+              onReset={() => {
+                albumFilter = { ...NO_ALBUM_FILTER, query: albumFilter.query };
+              }}
+            />
+          </div>
+        {:else if section === 'artists' && albums.length > 0}
+          <div class="tools">
+            <input
+              type="search"
+              placeholder="Filter artists"
+              aria-label="Filter artists by name"
+              bind:value={artistQuery}
+            />
+            <FilterMenu
+              label="Sort artists"
+              groups={artistGroups}
+              active={artistSort !== 'name'}
+              onReset={() => (artistSort = 'name')}
+            />
+          </div>
+        {/if}
+      </div>
+    {/if}
     {#if notice !== null || scan?.running}
       <p class="muted scanning" role="status">
         {notice ?? (scan === null ? '' : scanText(scan))}

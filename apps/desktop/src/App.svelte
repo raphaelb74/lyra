@@ -2,7 +2,6 @@
   import { isTauri } from '@tauri-apps/api/core';
   import { onMount, tick } from 'svelte';
   import { cubicOut } from 'svelte/easing';
-  import { slide } from 'svelte/transition';
 
   import {
     BackendError,
@@ -14,7 +13,7 @@
     type Repeat,
     type TrackDetails,
   } from './lib/ipc';
-  import { onLibraryChanged, onStatus } from './lib/events';
+  import { onDevicesChanged, onLibraryChanged, onStatus } from './lib/events';
   import Library from './lib/Library.svelte';
   import NowPlaying from './lib/NowPlaying.svelte';
   import PlayerBar from './lib/PlayerBar.svelte';
@@ -142,13 +141,25 @@
     }
   }
 
+  /** The device picked by hand; chosen again when it is plugged back in. */
+  let pickedDevice = '';
+
+  function pickDevice(name: string) {
+    pickedDevice = name;
+    selectedDevice = name;
+  }
+
   async function loadDevices() {
     try {
       devices = await api.listDevices();
 
-      if (!devices.some((d) => d.name === selectedDevice)) {
-        // The list comes most-wanted first (USB DACs, then built-in
-        // audio); never switch while a listed device is chosen.
+      const listed = (name: string) => devices.some((d) => d.name === name);
+      const midTrack = status.state !== 'stopped' && status.state !== 'error';
+
+      if (listed(pickedDevice)) selectedDevice = pickedDevice;
+      // The list comes most-wanted first (USB DACs, then built-in audio),
+      // but a track keeps the device it started on.
+      else if (!(midTrack && listed(selectedDevice))) {
         selectedDevice = devices[0]?.name ?? '';
       }
     } catch (error) {
@@ -163,18 +174,21 @@
     writeFlag(QUEUE_OPEN_KEY, open);
   }
 
-  /** The panel slide follows --dur-panel, which is 0 with reduced motion. */
-  function panelMotion() {
-    const token = getComputedStyle(document.documentElement)
-      .getPropertyValue('--dur-panel')
-      .trim();
+  /**
+   * The queue pane slides by transform only: nothing is laid out again
+   * frame by frame. The view makes room at once, under the pane.
+   * Follows --dur-panel, which is 0 with reduced motion.
+   */
+  function panelSlide(node: Element) {
+    const token = getComputedStyle(node).getPropertyValue('--dur-panel').trim();
 
     const amount = parseFloat(token) || 0;
 
     return {
-      axis: 'x' as const,
       duration: token.endsWith('ms') ? amount : amount * 1000,
       easing: cubicOut,
+      css: (_t: number, u: number) =>
+        `transform: translateX(${String(u * 100)}%)`,
     };
   }
 
@@ -295,6 +309,9 @@
       onLibraryChanged(() => {
         libraryVersion += 1;
       }),
+      onDevicesChanged(() => {
+        void loadDevices();
+      }),
     ];
 
     return () => {
@@ -344,7 +361,7 @@
 <div class="app" data-connected={connected}>
   <TitleBar />
   <ContextMenu />
-  <div class="layout">
+  <div class="layout" class:queue-open={queueOpen}>
     <aside aria-label="Application">
       <nav aria-label="Main navigation">
         {#each views as item (item.id)}
@@ -463,7 +480,7 @@
       <Toast />
     </div>
     {#if queueOpen}
-      <div class="queue-pane" transition:slide={panelMotion()}>
+      <div class="queue-pane" transition:panelSlide>
         <QueuePanel
           {api}
           {status}
@@ -519,7 +536,7 @@
         {devices}
         selected={selectedDevice}
         loaded={devicesLoaded}
-        onSelect={(name: string) => (selectedDevice = name)}
+        onSelect={pickDevice}
         onRefresh={loadDevices}
       />
       <button
@@ -561,8 +578,18 @@
     z-index: 100;
   }
   .layout {
+    --queue-width: 340px;
+
+    position: relative;
+    /* The queue pane's z-index stays inside: the player bar's popovers
+       (volume, device) still open over it. */
+    isolation: isolate;
     display: flex;
     min-height: 0;
+    overflow: hidden;
+  }
+  .layout.queue-open {
+    padding-right: var(--queue-width);
   }
   aside {
     width: var(--sidebar-width);
@@ -639,12 +666,12 @@
     display: flex;
     position: relative;
   }
-  /* Fixed inner width: the pane slides in without its text reflowing. */
+  /* Over the layout's right edge; the open layout keeps room for it. */
   .queue-pane {
-    --queue-width: 340px;
-
-    flex-shrink: 0;
-    overflow: hidden;
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: var(--queue-width);
+    z-index: 20;
   }
   .engine {
     display: flex;

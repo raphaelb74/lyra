@@ -118,6 +118,12 @@ fn dsd_format(layout: DsdLayout) -> Format {
     }
 }
 
+/// The kernel's list of sound cards, one or two lines per card. It changes
+/// when a DAC is plugged in or out; reading it opens no device.
+pub fn card_list() -> std::io::Result<String> {
+    std::fs::read_to_string("/proc/asound/cards")
+}
+
 /// Lists every hardware playback device on every card.
 pub fn list_playback_devices() -> Result<Vec<Device>, alsa::Error> {
     let mut devices = Vec::new();

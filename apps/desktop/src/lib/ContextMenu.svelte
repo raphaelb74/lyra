@@ -62,9 +62,10 @@
       if (panel === undefined) return;
 
       const box = panel.getBoundingClientRect();
+      const x = open.alignEnd ? open.x - box.width : open.x;
 
       place = {
-        x: Math.min(open.x, window.innerWidth - box.width - 8),
+        x: Math.max(8, Math.min(x, window.innerWidth - box.width - 8)),
         y:
           open.y + box.height > window.innerHeight - 8
             ? Math.max(8, open.y - box.height)

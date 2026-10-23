@@ -10,7 +10,7 @@ mod reserve;
 mod sink;
 mod volume;
 
-pub use device::{Capabilities, Device, PcmSupport, list_playback_devices, probe};
+pub use device::{Capabilities, Device, PcmSupport, card_list, list_playback_devices, probe};
 pub use diagnostics::{KernelReport, SinkReport, SinkStats, kernel_report};
 pub use error::{AlsaError, Holder};
 pub use sink::{AlsaSink, BufferConfig};

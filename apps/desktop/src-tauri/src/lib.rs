@@ -1,4 +1,5 @@
 mod commands;
+mod device_watch;
 mod id_match;
 mod ipc;
 mod mpris;
@@ -65,6 +66,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         app.path().app_config_dir()?.join("settings.json"),
     ));
     volume_watch::spawn(app.handle().clone())?;
+    device_watch::spawn(app.handle().clone())?;
     mpris::spawn(app.handle().clone(), mpris_updates)?;
     // Pick up changes made while Lyra was closed.
     if has_folders {

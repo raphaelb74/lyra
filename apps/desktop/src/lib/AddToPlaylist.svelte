@@ -8,8 +8,8 @@
     trackIds: number[];
     /** Accessible name of the button, e.g. "Add Aladdin Sane to a playlist". */
     label: string;
-    /** Visible text; a "+" when omitted. */
-    text?: string;
+    /** Visible text, e.g. "Add to playlist". */
+    text: string;
     onError: (message: string) => void;
   }
 
@@ -56,14 +56,9 @@
 </script>
 
 <div class="add">
-  <Popover
-    {label}
-    triggerClass={text === undefined ? 'icon' : 'with-icon'}
-    onOpen={load}
-  >
+  <Popover {label} triggerClass="with-icon" onOpen={load}>
     {#snippet trigger()}
-      <Icon name="plus" size={16} />{#if text !== undefined}<span>{text}</span
-        >{/if}
+      <Icon name="plus" size={16} /><span>{text}</span>
     {/snippet}
     {#snippet children(close: () => void)}
       <div class="items">
