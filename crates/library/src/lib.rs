@@ -25,6 +25,7 @@ pub use db::{
 pub use edits::{
     Edit, EditChange, FieldPreview, FieldState, Origin, Preview, Revisions, SavedEdit, Target,
 };
+pub use key::key as matching_key;
 pub use playlists::{Entry, Playlist};
 pub use scan::{ScanProgress, ScanSummary, is_audio_file, scan};
 pub use scanner::{ScanEvent, Scanner};

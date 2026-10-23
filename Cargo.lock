@@ -1976,6 +1976,7 @@ name = "musicbrainz"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "library",
  "serde",
  "serde_json",
  "ureq",

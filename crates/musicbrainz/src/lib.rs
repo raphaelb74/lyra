@@ -2,11 +2,13 @@
 //!
 //! Blocking, meant for a worker thread. Every MusicBrainz request goes through
 //! one limiter shared by all callers, names Lyra in its User-Agent and asks for
-//! JSON. No account, token or cookie is ever sent. Nothing here touches the
-//! library database or the audio path.
+//! JSON. No account, token or cookie is ever sent. [`matching`] turns a
+//! release into suggested library edits; nothing here writes the library,
+//! touches music files or the audio path.
 
 mod client;
 mod error;
+pub mod matching;
 mod types;
 
 pub use client::{CONTACT, Client, Service};

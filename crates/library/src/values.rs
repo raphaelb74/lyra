@@ -179,6 +179,12 @@ impl Field {
         }
     }
 
+    /// Checks `value` as an edit of this field is checked; several values are
+    /// separated by NUL. For other sources of edits, such as online lookups.
+    pub fn check(self, value: &str) -> Result<(), Problem> {
+        check(self, value)
+    }
+
     /// Whether the field may have several values (an edit separates them
     /// by NUL).
     pub fn is_multiple(self) -> bool {
