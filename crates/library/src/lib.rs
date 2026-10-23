@@ -6,6 +6,7 @@
 
 mod art;
 mod db;
+mod key;
 mod playlists;
 mod scan;
 mod scanner;

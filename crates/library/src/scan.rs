@@ -15,6 +15,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::art;
 use crate::db::{Library, LibraryError, UNKNOWN_ARTIST, now, path_bytes, path_from, prune};
+use crate::key::key;
 use crate::tags::{self, Scanned};
 
 /// Tag results written per transaction.
@@ -376,11 +377,14 @@ fn write_track(
 }
 
 fn artist_id(conn: &Connection, name: &str) -> Result<i64, LibraryError> {
-    conn.prepare_cached("INSERT INTO artists (name) VALUES (?1) ON CONFLICT (name) DO NOTHING")?
-        .execute([name])?;
+    let key = key(name);
+    conn.prepare_cached(
+        "INSERT INTO artists (name, key) VALUES (?1, ?2) ON CONFLICT (key) DO NOTHING",
+    )?
+    .execute([name, &key])?;
     let id = conn
-        .prepare_cached("SELECT id FROM artists WHERE name = ?1")?
-        .query_row([name], |row| row.get(0))
+        .prepare_cached("SELECT id FROM artists WHERE key = ?1")?
+        .query_row([&key], |row| row.get(0))
         .optional()?;
     id.ok_or(LibraryError::Db(rusqlite::Error::QueryReturnedNoRows))
 }
@@ -392,7 +396,7 @@ fn artist_id_or(
     known: &str,
     known_id: i64,
 ) -> Result<i64, LibraryError> {
-    if name.eq_ignore_ascii_case(known) {
+    if key(name) == key(known) {
         Ok(known_id)
     } else {
         artist_id(conn, name)

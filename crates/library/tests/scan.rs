@@ -546,3 +546,33 @@ fn adding_a_parent_folder_keeps_tracks_and_playlists() {
     assert_eq!((summary.added, summary.removed), (2, 0), "{summary:?}");
     assert_eq!(playlist_ids(&library, playlist), ids);
 }
+
+#[test]
+fn spellings_of_one_artist_are_one_artist() {
+    let dir = temp_dir("spellings_of_one_artist_are_one_artist");
+    let root = dir.join("music");
+    fs::create_dir_all(&root).unwrap();
+    // Composed, capitals, and a decomposed ö with a stray zero-width space.
+    for (file, artist) in [
+        ("1.dsf", "Bj\u{f6}rk"),
+        ("2.dsf", "BJ\u{d6}RK"),
+        ("3.dsf", "Bjo\u{308}rk\u{200B}"),
+    ] {
+        let mut tag = Tag::new();
+        tag.set_title(file);
+        tag.set_artist(artist);
+        tag.set_album("Homogenic");
+        let mut bytes = Vec::new();
+        tag.write_to(&mut bytes, Version::Id3v24).unwrap();
+        fs::write(root.join(file), tagged_dsf(&bytes)).unwrap();
+    }
+    let mut library = Library::open(&dir.join("library.db")).unwrap();
+    library.add_folder(&root).unwrap();
+    run_scan(&mut library, &dir.join("art"));
+
+    let artists = library.artists().unwrap();
+    assert_eq!(artists.len(), 1, "{artists:?}");
+    // The first spelling read names the artist.
+    assert_eq!(artists[0].name, "Bj\u{f6}rk");
+    assert_eq!((artists[0].albums, artists[0].tracks), (1, 3));
+}

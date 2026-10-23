@@ -10,11 +10,13 @@ The existing library already reads a useful subset of tags from FLAC/WAV through
 
 Use these references as workflow inspiration, not components to embed:
 
-| Reference                                                                                            | Relevant behavior                                                       | Proposed Lyra scope                                                                            |
-| ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| [Yate](https://2manyrobots.com/yate/)                                                                | Broad tag control, actions and external database integration            | Album/track editor and preview first; scripting and specialist automation later                |
-| [Mp3tag](https://www.mp3tag.de/en/index.html)                                                        | Batch tag changes, cover editing, online tag sources and filename tools | Multi-edit and artwork; file renaming is a separate later feature                              |
-| [Roon editing](https://help.roonlabs.com/portal/en/kb/articles/editing-and-grooming-your-collection) | Separates manual edits, identified metadata and file tags               | Keep source layers and provenance; saving library edits and writing files are distinct actions |
+| Reference                                                                                            | Relevant behavior                                                       | Proposed Lyra scope                                                                             |
+| ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [Yate](https://2manyrobots.com/yate/)                                                                | Broad tag control, actions and external database integration            | Album/track editor and preview first; scripting and specialist automation later                 |
+| [Mp3tag](https://www.mp3tag.de/en/index.html)                                                        | Batch tag changes, cover editing, online tag sources and filename tools | Multi-edit and artwork; renaming by template in the organize phase                              |
+| [MusicBrainz Picard](https://picard.musicbrainz.org/)                                                | Match a release, then write tags and move files by a naming script      | Reviewed match (MT4), then organize by template (MT6)                                           |
+| [Plex](https://support.plex.tv/articles/201018497-fix-match-for-albums/)                             | Fix match: re-identify an album; the library shows the matched data     | Fix match maps to reviewed online identification; files stay put unless the user organizes them |
+| [Roon editing](https://help.roonlabs.com/portal/en/kb/articles/editing-and-grooming-your-collection) | Separates manual edits, identified metadata and file tags               | Keep source layers and provenance; saving library edits and writing files are distinct actions  |
 
 The initial product should solve everyday album cleanup without requiring a dedicated tagging application. Full Yate/Mp3tag automation, Roon's licensed editorial catalogue, artist biographies, streaming integration and its relationship graph are separate projects. Open release databases do not automatically provide rights to reuse reviews, biographies or every image.
 
@@ -30,19 +32,21 @@ The initial product should solve everyday album cleanup without requiring a dedi
 6. Choose **Write tags to files…**, review destinations, supported fields and backups, then apply a recoverable batch.
 7. Revert local edits, restore file tags from a verified backup, or remove an online match without losing unrelated edits.
 8. Keep music playing during edits/lookups; defer file replacement when playback has the file open or prefetched.
+9. Tidy up a poorly tagged library: reviewed cleanup proposals for spacing, broken encodings, track and disc numbers, dates, album artists, featured artists, capitals, duplicate artists and genres ([decision record](METADATA_DECISIONS.md) 10). Special characters follow decisions 5–9 there.
+10. Organize folders: after cleanup or a match, move and rename files into a chosen layout, such as `Album Artist/Year - Album/01 Title.flac`, with a full preview and undo ([§8](#8-organizing-files)).
 
 ### Release boundaries
 
-| Capability                               | First delivery                              | Later extension                                                           |
-| ---------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------- |
-| Local album/track edits                  | Required                                    | Artist-wide identity merge tools                                          |
-| Multi-edit                               | Required for an album/track selection       | Arbitrary collection-wide rules and regular expressions                   |
-| Local artwork                            | Required                                    | Artist photos, multiple booklet/back images                               |
-| MusicBrainz matching + Cover Art Archive | First online delivery, opt-in               | Explicit automatic enrichment of newly imported albums                    |
-| File writing                             | FLAC, then DSF after independent validation | WAV after chunk-preservation tests; DFF only after interoperability proof |
-| File renaming/moving                     | Excluded                                    | Separate preview/relink/collision-safe operation                          |
-| Audio fingerprinting                     | Excluded initially                          | Separate CPU, privacy, conversion and licensing work                      |
-| Playback formats                         | Existing FLAC/WAV/DSF/DFF                   | MP3/AIFF/ALAC require separate playback/import acceptance                 |
+| Capability                               | First delivery                                                             | Later extension                                                           |
+| ---------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Local album/track edits                  | Required                                                                   | Artist-wide identity merge tools                                          |
+| Multi-edit                               | Required for an album/track selection                                      | Arbitrary collection-wide rules and regular expressions                   |
+| Local artwork                            | Required                                                                   | Artist photos, multiple booklet/back images                               |
+| MusicBrainz matching + Cover Art Archive | First online delivery, opt-in                                              | Explicit automatic enrichment of newly imported albums                    |
+| File writing                             | FLAC, then DSF after independent validation                                | WAV after chunk-preservation tests; DFF only after interoperability proof |
+| File renaming/moving                     | MT6: template-based organize with preview and undo, inside library folders | Custom naming scripts; watching folders and organizing new imports        |
+| Audio fingerprinting                     | Excluded initially                                                         | Separate CPU, privacy, conversion and licensing work                      |
+| Playback formats                         | Existing FLAC/WAV/DSF/DFF                                                  | MP3/AIFF/ALAC require separate playback/import acceptance                 |
 
 Being able to edit a format does not imply Lyra can play it. Do not add unsupported playback formats indirectly through a tagging dependency.
 
@@ -169,7 +173,51 @@ Local undo restores earlier override/source choices with revision checks. File u
 
 Full-file hashes are expected to change after tagging. Audio invariance means unchanged FLAC compressed audio frames (plus decoded fixture samples), unchanged WAV `data`, unchanged DSF/DFF DSD payload/order/sample count, and unchanged immutable stream properties. Verify DoP/native test outputs before and after edits using existing synthetic fixtures. This does not establish a new DAC bit-perfect claim. FLAC block structure is documented by [Xiph and RFC 9639](https://xiph.org/flac/format.html).
 
-## 8. Online enrichment
+## 8. Organizing files
+
+After cleanup or a match, the user may move and rename files into one consistent layout. It is an explicit action with a preview, never a side effect of an edit, a match or a scan.
+
+### Layout
+
+- **Templates** use effective values, after edits and accepted matches. Presets: `Album Artist/Album`, `Album Artist/Year - Album` (default) and `Genre/Album Artist/Album`; each file is named `01 Title.ext`. A custom template takes the same fields.
+- **Multi-disc** releases get a `1-01` prefix, or `Disc 1/` subfolders when the user prefers. Single-disc releases get neither.
+- **Compilations** go under `Various Artists`.
+- **Missing fields** become `Unknown Artist`, `Unknown Album` or the existing file name, never an empty component.
+- **Scope:** files stay inside their library folder, or move to another library folder the user picks. Nothing is written outside the library folders.
+
+### Names safe on every filesystem
+
+Music often lives on exFAT or FAT USB drives and SMB shares, not only ext4. Generated names therefore:
+
+- replace `/ \ : * ? " < > |` and control characters;
+- drop trailing dots and spaces;
+- avoid reserved Windows names (`CON`, `NUL`, `COM1` …);
+- never start with `.`, which the scanner treats as hidden;
+- are written in NFC;
+- cut each component at 255 bytes on a character boundary, keeping the extension.
+
+A rename that only changes letter case goes through a temporary name, so it works on case-insensitive filesystems.
+
+### Collisions and other files
+
+- **Collisions:** two tracks mapping to the same name, or an unrelated file already at the target, stop that album and show it. Nothing is overwritten. A ` (2)` suffix is offered as a proposal, not applied on its own.
+- **Other files:**
+  - Covers, booklets, `.cue` and `.log` files move with their album when the source folder holds exactly that album. Otherwise they stay where they are, and the preview says so.
+  - Non-audio files are never deleted.
+  - Emptied folders are removed only when they are empty, and only when the user opts in.
+- **Albums stored as one file plus a `.cue` sheet** are left alone: Lyra does not split them.
+
+### Execution
+
+1. Preview: every move, grouped by album, with counts, collisions and skipped files.
+2. A journal records each move as planned, moved and indexed.
+3. A move within one filesystem is a single atomic rename. A move across filesystems copies, verifies the copy's hash, and only then deletes the source.
+4. The library updates the track's path in place: track IDs, playlists, edits and artwork stay attached.
+5. A file that is playing or prefetched is deferred, as for tag writes (§7). No scan runs during a batch.
+6. Undo replays the journal backwards. It refuses for any file that changed since the move.
+7. After a crash, the journal is reconciled before anything else runs.
+
+## 9. Online enrichment
 
 ### Providers and constraints
 
@@ -199,7 +247,7 @@ Artwork is downloaded to Lyra storage and served through the existing restricted
 
 Disabling online access cancels outstanding requests and prevents new work. Accepted metadata and user art remain available offline where provider terms permit; disposable response caches have separate deletion and retention controls.
 
-## 9. Architecture and IPC contracts
+## 10. Architecture and IPC contracts
 
 Prefer small cohesive modules/crates: a pure typed metadata model and resolver; container read/write adapters; a provider layer; and a library-owned job coordinator for persistence/revisions. Tentative names are `metadata-core`, `metadata-files` and `metadata-online`; only split into crates when boundaries justify them. Neither UNDA nor `AudioSink` depends on network or tag writing.
 
@@ -221,7 +269,7 @@ Revalidate preview revisions at commit; previews are bounded, expiring and bound
 
 Scan, edit and write jobs serialize mutations per file/entity, not with a global library lock held across network or filesystem work. Different workers use separate SQLite connections with short transactions. Playback source leases cover current/prefetched files; generation/revision checks prevent stale rescan results overwriting a just-committed write. Library-to-UI notifications include affected IDs/revisions so a large collection need not reload in full for each edited track.
 
-## 10. Acceptance criteria
+## 11. Acceptance criteria
 
 | ID   | Scenario                                             | Required result                                                                                                      |
 | ---- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -241,5 +289,9 @@ Scan, edit and write jobs serialize mutations per file/entity, not with a global
 | MT14 | Missing drive and folder/root consolidation          | User edits, playlist membership and stable IDs retained                                                              |
 | MT15 | Database migration/backup/restore                    | Existing library preserved; WAL-safe backup restores edits, links, jobs and selected artwork                         |
 | MT16 | Default offline/automatic policies                   | No startup/scan network while disabled; automation changes only fields explicitly covered by policy                  |
+| MT17 | Organize preview, then apply                         | The result matches the preview exactly; covers and cue/log files follow their album; nothing outside library folders |
+| MT18 | Organize with hostile names on ext4 and exFAT        | Illegal characters, reserved names, leading dots, 255-byte limits and case-only renames all produce valid names      |
+| MT19 | Organize collision, crash, undo, cross-device move   | No overwrite; journal recovers mid-batch; undo restores and refuses changed files; cross-device copies are verified  |
+| MT20 | Organize while playing; playlists afterwards         | Playing and prefetched files deferred; track IDs, playlists, edits and artwork unchanged                             |
 
 Use synthetic fixtures, recorded synthetic provider responses and mock HTTP in CI. Live service checks and compatibility reads with independent taggers are separate manual reports. Follow all project Rust/frontend quality gates during implementation; no milestone is complete on mocks alone when physical playback is part of acceptance.
