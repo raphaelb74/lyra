@@ -5,16 +5,32 @@ on:
   pull_request:
 permissions:
   contents: read
+# A newer push to the same PR makes the older run pointless.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+      # Keep the downloaded .debs: the runner's Ubuntu mirror is sometimes very
+      # slow (64 MB took 26 min once), so only a cache miss should depend on it.
+      - uses: actions/cache@v6
+        with:
+          path: ~/apt-archives
+          key: apt-ubuntu-24.04-${{ hashFiles('.github/workflows/checks.yml') }}
+          restore-keys: apt-ubuntu-24.04-
       - name: Linux prerequisites
+        timeout-minutes: 10
         run: |
+          mkdir -p ~/apt-archives/partial
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf desktop-file-utils xvfb xdotool webkit2gtk-driver shellcheck
+          sudo apt-get install -y -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-archives" \
+            build-essential pkg-config libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev desktop-file-utils xvfb xdotool webkit2gtk-driver shellcheck
+          sudo chown -R "$USER" ~/apt-archives
       - name: Rust toolchain from rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
