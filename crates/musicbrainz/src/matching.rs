@@ -162,25 +162,28 @@ pub fn candidates(client: &Client, album: &LocalAlbum) -> Result<Vec<Candidate>,
     Ok(rank(album, client.search_releases(&query, SEARCH_LIMIT)?))
 }
 
+/// Releases for a title and artist the listener typed, ranked against the
+/// album. Empty without a title.
+pub fn search(
+    client: &Client,
+    album: &LocalAlbum,
+    title: &str,
+    artist: Option<&str>,
+) -> Result<Vec<Candidate>, Error> {
+    let Some(query) = search_query(title, artist) else {
+        return Ok(Vec::new());
+    };
+    Ok(rank(album, client.search_releases(&query, SEARCH_LIMIT)?))
+}
+
 /// Orders releases by what agrees with the album, then by MusicBrainz's score.
 #[must_use]
 pub fn rank(album: &LocalAlbum, releases: Vec<Release>) -> Vec<Candidate> {
-    let title = album.first(Field::Album).map(matching_key);
-    let artist = album.artist().map(matching_key);
-    let year = album.first(Field::Date).and_then(year);
-    let release_id = album.first(Field::ReleaseId);
     let mut candidates: Vec<Candidate> = releases
         .into_iter()
-        .map(|release| {
-            let evidence = Evidence {
-                release_id: release_id == Some(release.id.as_str()),
-                track_count: track_total(&release) == Some(album.tracks.len()),
-                title: title.as_deref() == Some(matching_key(&release.title).as_str()),
-                artist: artist.as_deref()
-                    == Some(matching_key(&credit_text(&release.artist_credit)).as_str()),
-                year: year.is_some() && year == release.date.as_deref().and_then(self::year),
-            };
-            Candidate { release, evidence }
+        .map(|release| Candidate {
+            evidence: evidence(album, &release),
+            release,
         })
         .collect();
     // Stable: equal evidence keeps MusicBrainz's order.
@@ -196,6 +199,22 @@ pub fn rank(album: &LocalAlbum, releases: Vec<Release>) -> Vec<Candidate> {
         ))
     });
     candidates
+}
+
+/// What agrees between the album and `release`.
+#[must_use]
+pub fn evidence(album: &LocalAlbum, release: &Release) -> Evidence {
+    let same = |ours: Option<&str>, theirs: &str| {
+        ours.is_some_and(|ours| matching_key(ours) == matching_key(theirs))
+    };
+    let year = album.first(Field::Date).and_then(year);
+    Evidence {
+        release_id: album.first(Field::ReleaseId) == Some(release.id.as_str()),
+        track_count: track_total(release) == Some(album.tracks.len()),
+        title: same(album.first(Field::Album), &release.title),
+        artist: same(album.artist(), &credit_text(&release.artist_credit)),
+        year: year.is_some() && year == release.date.as_deref().and_then(self::year),
+    }
 }
 
 fn year(date: &str) -> Option<&str> {
@@ -215,7 +234,8 @@ fn track_total(release: &Release) -> Option<usize> {
 }
 
 /// A credit as printed: names with their join phrases.
-fn credit_text(credits: &[crate::ArtistCredit]) -> String {
+#[must_use]
+pub fn credit_text(credits: &[crate::ArtistCredit]) -> String {
     credits.iter().fold(String::new(), |mut text, credit| {
         text.push_str(&credit.name);
         text.push_str(&credit.joinphrase);
@@ -279,6 +299,8 @@ pub enum PairedBy {
     RunningNumber,
     /// No numbers: the same place in the album.
     Order,
+    /// Chosen by the listener.
+    Hand,
 }
 
 /// Library tracks matched to release tracks. Unpaired tracks get no
@@ -298,18 +320,7 @@ pub struct Alignment {
 /// when no track has a number and the counts agree, by order.
 #[must_use]
 pub fn align(album: &LocalAlbum, release: &Release) -> Alignment {
-    let slots: Vec<(usize, usize, &Track)> = release
-        .media
-        .iter()
-        .enumerate()
-        .flat_map(|(m, medium)| {
-            medium
-                .tracks
-                .iter()
-                .enumerate()
-                .map(move |(i, track)| (m, i, track))
-        })
-        .collect();
+    let slots = slots(release);
     let mut taken = vec![false; slots.len()];
     let mut found: Vec<Option<(usize, PairedBy)>> = vec![None; album.tracks.len()];
 
@@ -382,6 +393,57 @@ pub fn align(album: &LocalAlbum, release: &Release) -> Alignment {
         }
     }
 
+    assemble(album, &slots, &found, &taken)
+}
+
+/// Pairs chosen by the listener, as (track, medium, index). `None` when one
+/// names a track not on the album or a release track that does not exist,
+/// or uses either twice. Tracks left out stay unpaired.
+#[must_use]
+pub fn align_by_hand(
+    album: &LocalAlbum,
+    release: &Release,
+    chosen: &[(i64, usize, usize)],
+) -> Option<Alignment> {
+    let slots = slots(release);
+    let mut taken = vec![false; slots.len()];
+    let mut found = vec![None; album.tracks.len()];
+    for &(track, medium, index) in chosen {
+        let local = album.tracks.iter().position(|local| local.id == track)?;
+        let slot = slots
+            .iter()
+            .position(|&(m, i, _)| m == medium && i == index)?;
+        if taken[slot] || found[local].is_some() {
+            return None;
+        }
+        taken[slot] = true;
+        found[local] = Some((slot, PairedBy::Hand));
+    }
+    Some(assemble(album, &slots, &found, &taken))
+}
+
+/// Every release track, as (medium, index, track), in release order.
+fn slots(release: &Release) -> Vec<(usize, usize, &Track)> {
+    release
+        .media
+        .iter()
+        .enumerate()
+        .flat_map(|(m, medium)| {
+            medium
+                .tracks
+                .iter()
+                .enumerate()
+                .map(move |(i, track)| (m, i, track))
+        })
+        .collect()
+}
+
+fn assemble(
+    album: &LocalAlbum,
+    slots: &[(usize, usize, &Track)],
+    found: &[Option<(usize, PairedBy)>],
+    taken: &[bool],
+) -> Alignment {
     let mut alignment = Alignment::default();
     for (local, track) in album.tracks.iter().enumerate() {
         match found[local] {
@@ -400,7 +462,7 @@ pub fn align(album: &LocalAlbum, release: &Release) -> Alignment {
     }
     alignment.missing = slots
         .iter()
-        .zip(&taken)
+        .zip(taken)
         .filter(|(_, taken)| !**taken)
         .map(|((medium, index, _), _)| (*medium, *index))
         .collect();

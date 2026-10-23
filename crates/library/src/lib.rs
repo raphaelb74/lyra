@@ -17,7 +17,9 @@ mod shown;
 mod tags;
 mod values;
 
-pub use art::{ArtworkSource, MAX_CACHE_BYTES, THUMB_DIR, delete_art, is_art_name};
+pub use art::{
+    ArtworkSource, MAX_CACHE_BYTES, THUMB_DIR, delete_art, is_art_name, sniff as image_type,
+};
 pub use cleanup::{Proposal, Rule};
 pub use db::{
     Album, Artist, Folder, Library, LibraryError, Track, UNKNOWN_ARTIST, VARIOUS_ARTISTS,

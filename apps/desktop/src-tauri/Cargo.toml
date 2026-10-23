@@ -28,6 +28,7 @@ audio-alsa = { workspace = true }
 format-dsd = { workspace = true }
 format-pcm = { workspace = true }
 library = { workspace = true }
+musicbrainz = { workspace = true }
 unda = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

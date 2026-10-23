@@ -196,6 +196,7 @@ describe('playback commands', () => {
       conversionGainDb: 3,
       resyncDelayMs: 500,
       dopDevices: ['hw:CARD=E30,DEV=0'],
+      onlineLookups: false,
     } satisfies Settings;
 
     const runCommand = vi.fn(() => Promise.resolve(settings));
@@ -212,6 +213,114 @@ describe('playback commands', () => {
         () => Promise.resolve({ ...settings, dsdFallback: 'resample' }),
         true,
       ).settings(),
+    ).rejects.toMatchObject({ code: 'invalid_response' });
+  });
+
+  it('sends ID Match choices as keys only, never values', async () => {
+    const runCommand = vi.fn(() => Promise.resolve(null));
+    const target = { kind: 'track', id: 4 } as const;
+    await backend(runCommand, true).applyMatch(
+      7,
+      'b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d',
+      [{ track: 4, slot: { medium: 0, index: 2 } }],
+      [{ target, field: 'title' }],
+      [{ target, revision: 12 }],
+      true,
+    );
+    expect(runCommand).toHaveBeenCalledExactlyOnceWith('apply_match', {
+      albumId: 7,
+      releaseId: 'b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d',
+      pairs: [{ track: 4, slot: { medium: 0, index: 2 } }],
+      accepted: [{ target, field: 'title' }],
+      revisions: [{ target, revision: 12 }],
+      cover: true,
+    });
+  });
+
+  it('accepts only inline cover previews', async () => {
+    const cover = (value: JsonValue) =>
+      backend(() => Promise.resolve(value), true).matchCover('x');
+
+    await expect(cover('data:image/png;base64,iVBORw0KGgo=')).resolves.toBe(
+      'data:image/png;base64,iVBORw0KGgo=',
+    );
+    await expect(cover(null)).resolves.toBeNull();
+
+    for (const remote of [
+      'https://coverartarchive.org/release/x/front',
+      'data:text/html;base64,PHNjcmlwdD4=',
+    ]) {
+      await expect(cover(remote)).rejects.toMatchObject({
+        code: 'invalid_response',
+      });
+    }
+  });
+
+  it('checks an edition comparison', async () => {
+    const release = {
+      releaseId: 'b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d',
+      title: 'Kind of Blue',
+      artist: 'Miles Davis',
+      disambiguation: null,
+      date: '1959-08-17',
+      country: 'US',
+      status: 'Official',
+      labels: ['Columbia CL 1355'],
+      formats: ['12" Vinyl'],
+      trackCount: 1,
+      evidence: {
+        releaseId: false,
+        trackCount: true,
+        title: true,
+        artist: true,
+        year: true,
+      },
+    };
+
+    const info = {
+      release,
+      url: 'https://musicbrainz.org/release/b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d',
+      media: [
+        {
+          position: 1,
+          format: 'CD',
+          title: null,
+          tracks: [{ number: '1', title: 'So What', seconds: 562 }],
+        },
+      ],
+      tracks: [
+        { id: 4, disc: null, number: '1', title: 'so what', seconds: 561.5 },
+      ],
+      pairs: [
+        {
+          track: 4,
+          slot: { medium: 0, index: 0 },
+          by: 'number',
+          lengthDifferenceSeconds: -0.5,
+          lengthsAgree: true,
+        },
+      ],
+      unpaired: [],
+      missing: [],
+      suggestions: [
+        {
+          target: { kind: 'track', id: 4 },
+          field: 'title',
+          fieldLabel: 'Title',
+          before: ['so what'],
+          after: ['So What'],
+          kept: false,
+        },
+      ],
+      revisions: [{ target: { kind: 'release', id: 7 }, revision: 3 }],
+    };
+
+    const compare = (value: JsonValue) =>
+      backend(() => Promise.resolve(value), true).matchRelease(7, 'x');
+
+    await expect(compare(info)).resolves.toEqual(info);
+    await expect(
+      compare({ ...info, pairs: [{ ...info.pairs[0], by: 'guess' }] }),
     ).rejects.toMatchObject({ code: 'invalid_response' });
   });
 

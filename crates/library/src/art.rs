@@ -250,8 +250,9 @@ fn too_large() -> LibraryError {
     LibraryError::Invalid("That image is too large (16 MB at most).".to_owned())
 }
 
-/// The image type, from the first bytes.
-fn sniff(data: &[u8]) -> Option<&'static str> {
+/// The image type (`image/jpeg`, `image/png`, `image/webp`), from the
+/// first bytes; `None` for anything else.
+pub fn sniff(data: &[u8]) -> Option<&'static str> {
     if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
         Some("image/jpeg")
     } else if data.starts_with(b"\x89PNG\r\n\x1a\n") {

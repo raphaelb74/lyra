@@ -7,8 +7,8 @@ use common::{RELEASE, Server, json_reply, release_lookup, reply, search_page};
 use library::{Edit, Field, FieldState, Target};
 use musicbrainz::Release;
 use musicbrainz::matching::{
-    Alignment, LocalAlbum, LocalTrack, PairedBy, VARIOUS_ARTISTS_ID, align, candidates, rank,
-    search_query, suggest,
+    Alignment, LocalAlbum, LocalTrack, PairedBy, VARIOUS_ARTISTS_ID, align, align_by_hand,
+    candidates, rank, search_query, suggest,
 };
 use serde_json::json;
 
@@ -380,4 +380,38 @@ fn an_album_without_a_title_asks_nothing() {
     let found = candidates(&server.client(), &album(&[], Vec::new())).unwrap();
     assert!(found.is_empty());
     assert_eq!(server.requests().len(), 0);
+}
+
+#[test]
+fn pairs_by_hand_are_checked() {
+    let local = album(
+        &[],
+        vec![
+            track(1, None, Some(1), "a", 200_000),
+            track(2, None, Some(2), "b", 200_000),
+        ],
+    );
+    let release = two_discs();
+    let alignment = align_by_hand(&local, &release, &[(2, 1, 0)]).unwrap();
+    assert_eq!(alignment.pairs.len(), 1);
+    assert_eq!(
+        (
+            alignment.pairs[0].track,
+            alignment.pairs[0].medium,
+            alignment.pairs[0].by
+        ),
+        (2, 1, PairedBy::Hand)
+    );
+    assert_eq!(alignment.unpaired, [1]);
+    assert_eq!(alignment.missing.len(), 3);
+
+    for wrong in [
+        vec![(9, 0, 0)],
+        vec![(1, 5, 0)],
+        vec![(1, 0, 9)],
+        vec![(1, 0, 0), (2, 0, 0)],
+        vec![(1, 0, 0), (1, 0, 1)],
+    ] {
+        assert_eq!(align_by_hand(&local, &release, &wrong), None, "{wrong:?}");
+    }
 }

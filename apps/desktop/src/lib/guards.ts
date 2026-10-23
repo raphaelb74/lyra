@@ -6,6 +6,8 @@
 import type {
   Album,
   AlbumEditor,
+  Candidate,
+  MatchInfo,
   EditorTrack,
   FieldInfo,
   Proposal,
@@ -137,7 +139,8 @@ export function isSettings(value: Field): value is JsonValue & Settings {
     isNumber(value.conversionGainDb) &&
     isNumber(value.resyncDelayMs) &&
     Array.isArray(value.dopDevices) &&
-    value.dopDevices.every(isText)
+    value.dopDevices.every(isText) &&
+    isFlag(value.onlineLookups)
   );
 }
 
@@ -524,4 +527,135 @@ export function isProposalList(
   value: JsonValue,
 ): value is JsonValue & Proposal[] {
   return Array.isArray(value) && value.every(isProposal);
+}
+
+function isEvidence(value: Field): boolean {
+  return (
+    isRecord(value) &&
+    isFlag(value.releaseId) &&
+    isFlag(value.trackCount) &&
+    isFlag(value.title) &&
+    isFlag(value.artist) &&
+    isFlag(value.year)
+  );
+}
+
+function isCandidate(value: Field): value is JsonValue & Candidate {
+  return (
+    isRecord(value) &&
+    isText(value.releaseId) &&
+    isText(value.title) &&
+    isText(value.artist) &&
+    isNullableText(value.disambiguation) &&
+    isNullableText(value.date) &&
+    isNullableText(value.country) &&
+    isNullableText(value.status) &&
+    isTextList(value.labels) &&
+    isTextList(value.formats) &&
+    isNullableNumber(value.trackCount) &&
+    isEvidence(value.evidence)
+  );
+}
+
+export function isCandidateList(
+  value: JsonValue,
+): value is JsonValue & Candidate[] {
+  return Array.isArray(value) && value.every(isCandidate);
+}
+
+function isSlot(value: Field): boolean {
+  return isRecord(value) && isNumber(value.medium) && isNumber(value.index);
+}
+
+const PAIRED_BY: readonly string[] = [
+  'id',
+  'number',
+  'runningNumber',
+  'order',
+  'hand',
+];
+
+function isPair(value: JsonValue): boolean {
+  return (
+    isRecord(value) &&
+    isNumber(value.track) &&
+    isSlot(value.slot) &&
+    isText(value.by) &&
+    PAIRED_BY.includes(value.by) &&
+    isNullableNumber(value.lengthDifferenceSeconds) &&
+    (value.lengthsAgree === null || isFlag(value.lengthsAgree))
+  );
+}
+
+function isReleaseTrack(value: JsonValue): boolean {
+  return (
+    isRecord(value) &&
+    isText(value.number) &&
+    isText(value.title) &&
+    isNullableNumber(value.seconds)
+  );
+}
+
+function isMedium(value: JsonValue): boolean {
+  return (
+    isRecord(value) &&
+    isNumber(value.position) &&
+    isNullableText(value.format) &&
+    isNullableText(value.title) &&
+    Array.isArray(value.tracks) &&
+    value.tracks.every(isReleaseTrack)
+  );
+}
+
+function isMatchTrack(value: JsonValue): boolean {
+  return (
+    isRecord(value) &&
+    isNumber(value.id) &&
+    isNullableText(value.disc) &&
+    isNullableText(value.number) &&
+    isNullableText(value.title) &&
+    isNullableNumber(value.seconds)
+  );
+}
+
+function isSuggestion(value: JsonValue): boolean {
+  return (
+    isRecord(value) &&
+    isTarget(value.target) &&
+    isText(value.field) &&
+    isText(value.fieldLabel) &&
+    isTextList(value.before) &&
+    isTextList(value.after) &&
+    isFlag(value.kept)
+  );
+}
+
+export function isMatchInfo(value: JsonValue): value is JsonValue & MatchInfo {
+  return (
+    isRecord(value) &&
+    isCandidate(value.release) &&
+    isText(value.url) &&
+    Array.isArray(value.media) &&
+    value.media.every(isMedium) &&
+    Array.isArray(value.tracks) &&
+    value.tracks.every(isMatchTrack) &&
+    Array.isArray(value.pairs) &&
+    value.pairs.every(isPair) &&
+    Array.isArray(value.unpaired) &&
+    value.unpaired.every(isNumber) &&
+    Array.isArray(value.missing) &&
+    value.missing.every(isSlot) &&
+    Array.isArray(value.suggestions) &&
+    value.suggestions.every(isSuggestion) &&
+    Array.isArray(value.revisions) &&
+    value.revisions.every(isRevision)
+  );
+}
+
+/** A cover preview: an inline image, never a remote address. */
+export function isCover(value: JsonValue): value is string | null {
+  return (
+    value === null ||
+    (isText(value) && /^data:image\/(jpeg|png|webp);base64,/.test(value))
+  );
 }

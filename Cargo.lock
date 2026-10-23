@@ -1879,6 +1879,7 @@ dependencies = [
  "format-pcm",
  "gdk-pixbuf",
  "library",
+ "musicbrainz",
  "serde",
  "serde_json",
  "tauri",
