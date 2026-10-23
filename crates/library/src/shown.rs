@@ -109,6 +109,24 @@ pub(crate) fn artist_id(conn: &Connection, name: &str) -> Result<i64, LibraryErr
     id.ok_or(LibraryError::Db(rusqlite::Error::QueryReturnedNoRows))
 }
 
+/// The artist `name` names, taking that spelling when it comes from an
+/// edit: spellings that share a key are one artist, and the spelling the
+/// user chose wins over the one read first.
+pub(crate) fn shown_artist_id(
+    conn: &Connection,
+    name: &str,
+    edited: bool,
+) -> Result<i64, LibraryError> {
+    let id = artist_id(conn, name)?;
+    if edited {
+        conn.prepare_cached(
+            "UPDATE artists SET name = ?2 WHERE id = ?1 AND name != ?2 COLLATE BINARY",
+        )?
+        .execute(params![id, name])?;
+    }
+    Ok(id)
+}
+
 /// A track's file values, each field's in file order.
 pub(crate) fn file_values(conn: &Connection, track: i64) -> Result<Vec<FileValue>, LibraryError> {
     let mut statement = conn.prepare_cached(
@@ -169,7 +187,8 @@ pub(crate) fn refresh_track(conn: &Connection, track: i64) -> Result<Option<i64>
         values::file_shown(&values, field)
     })?;
     let shown = track_shown(&path_from(&path), &values, &edited);
-    let artist = artist_id(conn, &shown.artist)?;
+    let edited_artist = matches!(edited.get(&Field::Artist), Some(Some(_)));
+    let artist = shown_artist_id(conn, &shown.artist, edited_artist)?;
     conn.prepare_cached(
         "UPDATE tracks SET title = ?2, artist_id = ?3, track = ?4, disc = ?5, genre = ?6
          WHERE id = ?1",
@@ -219,7 +238,7 @@ pub(crate) fn refresh_release(conn: &Connection, album: i64) -> Result<(), Libra
     let year = release(Field::Date).and_then(|date| values::year(&date));
     let artist = match edited.get(&Field::AlbumArtist) {
         Some(Some(name)) => edit_text(name)
-            .map(|name| artist_id(conn, &name))
+            .map(|name| shown_artist_id(conn, &name, true))
             .transpose()?,
         // Cleared: decided as if no track had an album-artist tag.
         edit => {

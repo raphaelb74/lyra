@@ -98,6 +98,15 @@ Text, `id3`: v2.4 round-trips all eleven samples. v2.3 turns a NUL inside a valu
 
 A test corpus of badly tagged fixtures covers every rule, including names a rule must leave alone. Online lookups (MT4) are a separate, later source of proposals.
 
+**As built (MT2 block 1).**
+
+- **Chaining.** Rules run in the table's order, each on what the ones before left. A field gets one proposal, which names every rule that changed it. Accepting all proposals and running the rules again proposes nothing; a test checks this.
+- **Encoding repair.** Only mojibake for now. Raw Latin-1 bytes need the raw comment reader that comes with MT5a.
+- **Featured artists.** There is no separate featuring field, so the guest joins the artist credit, as MusicBrainz writes it: `Song (feat. X)` by A becomes title `Song`, artist `A feat. X`.
+- **Album artist.** Guests do not make an album a compilation: tracks agree on their main artist, the part before `feat.`.
+- **Capitals.** Only text of two words or more. A single word in one case is usually meant (`ABBA`, `MGMT`, `deadmau5`). Artist names are changed only from ALL CAPS, because lower case is a style too (`k.d. lang`).
+- **Duplicates.** The most used spelling is proposed; the editor (MT3) lets the user pick another. An edited spelling names the artist, since spellings that share a matching key are one artist.
+
 ## Capability matrix
 
 | Format | Library edits and cleanup (MT3) | File writes                       | Gate                                                                                                  |

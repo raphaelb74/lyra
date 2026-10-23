@@ -40,8 +40,8 @@ In blocks, each a working library with its own tests. Nothing here changes music
 
 **Block 1: cleanup rules.**
 
-- [ ] Cleanup rules as pure functions from file values to proposed edits: text hygiene, encoding repair, numbers, dates, album artist, featured artists, capitals, duplicate artists, genres, sort names ([decision](METADATA_DECISIONS.md) 10).
-- [ ] A corpus of badly tagged FLAC and DSF fixtures, including names each rule must leave alone.
+- [x] Cleanup rules as pure functions from file values to proposed edits: text hygiene, encoding repair, numbers, dates, album artist, featured artists, capitals, duplicate artists, genres, sort names ([decision](METADATA_DECISIONS.md) 10). _`Library::propose_cleanup`, read-only; accepted through `save_edits` with `Origin::Rule`._
+- [x] A corpus of badly tagged FLAC and DSF fixtures, including names each rule must leave alone.
 
 **Block 2: edit service.**
 

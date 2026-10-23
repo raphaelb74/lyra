@@ -14,7 +14,7 @@ use crate::shown::{self, Edited};
 use crate::values::{self, Field, FileValue, Scope};
 
 /// What an edit applies to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Target {
     Track(i64),
     /// An album, as a release.

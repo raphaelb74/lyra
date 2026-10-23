@@ -30,7 +30,7 @@ pub fn key(text: &str) -> String {
 
 /// Characters that change nothing a reader sees: controls, zero-width
 /// characters, direction marks, the byte-order mark and soft hyphens.
-fn is_invisible(c: char) -> bool {
+pub(crate) fn is_invisible(c: char) -> bool {
     (c.is_control() && !c.is_whitespace())
         || matches!(
             c,

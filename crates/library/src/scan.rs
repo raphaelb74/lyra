@@ -361,7 +361,8 @@ fn write_track(
         None => Edited::new(),
     };
     let shown = shown::track_shown(&file.path, &scanned.values, &edited);
-    let artist_id = shown::artist_id(conn, &shown.artist)?;
+    let edited_artist = matches!(edited.get(&Field::Artist), Some(Some(_)));
+    let artist_id = shown::shown_artist_id(conn, &shown.artist, edited_artist)?;
 
     // The release is found by what the file says; edits do not move tracks.
     let album_artist = scanned.shown(Field::AlbumArtist);
