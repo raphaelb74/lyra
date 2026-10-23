@@ -100,6 +100,22 @@ Linux stays the reference platform. UI, library and engine are shared; each plat
 
 **Done when:** PCM and DoP are bit-perfect on both platforms with recorded hardware evidence, and installers are signed.
 
+## M7 — Wireless outputs (after v1)
+
+Same rule as wired outputs: the most direct path, and the signal path says exactly what happens. UPnP can be bit-perfect; Bluetooth never is and is labelled lossy; AirPlay is parked.
+
+- [ ] UPnP/DLNA output. Lyra acts as control point and media server; the network player (renderer) plays and keeps the clock, so this sits beside `AudioSink`, as a remote transport driven by UNDA's queue, not as a sink.
+  - Discovery: SSDP search for `MediaRenderer` and OpenHome `Product` devices; device description and `ConnectionManager.GetProtocolInfo` give the formats and rates it accepts (FLAC, WAV/L16, DSF/DFF, DoP).
+  - Serving: a small HTTP server on the LAN interface serves only queued tracks, under random per-session URLs, with Range for seeking; no directory listing, no paths in URLs; stops with the output.
+  - Two modes, chosen per track from the renderer's formats: send the file untouched (the renderer decodes; bit-perfect up to the renderer) or, when the renderer lacks the format, send decoded PCM as WAV/L16 at the source rate. Never resample; refuse instead, as for ALSA.
+  - Control: `AVTransport` (SetAVTransportURI, Play, Pause, Seek, Stop) with `SetNextAVTransportURI` for gapless; the OpenHome Playlist service where offered. `RenderingControl` volume when the renderer exposes it. Position from GENA events, polling as fallback.
+  - Signal path: renderer name and model, what is sent (file or PCM), format reported by the renderer; verdict "bit-perfect to the renderer" only when the bytes leave Lyra untouched.
+  - Dependencies: reuse `quick-xml` and `ureq`, already in the tree; small std UDP code for SSDP. Pick the HTTP server (std `TcpListener` or `hyper`, already in the tree) at design time.
+- [ ] Bluetooth: the best available lossy path, never called bit-perfect. Output through PipeWire's BlueZ sink at the source rate when the codec allows it (LDAC 44.1–96 kHz; aptX HD 48 kHz). Show the negotiated codec and bitrate (BlueZ `MediaTransport1`) in the signal path, with a "lossy wireless" verdict. Documented alternative today: a USB Bluetooth transmitter (LDAC / aptX Adaptive) is a normal USB audio device, so the existing ALSA path reaches it bit-perfect.
+- [ ] AirPlay (parked): ALAC at 16/44.1 (some AirPlay 2 receivers take 24/48), so it is bit-perfect only for CD-rate sources and needs downsampling otherwise. Sending does not need Apple's SDK (open implementations such as OwnTone exist), but AirPlay 2 pairing and timing make it a large subsystem to maintain. Reconsider only on user demand.
+
+**Done when:** a FLAC, a hi-res PCM file and a DSF play gaplessly to at least two UPnP renderers from different vendors, with the bytes received checked against the source where the renderer allows it; Bluetooth shows its codec and lossy verdict.
+
 ## Initial M0 prompt
 
 > Read AGENTS.md, docs/SPECIFICATION.md, and docs/IMPLEMENTATION_PLAN.md. Implement milestone M0 only. Verify the Rust workspace and Svelte/Tauri app compile, install or document missing Linux prerequisites, add minimal IPC get_app_info, generate icons, and add CI. Do not implement audio playback yet. Run all required checks, report commands and results, and update milestone checkboxes only when validated.

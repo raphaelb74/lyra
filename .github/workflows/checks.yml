@@ -15,22 +15,35 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
-      # Keep the downloaded .debs: the runner's Ubuntu mirror is sometimes very
-      # slow (64 MB took 26 min once), so only a cache miss should depend on it.
-      - uses: actions/cache@v6
+      # Keep the downloaded .debs so only a cache miss depends on the Ubuntu
+      # mirror. Saved right after the install, not at job end, so a later
+      # failing step cannot lose it.
+      - name: Restore apt packages
+        id: apt-cache
+        uses: actions/cache/restore@v6
         with:
           path: ~/apt-archives
-          key: apt-ubuntu-24.04-${{ hashFiles('.github/workflows/checks.yml') }}
+          key: apt-ubuntu-24.04-${{ hashFiles('.github/apt-packages.txt') }}
           restore-keys: apt-ubuntu-24.04-
+      # The runner's Azure mirror serves indexes fast but packages sometimes at
+      # ~40 kB/s, and apt only fails over on errors, not slowness. Use
+      # Canonical's archive in its place.
       - name: Linux prerequisites
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: |
+          cat /etc/apt/apt-mirrors.txt
+          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|' /etc/apt/apt-mirrors.txt
           mkdir -p ~/apt-archives/partial
           sudo apt-get update
-          sudo apt-get install -y -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-archives" \
-            build-essential pkg-config libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev desktop-file-utils xvfb xdotool webkit2gtk-driver shellcheck
+          xargs -a .github/apt-packages.txt sudo apt-get install -y \
+            -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-archives"
           sudo chown -R "$USER" ~/apt-archives
+      - name: Save apt packages
+        if: steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/apt-archives
+          key: apt-ubuntu-24.04-${{ hashFiles('.github/apt-packages.txt') }}
       - name: Rust toolchain from rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
