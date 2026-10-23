@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Local Lyra window: its own title bar (drag, minimize, maximize, close), playback, library, metadata editing, settings, device-volume and diagnostics commands and their events; no filesystem, dialog, shell, or remote capabilities (the folder picker opens from Rust)",
+  "description": "Local Lyra window: its own title bar (drag, minimize, maximize, close), playback, library, metadata editing, settings, device-volume and diagnostics commands and their events; no filesystem, dialog, shell, or remote capabilities (ID Match goes online from Rust, only while the setting allows) (the folder picker opens from Rust)",
   "windows": ["main"],
   "permissions": [
     "core:event:allow-listen",
@@ -62,6 +62,10 @@
     "allow-choose-artwork",
     "allow-reset-artwork",
     "allow-propose-fixes",
-    "allow-apply-fixes"
+    "allow-apply-fixes",
+    "allow-match-candidates",
+    "allow-match-release",
+    "allow-match-cover",
+    "allow-apply-match"
   ]
 }

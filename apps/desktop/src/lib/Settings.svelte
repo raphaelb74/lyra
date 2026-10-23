@@ -112,7 +112,10 @@
   ];
 
   let settings = $state<Settings | null>(null);
-  let saved = $state(false);
+  /** What the last save changed, said beside the title. */
+  let saved = $state<string | null>(null);
+  /** What turning online lookups on means, shown before it happens. */
+  let disclosing = $state(false);
   const converting = $derived(
     settings?.dsdFallback === 'convert' && settings.dsdTransport === 'auto',
   );
@@ -121,12 +124,15 @@
     settings = (await attempt(api.settings, onError)) ?? null;
   }
 
-  async function save(change: Partial<Settings>) {
+  async function save(
+    change: Partial<Settings>,
+    confirmation = 'Saved. Applies from the next track.',
+  ) {
     const current = settings;
 
     if (current === null) return;
 
-    saved = false;
+    saved = null;
 
     const next = await attempt(
       () => api.setSettings({ ...current, ...change }),
@@ -135,7 +141,7 @@
 
     if (next !== undefined) {
       settings = next;
-      saved = true;
+      saved = confirmation;
     }
   }
 
@@ -162,6 +168,11 @@
     });
   }
 
+  function setOnline(on: boolean) {
+    disclosing = false;
+    void save({ onlineLookups: on }, 'Saved.');
+  }
+
   function chooseGain(value: number) {
     void save({ conversionGainDb: value });
   }
@@ -180,9 +191,7 @@
   <div class="heading">
     <h2 id="settings-title">Settings</h2>
     {#if saved}
-      <span class="confirm" role="status"
-        >Saved. Applies from the next track.</span
-      >
+      <span class="confirm" role="status">{saved}</span>
     {/if}
   </div>
 
@@ -198,6 +207,76 @@
         ><Icon name="sparkles" size={14} />Review fixes…</button
       >
     </div>
+    {#if settings}
+      <div class="setting">
+        <div class="setting-text">
+          <h4>Online lookups</h4>
+          <p class="muted">
+            {settings.onlineLookups
+              ? 'On: ID Match can ask MusicBrainz about an album you choose.'
+              : 'Off: Lyra never goes online.'}
+          </p>
+        </div>
+        {#if settings.onlineLookups}
+          <button
+            type="button"
+            class="small"
+            onclick={() => {
+              setOnline(false);
+            }}>Turn off</button
+          >
+        {:else if !disclosing}
+          <button
+            type="button"
+            class="small"
+            onclick={() => (disclosing = true)}>Turn on…</button
+          >
+        {/if}
+      </div>
+      {#if disclosing}
+        <div class="disclosure" role="group" aria-labelledby="online-title">
+          <h4 id="online-title">Before ID Match goes online</h4>
+          <ul>
+            <li>
+              Only when you open ID Match on an album: never at startup or
+              during a scan.
+            </li>
+            <li>
+              Lyra sends that album's title and artist, or the MusicBrainz ID it
+              is tagged with, to musicbrainz.org, and asks coverartarchive.org
+              for covers.
+            </li>
+            <li>
+              Requests name Lyra, its version and a project contact address. No
+              account, file name or anything else about you is sent. As with any
+              website, those services see your IP address.
+            </li>
+            <li>
+              Nothing changes until you save, and saved changes stay in Lyra;
+              your music files are untouched.
+            </li>
+          </ul>
+          <p class="muted">
+            Data from MusicBrainz is public domain (CC0). Covers come from the
+            Cover Art Archive and belong to their owners.
+          </p>
+          <div class="actions">
+            <button
+              type="button"
+              class="small primary"
+              onclick={() => {
+                setOnline(true);
+              }}>Turn on</button
+            >
+            <button
+              type="button"
+              class="small"
+              onclick={() => (disclosing = false)}>Cancel</button
+            >
+          </div>
+        </div>
+      {/if}
+    {/if}
   </div>
 
   <h3 class="group-title">Playback</h3>
@@ -345,6 +424,22 @@
   }
   .match {
     margin-top: var(--space-3);
+  }
+  .disclosure {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-3) 0 var(--space-4);
+    border-top: 1px solid var(--line);
+    font-size: var(--type-small);
+  }
+  .disclosure h4 {
+    font-size: var(--type-body);
+  }
+  .disclosure ul {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding-left: var(--space-5);
   }
 
   .heading {

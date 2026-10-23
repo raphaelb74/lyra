@@ -55,6 +55,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "reset_artwork",
             "propose_fixes",
             "apply_fixes",
+            "match_candidates",
+            "match_release",
+            "match_cover",
+            "apply_match",
         ]));
     tauri_build::try_build(attributes)?;
     Ok(())
