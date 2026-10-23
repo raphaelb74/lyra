@@ -203,6 +203,7 @@ pub fn scan(
     art::delete_art(art_dir, &replaced);
     let unused = prune(conn)?;
     art::delete_art(art_dir, &unused);
+    art::restore_chosen(conn, art_dir)?;
     conn.execute(
         "UPDATE scan_runs SET finished_at = ?2, added = ?3, updated = ?4, removed = ?5,
          failed = ?6 WHERE id = ?1",

@@ -236,6 +236,17 @@ const MIGRATIONS: &[Migration] = &[
     END;
     ",
     ),
+    // 10: artwork the user chose, kept whole in the database: the cache
+    // file is only its copy, and backups include it.
+    Migration::Sql(
+        "
+    CREATE TABLE chosen_art (
+        album_id INTEGER PRIMARY KEY REFERENCES albums(id) ON DELETE CASCADE,
+        mime TEXT NOT NULL,
+        data BLOB NOT NULL
+    );
+    ",
+    ),
 ];
 
 /// Brings the schema up to date, after a backup of an existing database

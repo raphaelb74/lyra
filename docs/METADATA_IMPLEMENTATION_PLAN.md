@@ -51,20 +51,18 @@ In blocks, each a working library with its own tests. Nothing here changes music
 - [x] Source preferences: which origin wins when a rule and a provider both propose a field. _From MT1. Fixed order: manual, provider, rule._
 - [x] A release's edits follow its tracks when the release is replaced, instead of going with it. _To releases the scan created for them._
 
-**Block 3: artists and artwork.**
+**Block 3: artwork.**
 
-- [ ] Distinguish artist credits from artist identity; allow offline entities with no provider ID. _From MT1._
-- [ ] Durable artwork references, immutable asset digests and disposable thumbnail/cache accounting. _From MT1._
-- [ ] Restricted local artwork selection through Rust, bounded decode, durable storage, thumbnail invalidation and total cache accounting.
+- [x] Choose an album's artwork from a local JPEG, PNG or WebP file (16 MB at most); reset to the files' artwork. _Migration 10: the chosen image is kept in the database, so scans never replace it, a cleared cache gets it back, and backups include it. The existing cache, cap and thumbnails show it._
 
-**Block 4: backup and app wiring.**
+**Block 4: app wiring.** Done with MT3, which is its first user.
 
-- [ ] Versioned backup and restore of the database and selected artwork, as a service the editor will call. Excludes credentials and evictable response caches. _From MT1._
-- [ ] Worker jobs, short database transactions and targeted change events; no I/O or network while a UI or library mutex is held.
-- [ ] Typed Rust/TypeScript IPC, validators and Tauri permissions. Selected IDs are resolved in Rust; no arbitrary write paths.
+- [ ] Typed Rust/TypeScript IPC for previews, commits, undo, reset, cleanup and artwork; selected IDs resolved in Rust; no arbitrary write paths. Long work off the UI thread.
 - [ ] Changed labels reach the queue, Now Playing, search and desktop metadata without touching the stream format or playback buffers.
 
-**Done when:** service-level tests exercise preview/commit/conflict/undo, replacement artwork, backup/restore and unavailable files; invalid or stale operations make no partial local edit. MT01–MT04 and MT13 pass at the service boundary. Playback engine dependencies remain unchanged.
+Dropped as more than this needs: separate artist credit and identity tables (MT4 adds MusicBrainz artist IDs as fields, if needed); artwork digests and cache accounting beyond the existing cap; a separate backup service (the upgrade backups are `VACUUM INTO` copies, which now hold edits and chosen artwork).
+
+**Done when:** service-level tests exercise preview/commit/conflict/undo and chosen artwork; invalid or stale operations make no partial local edit. Playback engine dependencies remain unchanged.
 
 ## MT3 — Embedded offline editor
 
