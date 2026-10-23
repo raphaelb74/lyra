@@ -646,6 +646,28 @@ pub fn set_volume(
     Ok(level.map(|level| volume_info(level, None)))
 }
 
+/// Sets `device`'s total hardware attenuation in dB; refused while DoP
+/// plays on it.
+#[tauri::command]
+pub fn set_volume_db(
+    device: String,
+    decibels: f64,
+    state: State<'_, AppState>,
+) -> Result<Option<VolumeInfo>, IpcError> {
+    let device = hardware_device(device)?;
+    if !decibels.is_finite() {
+        return Err(IpcError::invalid_request(
+            "The volume must be a number of dB",
+        ));
+    }
+    if let Some(reason) = state.player.status().volume_lock(&device) {
+        return Err(IpcError::invalid_request(reason));
+    }
+    let level =
+        audio_alsa::set_volume_db(&device, decibels).map_err(|error| volume_error(&error))?;
+    Ok(level.map(|level| volume_info(level, None)))
+}
+
 /// What the kernel and Lyra report about `device` right now. Cheap: procfs
 /// and counters only, so the UI can refresh it every second.
 #[tauri::command(async)]
@@ -707,6 +729,8 @@ pub fn volume_info(level: audio_alsa::VolumeLevel, locked: Option<&'static str>)
     VolumeInfo {
         percent: level.percent,
         decibels: level.decibels,
+        min_decibels: level.decibel_range.map(|(min, _)| min),
+        max_decibels: level.decibel_range.map(|(_, max)| max),
         usb: level.usb,
         locked,
     }

@@ -353,7 +353,7 @@
             Use this cover
           </label>
           <p class="muted small">
-            Undo keeps the cover; Edit → Use the files' cover brings yours back.
+            Edit › Use the files’ cover brings yours back.
           </p>
         {/if}
       </div>
@@ -499,10 +499,7 @@
         </table>
       </div>
       {#if kept > 0}
-        <p class="muted small">
-          Fields you edited yourself keep your edit. To use MusicBrainz's value,
-          reset them in Edit first.
-        </p>
+        <p class="muted small">Your own edits are kept.</p>
       {/if}
     {/if}
 
@@ -532,7 +529,7 @@
         placeholder="Artist"
         bind:value={typed.artist}
       />
-      <button type="submit" class="with-icon" disabled={searching}
+      <button type="submit" class="primary with-icon" disabled={searching}
         ><Icon name="search" size={16} />Search</button
       >
     </form>
@@ -579,9 +576,7 @@
           </li>
         {/each}
       </ul>
-      <p class="muted small credit">
-        Ranked by what agrees with your tags; check the edition before saving.
-      </p>
+      <p class="muted small credit">Best match first.</p>
     {/if}
   {/if}
 </section>

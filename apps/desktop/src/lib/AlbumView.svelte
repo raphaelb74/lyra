@@ -146,13 +146,17 @@
         }}><Icon name="image" size={16} /></button
       >
     </div>
+    {#if logos.length > 0}
+      <div class="marks">
+        {#each logos as logo (logo)}<FormatLogo format={logo} />{/each}
+      </div>
+    {/if}
     <div class="details">
       <h3 id="album-title">{album.title}</h3>
       <p class="artist">{album.artist}</p>
       <p class="muted num">{facts}</p>
       {#if formats.length > 0}
         <div class="formats">
-          {#each logos as logo (logo)}<FormatLogo format={logo} />{/each}
           <ul class="badges" aria-label="Formats">
             {#if hiRes}<li class="hi-res">Hi-Res</li>{/if}
             {#each formats as format (format)}
@@ -262,8 +266,8 @@
 
 <style>
   .cover {
+    grid-area: cover;
     position: relative;
-    flex-shrink: 0;
   }
   /* Over the cover's corner, shown while the cover is hovered or focused. */
   .change-cover {
@@ -290,13 +294,39 @@
   .change-cover:hover:not(:disabled) {
     background: var(--surface-hover);
   }
-  /* The details go under the cover when the view is narrow (queue open). */
+  /* Cover, details at its foot, format logos level with its top right.
+     When the view is narrow (queue open) the details go under the cover. */
+  .album {
+    container: album / inline-size;
+  }
   header {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'cover details marks';
     gap: var(--space-5);
-    align-items: flex-end;
+    align-items: end;
     margin: var(--space-4) 0 var(--space-5);
+  }
+  .details {
+    grid-area: details;
+  }
+  .marks {
+    grid-area: marks;
+    align-self: start;
+    display: flex;
+    gap: var(--space-3);
+    color: var(--text-secondary);
+  }
+  @container album (width < 560px) {
+    header {
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-areas:
+        'cover marks'
+        'details details';
+    }
+    .marks {
+      justify-self: end;
+    }
   }
   .art {
     width: 200px;
@@ -317,14 +347,9 @@
     font-size: var(--type-title);
     line-height: var(--leading-title);
   }
-  /* Format logos, then tags: a quiet outline; Hi-Res in the accent colour. */
+  /* Format tags: a quiet outline; Hi-Res in the accent colour. */
   .formats {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-3);
     margin-top: var(--space-3);
-    color: var(--text-secondary);
   }
   .badges {
     list-style: none;
@@ -348,10 +373,6 @@
     border-color: var(--accent);
     color: var(--accent);
   }
-  .details {
-    flex: 1 1 320px;
-    min-width: 0;
-  }
   .actions {
     flex-wrap: wrap;
     margin-top: var(--space-3);
@@ -360,10 +381,6 @@
     --columns: 3em minmax(0, 1fr) auto 4em;
   }
   @media (max-width: 650px) {
-    header {
-      flex-direction: column;
-      align-items: flex-start;
-    }
     .rows {
       --columns: 2.5em minmax(0, 1fr) 3.5em;
     }

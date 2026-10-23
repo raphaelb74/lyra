@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <rect width="1024" height="1024" rx="224" fill="#10151d"/>
-  <g fill="none" stroke="#b4d9cb" stroke-width="60" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M280 260v190c0 130 95 224 232 224s232-94 232-224V260M512 292v354M400 310v316M624 310v316M354 792h316M512 680v112"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="1 0.3 22 22">
+  <!-- Lyra app icon: the titlebar lyre (src/lib/LyraMark.svelte), same
+       geometry, in white on transparent. Regenerate with `npm run icons`. -->
+  <path fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M5.2 6.5C4.9 7.2 3.5 7.2 3.1 6.2 2.7 5.1 3.5 4 4.7 4 6.1 4 6.7 6.4 6.7 9.2v1.4c0 3.3 2.3 6 5.3 6s5.3-2.7 5.3-6V9.2c0-2.8.6-5.2 2-5.2 1.2 0 2 1.1 1.6 2.2-.4 1-1.8 1-2.1.3M12 16.6v3.8M9.2 20.4h5.6M9.7 7.8l.6 8.2M12 7.4v9.2M14.3 7.8l-.6 8.2"/>
+  <path fill="#fff" d="M12 1.2q.35 1.65 2 2-1.65.35-2 2-.35-1.65-2-2 1.65-.35 2-2z"/>
 </svg>

@@ -465,7 +465,24 @@
       void command(() => api.seek(seconds));
     }}
   >
+    {#snippet volume()}
+      {#if selectedDevice !== ''}
+        <VolumeControl
+          {api}
+          device={selectedDevice}
+          {status}
+          onError={showError}
+        />
+      {/if}
+    {/snippet}
     {#snippet output()}
+      <DevicePicker
+        {devices}
+        selected={selectedDevice}
+        loaded={devicesLoaded}
+        onSelect={(name: string) => (selectedDevice = name)}
+        onRefresh={loadDevices}
+      />
       <button
         type="button"
         class="icon"
@@ -476,21 +493,6 @@
           setQueueOpen(!queueOpen);
         }}><Icon name="list-ordered" size={18} /></button
       >
-      {#if selectedDevice !== ''}
-        <VolumeControl
-          {api}
-          device={selectedDevice}
-          {status}
-          onError={showError}
-        />
-      {/if}
-      <DevicePicker
-        {devices}
-        selected={selectedDevice}
-        loaded={devicesLoaded}
-        onSelect={(name: string) => (selectedDevice = name)}
-        onRefresh={loadDevices}
-      />
     {/snippet}
     {#snippet signalPath()}
       {#if status.track}
@@ -554,9 +556,11 @@
   nav button:hover:not(:disabled) {
     color: var(--text);
   }
-  nav [aria-current='page'] {
-    color: var(--text);
-    background: var(--surface-selected);
+  /* The current page carries the brand accent, as in the design guide. */
+  nav [aria-current='page'],
+  nav [aria-current='page']:hover:not(:disabled) {
+    color: var(--accent-light);
+    background: var(--accent-dark);
   }
   nav [aria-current='page'] :global(svg) {
     color: var(--accent);

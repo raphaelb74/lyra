@@ -184,7 +184,7 @@
 </div>
 {#if matches.length > SHOWN}
   <p class="muted">
-    Showing the first {SHOWN}. Refine the search to see the others.
+    First {SHOWN} shown. Refine the search.
   </p>
 {/if}
 

@@ -87,8 +87,10 @@
           maxlength="200"
           bind:value={name}
         />
-        <button type="submit" class="small" disabled={name.trim() === ''}
-          >Create</button
+        <button
+          type="submit"
+          class="primary small"
+          disabled={name.trim() === ''}>Create</button
         >
       </form>
     {/snippet}

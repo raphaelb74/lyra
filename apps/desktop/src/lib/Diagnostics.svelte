@@ -146,9 +146,7 @@
         <dd>{output === null ? 'Opening…' : outputLabel(output)}</dd>
         <dt>Underruns</dt>
         <dd data-warn={playback.underruns > 0}>
-          {playback.underruns === 0
-            ? 'None since the device opened'
-            : `${String(playback.underruns)} since the device opened`}
+          {playback.underruns === 0 ? 'None' : String(playback.underruns)}
         </dd>
         <dt>Buffer</dt>
         <dd>
@@ -180,13 +178,13 @@
       {/if}
     </dl>
     {#if info.hwParams === null}
-      <p class="muted">The device is closed: no program is playing on it.</p>
+      <p class="muted">Idle.</p>
     {:else}
-      <p class="caption">What the hardware runs at now</p>
+      <p class="caption">Hardware now</p>
       <pre>{info.hwParams}</pre>
     {/if}
     {#if info.usbStream !== null}
-      <p class="caption">USB stream, with the rate the DAC reports back</p>
+      <p class="caption">USB stream</p>
       <pre>{info.usbStream}</pre>
     {/if}
 
@@ -203,10 +201,7 @@
         {/each}
       </ul>
     {:else}
-      <p class="muted">
-        Lyra opens the device for a moment and asks the driver. This fails while
-        another program plays on it.
-      </p>
+      <p class="muted">Opens the device briefly. Needs it idle.</p>
     {/if}
     <button
       type="button"

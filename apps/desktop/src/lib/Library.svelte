@@ -373,9 +373,9 @@
       {#if loaded}
         <div class="drop">
           {#if hasFolders}
-            <p>No FLAC, WAV, DSF or DFF files found yet.</p>
+            <p>No music yet.</p>
           {:else}
-            <p>Add a music folder, or drop one onto this window.</p>
+            <p>Add a folder in Settings, or drop one here.</p>
             <button
               type="button"
               class="primary"

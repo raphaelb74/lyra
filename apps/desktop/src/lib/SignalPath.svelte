@@ -21,14 +21,14 @@
     <li>
       <span class="title">{stage.title}</span>
       <span class="text">{stage.text}</span>
-      {#if stage.detail}
-        <span class="detail truncate">{stage.detail}</span>
-      {/if}
     </li>
   {/each}
 </ol>
 <p class="verdict" data-status={track.bitPerfect?.status ?? 'none'}>
-  {output === null ? 'Not verified yet' : verdictLabel(track.bitPerfect)}
+  {output === null ? 'Unverified' : verdictLabel(track.bitPerfect)}
+  {#if output !== null && track.bitPerfect?.reason}
+    <span class="reason">{track.bitPerfect.reason}</span>
+  {/if}
 </p>
 
 <style>
@@ -77,10 +77,12 @@
     color: var(--text);
     font-variant-numeric: tabular-nums;
   }
-  .detail {
+  .reason {
+    display: block;
     color: var(--text-muted);
     font-size: var(--type-caption);
     line-height: var(--leading-caption);
+    font-weight: var(--weight-regular);
   }
   .verdict {
     margin: var(--space-1) 0 0;

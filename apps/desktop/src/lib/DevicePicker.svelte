@@ -37,6 +37,7 @@
       : 'Choose an output device'}
     triggerClass="trigger"
     above
+    clear="footer"
   >
     {#snippet trigger()}
       <Icon name="speaker" size={16} />
@@ -59,7 +60,7 @@
       {#if devices.length === 0}
         <p class="muted empty">
           {loaded
-            ? 'No audio devices found. Connect your DAC, then refresh.'
+            ? 'No devices. Connect your DAC, then refresh.'
             : 'Looking for devices…'}
         </p>
       {:else}
@@ -89,9 +90,9 @@
 </div>
 
 <style>
-  /* The volume gives way; the name keeps its width (at most 220px). */
+  /* The name shrinks only once the signal path has given way (at most 220px). */
   .picker {
-    flex: 0 0 auto;
+    flex: 0 1 auto;
     min-width: 0;
     display: flex;
     justify-content: flex-end;

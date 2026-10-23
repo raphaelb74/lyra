@@ -34,10 +34,10 @@ const texts = (t: Track) =>
 describe('signal path', () => {
   it('states each stage from the engine report', () => {
     expect(texts(track)).toEqual([
-      'Source: FLAC · 16-bit · 44.1 kHz · 2 channels',
-      'Processing: 16-bit samples sent as 32-bit, low bits zero (lossless)',
-      'Volume: No software volume; DAC volume −12.5 dB',
-      'Output: PCM · 32-bit · 44.1 kHz · 2 channels',
+      'Source: FLAC · 16-bit · 44.1 kHz',
+      'Processing: 16-bit in 32-bit, lossless',
+      'DAC volume: −12.5 dB',
+      'Output: PCM · 32-bit · 44.1 kHz',
       'Device: iFi USB Audio SE',
     ]);
   });
@@ -54,15 +54,21 @@ describe('signal path', () => {
     };
 
     expect(texts(dsd).slice(0, 2)).toEqual([
-      'Source: DSD64 · DSF · 2.8224 MHz · 2 channels',
-      'Processing: Converted to PCM: low-pass and decimation, −3 dB gain (not bit-perfect)',
+      'Source: DSD64 · DSF · 2.8224 MHz',
+      'Processing: DSD to PCM, −3 dB',
     ]);
+  });
+
+  it('names channels only when not stereo', () => {
+    expect(texts({ ...track, channels: 1 })[0]).toBe(
+      'Source: FLAC · 16-bit · 44.1 kHz · Mono',
+    );
   });
 
   it('waits for the device before saying more', () => {
     expect(texts({ ...track, output: null, processing: [] })).toEqual([
-      'Source: FLAC · 16-bit · 44.1 kHz · 2 channels',
-      'Output: Opening the device…',
+      'Source: FLAC · 16-bit · 44.1 kHz',
+      'Output: Opening…',
     ]);
   });
 
@@ -71,9 +77,9 @@ describe('signal path', () => {
 
     expect(
       texts({ ...dsd, output: { ...output, transport: 'native' } })[3],
-    ).toBe('Output: DSD128 · Native · 2 channels');
+    ).toBe('Output: DSD128 · Native');
     expect(texts({ ...dsd, output: { ...output, transport: 'dop' } })[3]).toBe(
-      'Output: DSD128 · DoP · 2 channels',
+      'Output: DSD128 · DoP',
     );
   });
 });

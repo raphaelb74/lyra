@@ -240,6 +240,9 @@ export interface TrackDetails {
 export interface VolumeInfo {
   percent: number;
   decibels: number | null;
+  /** The total range in dB, when every control reports dB. */
+  minDecibels: number | null;
+  maxDecibels: number | null;
   /** USB DAC: below 0 dB the samples usually change. */
   usb: boolean;
   /** Why the volume cannot change now (DoP playing). */
@@ -520,7 +523,7 @@ function toBackendError(cause: unknown): BackendError {
 
   return new BackendError(
     'command_failed',
-    'Could not connect to Rust. Try checking the backend again.',
+    'Cannot reach the UNDA engine.',
     cause,
   );
 }
@@ -644,6 +647,8 @@ export function backend(
       run<VolumeInfo | null>('get_volume', isVolume, { device }),
     setVolume: (device: string, percent: number) =>
       run<VolumeInfo | null>('set_volume', isVolume, { device, percent }),
+    setVolumeDb: (device: string, decibels: number) =>
+      run<VolumeInfo | null>('set_volume_db', isVolume, { device, decibels }),
     settings: () => run('get_settings', isSettings),
     diagnostics: (device: string) =>
       run('get_diagnostics', isDiagnostics, { device }),

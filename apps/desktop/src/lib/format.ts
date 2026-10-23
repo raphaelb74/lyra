@@ -171,17 +171,11 @@ export function clock(seconds: number): string {
   return `${String(minutes)}:${secs}`;
 }
 
-/** `Bit-perfect`, `Not bit-perfect: <reason>`, … */
+/** `Bit-perfect`, `Not bit-perfect` or `Unverified`; the reason is apart. */
 export function verdictLabel(verdict: Verdict | null): string {
-  if (verdict === null) return 'Bit-perfect: not playing';
+  if (verdict === null || verdict.status === 'unverified') return 'Unverified';
 
-  if (verdict.status === 'yes') return 'Bit-perfect';
-
-  const reason = verdict.reason ?? 'unknown';
-
-  return verdict.status === 'no'
-    ? `Not bit-perfect: ${reason}`
-    : `Bit-perfect unverified: ${reason}`;
+  return verdict.status === 'yes' ? 'Bit-perfect' : 'Not bit-perfect';
 }
 
 /** `Scanning 12 of 340 files…`, `Up to date · 3 added, …`, or the error. */

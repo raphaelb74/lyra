@@ -121,6 +121,7 @@ pub fn run() -> tauri::Result<()> {
             commands::set_settings,
             commands::get_volume,
             commands::set_volume,
+            commands::set_volume_db,
             commands::get_diagnostics,
             commands::probe_device,
             commands::album_editor,

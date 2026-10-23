@@ -150,7 +150,7 @@
     } catch (error) {
       if (error instanceof BackendError && error.code === 'changed_meanwhile') {
         problem =
-          'This album changed while you were editing (a scan, perhaps). Your changes are kept: check them and save again.';
+          'The album changed while you were editing. Check and save again.';
         await load();
       } else {
         problem =
@@ -234,10 +234,7 @@
         : 'More fields'}</button
     >
     {#if more}
-      <p class="muted hint">
-        Sort names, totals and MusicBrainz IDs. Each track’s own fields open
-        with the arrow on its row.
-      </p>
+      <p class="muted hint">Sort names, totals and MusicBrainz IDs.</p>
       <FieldGrid
         fields={data.fields.filter((info) => !MAIN.includes(info.field))}
         valueOf={(info: FieldInfo) => current(release, info)}

@@ -32,14 +32,18 @@
     "shortDescription": "Lyra local music player",
     "longDescription": "Linux-first bit-perfect music player. Plays FLAC, WAV, DSF and DFF directly to an ALSA hardware device at the exact source format and rate, with native DSD or DoP.",
     "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
       "icons/128x128@2x.png",
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
       "icons/icon.png"
     ],
     "linux": {
       "deb": {
-        "desktopTemplate": "lyra.desktop"
+        "desktopTemplate": "lyra.desktop",
+        "files": {
+          "/usr/share/icons/hicolor/scalable/apps/lyra-desktop.svg": "../assets/lyra.svg"
+        }
       }
     }
   }

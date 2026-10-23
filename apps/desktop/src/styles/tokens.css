@@ -28,23 +28,68 @@
     U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* The wordmark only: one weight, Latin. */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-display: block;
+  font-weight: 600;
+  src: url('../assets/fonts/cormorant-garamond-latin-600-normal.woff2')
+    format('woff2');
+}
+
 @layer tokens {
   :root {
     color-scheme: dark;
 
-    /* Colour: graphite surfaces, one cool accent (the lit lamp). */
+    /* Shared neutral foundation, from the Lyra colour system. */
     --bg: #0d0f12;
     --surface: #15181c;
-    --surface-raised: #1c2025;
-    --surface-hover: #22272d;
-    --surface-selected: #272d35;
-    --line: #2a2f36;
-    --line-strong: #3a4049;
-    --text: #f1f2f3;
-    --text-secondary: #9a9fa7;
-    /* Below 4.5:1 on hover and selected surfaces: use secondary there. */
-    --text-muted: #838a94;
-    --accent: #b8c7d9;
+    --surface-elevated: #1c2025;
+    --border: #2a2f36;
+    --surface-raised: var(--surface-elevated);
+    --surface-hover: #232830;
+    --surface-selected: #2c333d;
+    --surface-selected-hover: #394452;
+    --control-border-hover: #73859c;
+    --line: var(--border);
+    --line-strong: #3e4550;
+    --text-primary: #f1f2f3;
+    --text: var(--text-primary);
+    --text-secondary: #9aa0a7;
+    --text-on-emphasis: #bec4cc;
+    /* Readable small text; the palette's darker grey is decorative only.
+       Muted row metadata switches to secondary on hover/selection. */
+    --text-muted: #8a929d;
+    --text-disabled: #666d76;
+    --on-accent: #0d0f12;
+
+    /* UNDA brand spectrum. These are not audio-quality/transport states. */
+    --unda-blue: #6ba8ff;
+    --unda-cyan: #5ed6d6;
+    --unda-mint: #7ee4b5;
+    --unda-yellow: #f6d56b;
+    --unda-peach: #ffa78b;
+    --unda-pink: #f78fb3;
+    --unda-purple: #c29bff;
+    --unda-spectrum: linear-gradient(
+      90deg,
+      var(--unda-blue),
+      var(--unda-cyan),
+      var(--unda-mint),
+      var(--unda-yellow),
+      var(--unda-peach),
+      var(--unda-pink),
+      var(--unda-purple)
+    );
+
+    /* Semantic interaction states, shared by both accent themes. */
+    --surface-playing: var(--accent-dark);
+    --surface-playing-hover: color-mix(
+      in oklab,
+      var(--accent-dark) 94%,
+      var(--accent)
+    );
     --warning: #e0b07a;
     /* The lamp's format colours, after iFi's LED: what the DAC receives. */
     --tone-cd: #f2d45c;
@@ -59,6 +104,7 @@
     /* Type: size and line height pairs. */
     --font-ui: Manrope, system-ui, sans-serif;
     --font-mono: ui-monospace, 'DejaVu Sans Mono', monospace;
+    --font-brand: 'Cormorant Garamond', Georgia, serif;
     --type-caption: 12px;
     --leading-caption: 16px;
     --type-small: 13px;
@@ -69,6 +115,8 @@
     --leading-title: 24px;
     --type-heading: 26px;
     --leading-heading: 32px;
+    /* Cormorant's capitals are small for their size. */
+    --type-brand: 22px;
     --type-display: clamp(28px, 3.2vw, 40px);
     --leading-display: 1.15;
     --weight-regular: 450;
@@ -89,19 +137,40 @@
     /* Size and shape. */
     --hit: 32px;
     --hit-row: 28px;
-    --hit-primary: 40px;
+    --hit-primary: 36px;
+    /* Compact desktop controls: buttons and fields share one height. */
+    --control-height: 30px;
+    --control-height-small: 24px;
     --row-height: 40px;
-    --titlebar-height: 40px;
+    --titlebar-height: 48px;
     --radius-s: 4px;
     --radius-m: 6px;
     --radius-round: 50%;
     --focus-ring: 2px solid var(--accent);
+    --accent-halo: color-mix(in srgb, var(--accent) 28%, transparent);
 
     /* Motion: responsive before animated. */
     --dur-fast: 120ms;
     --dur-base: 180ms;
     --dur-panel: 220ms;
     --ease: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  :root,
+  [data-theme='champagne'] {
+    --accent: #d4af7c;
+    --accent-light: #ebdcc2;
+    --accent-mid: #b8935f;
+    --accent-dark: #3a2f20;
+    --accent-highlight: #f7e9d7;
+  }
+
+  [data-theme='arctic-blue'] {
+    --accent: #8fa3ff;
+    --accent-light: #c3d4f0;
+    --accent-mid: #6b7faf;
+    --accent-dark: #2a3447;
+    --accent-highlight: #e6eeff;
   }
 
   @media (prefers-reduced-motion: reduce) {

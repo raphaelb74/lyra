@@ -9,7 +9,10 @@
   } from './ipc';
   import { onDeviceVolume } from './events';
   import Icon from './Icon.svelte';
+  import type { IconName } from '../assets/icons/lucide';
+  import Popover from './Popover.svelte';
   import Slider from './Slider.svelte';
+  import { snap, volumeScale, type VolumeScale } from './volume';
 
   interface Props {
     api: Backend;
@@ -22,12 +25,11 @@
 
   const { api, device, status, onError }: Props = $props();
 
-  /** Ctrl+↑ / Ctrl+↓ step. */
-  const STEP = 5;
-
   let volume = $state<VolumeInfo | null>(null);
   /** Latest value asked for while a change is on its way. */
   let pending: number | null = null;
+  /** Last value asked for until the device has it; steps add to it. */
+  let target: number | null = null;
   let sending = false;
 
   /** Changes when playback starts, stops or changes transport: the DoP
@@ -51,9 +53,11 @@
     volume = level ?? null;
   }
 
-  /** Sends `percent`, keeping one change in flight and only the latest queued. */
-  async function change(percent: number) {
-    pending = Math.min(100, Math.max(0, Math.round(percent)));
+  /** Sends `value` on `scale`, keeping one change in flight and only the
+   * latest queued. */
+  async function change(scale: VolumeScale, value: number) {
+    pending = snap(scale, value);
+    target = pending;
 
     if (sending) return;
 
@@ -64,24 +68,37 @@
 
       pending = null;
 
-      const level = await attempt(() => api.setVolume(device, next), onError);
+      const level = await attempt(
+        () =>
+          scale.unit === 'db'
+            ? api.setVolumeDb(device, next)
+            : api.setVolume(device, next),
+        onError,
+      );
 
       if (level !== undefined) volume = level;
     }
 
     sending = false;
+    target = null;
   }
 
   function onKey(event: KeyboardEvent) {
     if (!event.ctrlKey || volume?.locked !== null) return;
 
+    const scale = volumeScale(volume);
+
     const step =
-      event.key === 'ArrowUp' ? STEP : event.key === 'ArrowDown' ? -STEP : 0;
+      event.key === 'ArrowUp'
+        ? scale.jump
+        : event.key === 'ArrowDown'
+          ? -scale.jump
+          : 0;
 
     if (step === 0) return;
 
     event.preventDefault();
-    void change(volume.percent + step);
+    void change(scale, (target ?? scale.value) + step);
   }
 
   /** `−12.5 dB` where the card reports decibels, else `64 %`. */
@@ -91,14 +108,29 @@
     return `${level.decibels.toFixed(1).replace('-', '−')} dB`;
   }
 
-  function hint(level: VolumeInfo): string {
+  /** Said only when something is off; shortcuts live in Settings › Keyboard. */
+  function hint(level: VolumeInfo): string | null {
     if (level.locked !== null) return level.locked;
 
-    if (notBitPerfect) {
-      return 'Below 0 dB, most USB DACs change the samples: not bit-perfect.';
-    }
+    return notBitPerfect ? 'Not bit-perfect below 0 dB' : null;
+  }
 
-    return 'Volume of the device itself · Ctrl+↑ / Ctrl+↓';
+  function icon(level: VolumeInfo): IconName {
+    if (level.locked !== null) return 'lock';
+
+    return level.percent === 0 ? 'volume-x' : 'volume-2';
+  }
+
+  /** The wheel over the button or the slider: one step, up is louder. */
+  function onWheel(event: WheelEvent, level: VolumeInfo) {
+    if (level.locked !== null || event.deltaY === 0) return;
+
+    const scale = volumeScale(level);
+
+    void change(
+      scale,
+      (target ?? scale.value) + (event.deltaY < 0 ? scale.step : -scale.step),
+    );
   }
 
   /** Follows changes made outside Lyra; ignored while a change is sent. */
@@ -126,56 +158,101 @@
 <svelte:window onkeydown={onKey} />
 
 {#if volume}
-  <div class="volume" title={hint(volume)}>
-    <Icon
-      name={volume.locked !== null
-        ? 'lock'
-        : volume.percent === 0
-          ? 'volume-x'
-          : 'volume-2'}
-      size={16}
-    />
-    <Slider
-      label="Volume"
-      value={volume.percent}
-      max={100}
-      valueText={valueText(volume)}
-      disabled={volume.locked !== null}
-      onInput={(percent: number) => void change(percent)}
-    />
-    <span class="value num" class:warn={notBitPerfect}>{valueText(volume)}</span
+  {@const level = volume}
+  {@const scale = volumeScale(volume)}
+  <div
+    class="volume"
+    class:warn={notBitPerfect}
+    onwheel={(event) => {
+      onWheel(event, level);
+    }}
+  >
+    <Popover
+      label={`Volume: ${valueText(level)}`}
+      triggerClass="icon volume-trigger"
+      above
+      clear="footer"
     >
+      {#snippet trigger()}
+        <Icon name={icon(level)} size={18} />
+      {/snippet}
+      <p class="value num">{valueText(level)}</p>
+      <div class="track">
+        <Slider
+          label="Volume"
+          value={scale.value}
+          min={scale.min}
+          max={scale.max}
+          step={scale.step}
+          valueText={valueText(level)}
+          disabled={level.locked !== null}
+          onInput={(value: number) => void change(scale, value)}
+        />
+      </div>
+      {#if hint(level)}<p class="hint">{hint(level)}</p>{/if}
+    </Popover>
   </div>
 {/if}
 
 <style>
   .volume {
-    position: relative;
     display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    flex: 0 1 168px;
-    min-width: 80px;
-    color: var(--text-secondary);
   }
-  /* Floats above the slider's end; takes no room in the bar. */
-  .value {
+  .volume :global(.volume-trigger) {
+    position: relative;
+  }
+  /* Below 0 dB on USB: an amber dot on the button, as on toggles. */
+  .warn :global(.volume-trigger::after) {
+    content: '';
     position: absolute;
-    right: 0;
-    bottom: calc(100% - var(--space-1));
+    top: var(--space-1);
+    right: var(--space-1);
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-round);
+    background: var(--warning);
+  }
+  /* A narrow column centred over the button. */
+  .volume :global(div.panel) {
+    left: 50%;
+    right: auto;
+    width: 152px;
+    min-width: 0;
+    margin-left: -76px;
+    max-height: none;
+    display: grid;
+    justify-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3);
+  }
+  .value {
+    font-size: var(--type-small);
+    line-height: var(--leading-small);
+    font-weight: var(--weight-medium);
+  }
+  .warn .value {
+    color: var(--warning);
+  }
+  /* The range input turned upright: up is louder, and a tall track gives
+     about 1 % per 1.6 px. Arrow keys step by 1 %. */
+  .track {
+    position: relative;
+    width: var(--hit);
+    height: 160px;
+  }
+  .track :global(input.slider) {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 160px;
+    margin: 0;
+    translate: -50% -50%;
+    rotate: -90deg;
+  }
+  .hint {
     font-size: var(--type-caption);
     line-height: var(--leading-caption);
-    text-align: right;
     color: var(--text-muted);
-    opacity: 0;
-    transition: opacity var(--dur-fast) var(--ease);
-  }
-  .volume:hover .value,
-  .volume:focus-within .value,
-  .value.warn {
-    opacity: 1;
-  }
-  .value.warn {
-    color: var(--warning);
+    text-align: center;
   }
 </style>

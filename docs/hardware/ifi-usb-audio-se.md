@@ -84,3 +84,7 @@ Traced every 250 ms through a hissing play and a clean replay of the same DSD64 
 - With the volume at 0 dB (100% in Lyra): DoP DSD64/128 and the bit-perfect verdict.
 - Native DSD128 and DSD256 from real files.
 - A full album through the gapless queue (one device open, 0 underruns).
+
+### 2026-10-23: noise on PCM too; warm-up on every mode change
+
+Reported by the user: right after launch, a PCM album (DAC lamp green, so the DAC saw the PCM rate) played as loud noise; switching DSD → PCM or PCM → DSD did the same. The warm-up above only ran for native DSD, so PCM opens after a mode change (after DSD, after PipeWire's 48 kHz, or the first open) got only pre-roll silence on the same stream. Lyra now warms up any open whose device, encoding, rate or channel count differs from the last open while it held the card, and the first open after taking the card; native DSD still warms up every time. The next track in the same format opens at once. To confirm by ear: launch and play PCM first, then PCM → DSD → PCM, several times, and after replugging the DAC.

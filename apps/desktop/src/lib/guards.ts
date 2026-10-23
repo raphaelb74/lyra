@@ -124,6 +124,8 @@ export function isVolume(
     (isRecord(value) &&
       isNumber(value.percent) &&
       isNullableNumber(value.decibels) &&
+      isNullableNumber(value.minDecibels) &&
+      isNullableNumber(value.maxDecibels) &&
       isFlag(value.usb) &&
       isNullableText(value.locked))
   );
