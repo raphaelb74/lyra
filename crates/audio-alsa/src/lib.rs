@@ -10,6 +10,7 @@ mod events;
 mod reserve;
 mod sink;
 mod volume;
+mod wake;
 
 pub use device::{Capabilities, Device, PcmSupport, card_list, list_playback_devices, probe};
 pub use diagnostics::{KernelReport, SinkReport, SinkStats, kernel_report};
@@ -17,3 +18,4 @@ pub use error::{AlsaError, Holder};
 pub use events::{MixerEvents, Woken};
 pub use sink::{AlsaSink, BufferConfig};
 pub use volume::{VolumeLevel, hardware_volume, set_volume, set_volume_db, volume};
+pub use wake::Wake;

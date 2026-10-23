@@ -129,7 +129,7 @@ pub(crate) enum Inbox {
     Free(Vec<u8>),
     /// A track opened ahead of its turn, on a thread of its own.
     Prepared {
-        token: u64,
+        path: PathBuf,
         result: Result<Source, PlayerError>,
     },
 }

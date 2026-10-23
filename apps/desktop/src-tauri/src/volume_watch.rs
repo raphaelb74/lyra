@@ -9,21 +9,22 @@
 //! card came or went.
 
 use std::io;
-use std::os::fd::BorrowedFd;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use audio_alsa::{MixerEvents, Woken};
+use audio_alsa::{MixerEvents, Wake, Woken};
 use tauri::{AppHandle, Emitter, Manager};
 use unda::{PlaybackState, PlayerStatus};
 
 use crate::commands::{AppState, volume_info};
 use crate::ipc::DeviceVolume;
-use crate::wake::Wake;
 
 /// Event carrying a [`DeviceVolume`].
 pub const VOLUME_EVENT: &str = "device-volume";
+
+/// What the UI was last told: device, percent, hundredths of a dB, locked.
+type Shown = (String, Option<u8>, Option<i64>, bool);
 
 /// A change counts once the controls are quiet this long: setting a volume
 /// moves several controls in a row (Lyra's own 0 dB correction too).
@@ -37,7 +38,7 @@ pub fn spawn(handle: AppHandle, wake: Arc<Wake>) -> io::Result<()> {
 }
 
 fn watch(handle: &AppHandle, wake: &Wake) {
-    let mut shown: Option<(String, Option<u8>, Option<i64>, bool)> = None;
+    let mut shown: Option<Shown> = None;
     let mut events: Option<(String, MixerEvents)> = None;
     // Woken by the mixer, not only by news about which device to follow.
     let mut mixer_changed = false;
@@ -85,8 +86,8 @@ fn watch(handle: &AppHandle, wake: &Wake) {
             wake.wait(None, None);
             continue;
         };
-        match mixer.wait(wake.fd(), None) {
-            Woken::Mixer => mixer_changed = settle(mixer, wake.fd()),
+        match mixer.wait(wake, None) {
+            Woken::Mixer => mixer_changed = settle(mixer, wake),
             Woken::Gone => {
                 // Unplugged: look again once a card comes or goes.
                 events = None;
@@ -99,7 +100,7 @@ fn watch(handle: &AppHandle, wake: &Wake) {
 
 /// Waits for the controls to be quiet for [`SETTLE`]. False when the card
 /// went away meanwhile.
-fn settle(mixer: &MixerEvents, wake: BorrowedFd<'_>) -> bool {
+fn settle(mixer: &MixerEvents, wake: &Wake) -> bool {
     loop {
         match mixer.wait(wake, Some(SETTLE)) {
             Woken::Mixer => {}
@@ -111,12 +112,7 @@ fn settle(mixer: &MixerEvents, wake: BorrowedFd<'_>) -> bool {
 }
 
 /// Tells the UI the card's volume when it differs from what it shows.
-fn show(
-    handle: &AppHandle,
-    status: &PlayerStatus,
-    device: &str,
-    shown: &mut Option<(String, Option<u8>, Option<i64>, bool)>,
-) {
+fn show(handle: &AppHandle, status: &PlayerStatus, device: &str, shown: &mut Option<Shown>) {
     let Ok(level) = audio_alsa::volume(device) else {
         return;
     };

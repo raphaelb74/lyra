@@ -65,6 +65,17 @@ impl SourceInfo {
     }
 }
 
+/// What [`Source::read_ahead`] reports.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Ahead {
+    /// The source frame up to which the file is in memory (approximate:
+    /// byte offsets map to frames at the average rate).
+    pub buffered_frame: Option<u64>,
+    /// The rest of the file is in memory: opening the next one now costs
+    /// this one nothing.
+    pub complete: bool,
+}
+
 /// A file being decoded, read ahead on its own thread.
 pub(crate) struct Source {
     decode: Decode,
@@ -145,20 +156,24 @@ impl Source {
         u64::try_from(rate).ok()
     }
 
-    /// The source frame up to which the file is in memory (approximate:
-    /// byte offsets map to frames at the average rate).
-    pub fn buffered_frame(&self) -> Option<u64> {
-        let total = self.info().total_frames()?;
+    /// How far the file is in memory, from one look at the window.
+    pub fn read_ahead(&self) -> Ahead {
         let window = self.file.window();
-        if window.complete {
-            return Some(total);
+        let buffered_frame = self.info().total_frames().and_then(|total| {
+            if window.complete {
+                return Some(total);
+            }
+            let data = window
+                .len
+                .checked_sub(self.data_start)
+                .filter(|&data| data > 0)?;
+            let read = window.end.saturating_sub(self.data_start).min(data);
+            u64::try_from(u128::from(total) * u128::from(read) / u128::from(data)).ok()
+        });
+        Ahead {
+            buffered_frame,
+            complete: window.complete,
         }
-        let data = window
-            .len
-            .checked_sub(self.data_start)
-            .filter(|&data| data > 0)?;
-        let read = window.end.saturating_sub(self.data_start).min(data);
-        u64::try_from(u128::from(total) * u128::from(read) / u128::from(data)).ok()
     }
 
     /// The decoder has read the file to its end. Symphonia's FLAC reader
@@ -167,12 +182,6 @@ impl Source {
     pub fn read_to_end(&self) -> bool {
         let window = self.file.window();
         window.pos >= window.len
-    }
-
-    /// The rest of the file is in memory: opening the next one now costs
-    /// this one nothing.
-    pub fn fully_read(&self) -> bool {
-        self.file.window().complete
     }
 
     /// What the converter has done so far, when this source is converted.

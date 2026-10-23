@@ -24,7 +24,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::commands::AppState;
 use crate::ipc::{ART_URL, IpcError, Status};
-use crate::wake::Wake;
+use audio_alsa::Wake;
 
 const NAME: &str = "org.mpris.MediaPlayer2.lyra";
 const OBJECT: &str = "/org/mpris/MediaPlayer2";

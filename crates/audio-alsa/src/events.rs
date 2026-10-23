@@ -4,14 +4,15 @@
 //! PipeWire, `alsamixer`, Lyra's own 0 dB correction) on the mixer's
 //! descriptors, so a watcher can sleep until something happens.
 
-use std::os::fd::{AsRawFd, BorrowedFd};
+use std::os::fd::AsRawFd;
 use std::time::Duration;
 
 use alsa::Mixer;
-use alsa::poll::{Flags, pollfd};
+use alsa::poll::{Descriptors, Flags};
 
 use crate::error::AlsaError;
 use crate::sink::card_control;
+use crate::wake::{Wake, millis, readable};
 
 /// Change notifications of the card behind one device.
 pub struct MixerEvents {
@@ -29,7 +30,7 @@ impl std::fmt::Debug for MixerEvents {
 pub enum Woken {
     /// A control of the card changed.
     Mixer,
-    /// `other` became readable.
+    /// The [`Wake`] was notified.
     Other,
     Timeout,
     /// The card went away (unplugged): wait on something else.
@@ -46,40 +47,32 @@ impl MixerEvents {
         Ok(Self { mixer })
     }
 
-    /// Sleeps until a control changes, `other` is readable, or `timeout`
-    /// passes (never, with `None`). `other` is checked first, so a pending
-    /// wake is never starved by a busy mixer.
-    pub fn wait(&self, other: BorrowedFd<'_>, timeout: Option<Duration>) -> Woken {
-        let wake = pollfd {
-            fd: other.as_raw_fd(),
-            events: Flags::IN.bits(),
-            revents: 0,
-        };
-        let Ok(ready) = alsa::poll::poll_all(&[&wake, &self.mixer], millis(timeout)) else {
-            // Interrupted: the caller looks again, as after a wake.
-            return Woken::Other;
-        };
-        let mut woken = Woken::Timeout;
-        for (source, flags) in ready {
-            if std::ptr::addr_eq(source, &raw const wake) {
-                return Woken::Other;
-            }
-            if flags.intersects(Flags::ERR | Flags::HUP | Flags::NVAL) {
-                return Woken::Gone;
-            }
-            // Clears the event so the next wait sleeps again.
-            woken = match self.mixer.handle_events() {
-                Ok(_) => Woken::Mixer,
-                Err(_) => Woken::Gone,
-            };
+    /// Sleeps until a control changes, `wake` is notified, or `timeout`
+    /// passes (never, with `None`). A pending wake comes first, so a busy
+    /// mixer never starves it.
+    pub fn wait(&self, wake: &Wake, timeout: Option<Duration>) -> Woken {
+        let mut fds = vec![readable(wake.fd().as_raw_fd())];
+        match self.mixer.get() {
+            Ok(mixer) => fds.extend(mixer),
+            Err(_) => return Woken::Gone,
         }
-        woken
+        match alsa::poll::poll(&mut fds, millis(timeout)) {
+            Ok(0) => return Woken::Timeout,
+            Ok(_) => {}
+            // Interrupted: the caller looks again, as after a wake.
+            Err(_) => return Woken::Other,
+        }
+        if fds[0].revents != 0 {
+            return Woken::Other;
+        }
+        let flags = self.mixer.revents(&fds[1..]).unwrap_or(Flags::ERR);
+        if flags.intersects(Flags::ERR | Flags::HUP | Flags::NVAL) {
+            return Woken::Gone;
+        }
+        // Clears the event so the next wait sleeps again.
+        match self.mixer.handle_events() {
+            Ok(_) => Woken::Mixer,
+            Err(_) => Woken::Gone,
+        }
     }
-}
-
-/// Milliseconds for poll(2): -1 waits forever.
-fn millis(timeout: Option<Duration>) -> i32 {
-    timeout.map_or(-1, |timeout| {
-        i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX)
-    })
 }

@@ -1,5 +1,6 @@
 //! Wakes a watcher thread that sleeps in poll(2), instead of having it look
-//! for news on a timer.
+//! for news on a timer. Here because this crate already owns poll(2) for the
+//! mixer's events, which [`crate::MixerEvents::wait`] combines with a wake.
 //!
 //! A connected socket pair: [`Wake::notify`] writes a byte, the watcher sleeps
 //! until its end is readable, then [`Wake::drain`]s it. Many notifications
@@ -54,21 +55,30 @@ impl Wake {
     /// `other` is a raw descriptor (a D-Bus connection's); a stale one only
     /// makes poll(2) report it invalid.
     pub fn wait(&self, other: Option<RawFd>, timeout: Option<Duration>) -> bool {
-        let watched = |fd: RawFd| pollfd {
-            fd,
-            events: Flags::IN.bits(),
-            revents: 0,
-        };
         let mut fds: Vec<pollfd> = std::iter::once(self.fd().as_raw_fd())
             .chain(other)
-            .map(watched)
+            .map(readable)
             .collect();
-        let millis = timeout.map_or(-1, |timeout| {
-            i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX)
-        });
         // An error (interrupted) reads as a wake: the caller looks again.
-        alsa::poll::poll(&mut fds, millis).is_ok() && fds.get(1).is_some_and(|fd| fd.revents != 0)
+        alsa::poll::poll(&mut fds, millis(timeout)).is_ok()
+            && fds.get(1).is_some_and(|fd| fd.revents != 0)
     }
+}
+
+/// Asks poll(2) whether `fd` is readable.
+pub(crate) fn readable(fd: RawFd) -> pollfd {
+    pollfd {
+        fd,
+        events: Flags::IN.bits(),
+        revents: 0,
+    }
+}
+
+/// Milliseconds for poll(2): -1 waits forever.
+pub(crate) fn millis(timeout: Option<Duration>) -> i32 {
+    timeout.map_or(-1, |timeout| {
+        i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX)
+    })
 }
 
 #[cfg(test)]

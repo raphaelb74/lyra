@@ -21,7 +21,7 @@ use crate::ipc::{
     TrackDetails, VolumeInfo, art_url, file_name, frames_to_seconds, ms_to_seconds, thumb_url,
 };
 use crate::settings::Settings;
-use crate::wake::Wake;
+use audio_alsa::Wake;
 
 /// Event telling the UI to reload folders and albums.
 pub const LIBRARY_CHANGED_EVENT: &str = "library-changed";

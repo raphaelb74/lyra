@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Emitter};
 
-use crate::wake::Wake;
+use audio_alsa::Wake;
 
 /// Event with no payload: list the devices again.
 pub const DEVICES_CHANGED_EVENT: &str = "devices-changed";

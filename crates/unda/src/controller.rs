@@ -41,6 +41,11 @@ struct Session {
 }
 
 impl Session {
+    /// The entry that plays after the track being decoded ends by itself.
+    fn after_feed(&self, repeat: Repeat) -> Option<usize> {
+        following(self.feed.entry.index, self.queue.len(), repeat, false)
+    }
+
     /// Positions already playing or decoded, in play order: queue changes
     /// keep them where they are.
     fn committed(&self) -> Vec<usize> {
@@ -75,7 +80,6 @@ struct Entry {
 enum Prepared {
     Opening {
         path: PathBuf,
-        token: u64,
     },
     Ready {
         path: PathBuf,
@@ -90,7 +94,7 @@ enum Prepared {
 impl Prepared {
     fn path(&self) -> &Path {
         match self {
-            Self::Opening { path, .. } | Self::Ready { path, .. } | Self::Failed { path } => path,
+            Self::Opening { path } | Self::Ready { path, .. } | Self::Failed { path } => path,
         }
     }
 }
@@ -117,8 +121,6 @@ pub(crate) struct Controller {
     /// Bumped whenever the queue changes; published in the status.
     queue_revision: u64,
     prepared: Option<Prepared>,
-    /// Last token handed to a thread opening a track ahead.
-    prepare_token: u64,
 }
 
 impl Controller {
@@ -145,7 +147,6 @@ impl Controller {
             repeat: Repeat::Off,
             queue_revision: 0,
             prepared: None,
-            prepare_token: 0,
         }
     }
 
@@ -172,7 +173,7 @@ impl Controller {
                 Some(Inbox::Command(command)) => self.command(command),
                 Some(Inbox::Writer(event)) => self.writer_event(event),
                 Some(Inbox::Free(buffer)) => self.free.push(buffer),
-                Some(Inbox::Prepared { token, result }) => self.prepared(token, result),
+                Some(Inbox::Prepared { path, result }) => self.prepared(path, result),
                 None => {}
             }
             if self.decoding() {
@@ -312,13 +313,7 @@ impl Controller {
         let Some(item) = queue.items.get(index).cloned() else {
             return self.stop();
         };
-        let ready = if frame == 0 {
-            self.take_prepared(&item.path)
-        } else {
-            None
-        };
-        let opened = ready.map_or_else(|| open_at(&item, frame), Ok);
-        let source = match opened {
+        let source = match self.open(&item.path, frame) {
             Ok(source) => source,
             Err(error) => return self.fail(error),
         };
@@ -331,16 +326,7 @@ impl Controller {
             .and_then(|session| session.output)
             .filter(|output| output.carries(&stream));
 
-        let generation = self.shared.next_generation();
-        self.seq += 1;
-        let entry = Entry {
-            seq: self.seq,
-            index,
-            info,
-        };
-        self.shared.paused.store(false, Ordering::Release);
-        self.shared.position.store(frame, Ordering::Release);
-        self.shared.buffered.store(UNKNOWN, Ordering::Release);
+        let (generation, entry) = self.restart(index, info, frame);
         *self
             .shared
             .queue
@@ -353,21 +339,16 @@ impl Controller {
                 stream,
             });
         }
-        // A paused writer wakes for the new generation.
-        self.writer_thread.unpark();
-
         let state = if reuse.is_some() {
             self.shared.waiting_state()
         } else {
             PlaybackState::Negotiating
         };
-        let now = now_playing(&item, &entry, &device, reuse, dsd);
-        let fresh = PlayerStatus {
+        self.show_track(
             state,
-            track: Some(now),
-            ..self.fresh_status(queue.len())
-        };
-        self.update(|status| *status = fresh);
+            now_playing(&item, &entry, &device, reuse, dsd),
+            queue.len(),
+        );
         self.session = Some(Session {
             queue,
             device,
@@ -482,23 +463,17 @@ impl Controller {
         match feed.source.next(&output, session.dsd, &mut buffer) {
             Ok(Some(frames)) => {
                 self.shared.conversion.publish(feed.source.conversion());
+                let read = feed.source.read_ahead();
                 // Near a gapless boundary the feed is ahead of the track
                 // playing, which was read to its end.
                 let buffered = if session.upcoming.is_empty() {
-                    feed.source.buffered_frame()
+                    read.buffered_frame
                 } else {
                     session.shown.info.total_frames()
                 };
                 self.shared
                     .buffered
                     .store(buffered.unwrap_or(UNKNOWN), Ordering::Release);
-                let next = feed
-                    .source
-                    .fully_read()
-                    .then(|| following(feed.entry.index, session.queue.len(), self.repeat, false))
-                    .flatten()
-                    .and_then(|next| session.queue.items.get(next))
-                    .map(|item| item.path.clone());
                 let chunk = Chunk {
                     generation: session.generation,
                     seq: feed.entry.seq,
@@ -508,13 +483,16 @@ impl Controller {
                 };
                 feed.next_frame += frames;
                 self.to_writer(ToWriter::Chunk(chunk));
-                if let Some(path) = next {
+                // Once this file is in memory, the next one opens early.
+                if read.complete
+                    && let Some(path) = self.unprepared_next()
+                {
                     self.prepare(path);
                 }
             }
             Ok(None) => self.track_ended(output, buffer),
             Err(error) => {
-                self.recycle(buffer);
+                self.free.push(buffer);
                 self.fail(error);
             }
         }
@@ -524,43 +502,16 @@ impl Controller {
     /// the open device carries it, otherwise let the device drain. `buffer`
     /// is a free buffer, for the end of converted audio.
     fn track_ended(&mut self, output: OutputFormat, buffer: Vec<u8>) {
-        let Some(session) = self.session.as_ref() else {
-            return self.recycle(buffer);
+        let Some(after) = self
+            .session
+            .as_ref()
+            .map(|session| session.after_feed(self.repeat))
+        else {
+            return self.free.push(buffer);
         };
-        let dsd = session.dsd;
-        let after = following(
-            session.feed.entry.index,
-            session.queue.len(),
-            self.repeat,
-            false,
-        );
-        let next_path = after
-            .and_then(|next| session.queue.items.get(next))
-            .map(|item| item.path.clone());
-        // A file that fails to open is reported when its turn comes.
-        let opened = after.zip(next_path).and_then(|(next, path)| {
-            let source = match self.take_prepared(&path) {
-                Some(source) => source,
-                None => Source::open(&path).ok()?,
-            };
-            Some((next, path, source))
-        });
-        let continuation = match opened {
-            Some((next, _, source)) if output.carries(&source.info().stream(dsd)) => {
-                Some((next, source))
-            }
-            Some((_, path, source)) => {
-                // It needs another format: kept for its turn, after the drain.
-                self.prepared = Some(Prepared::Ready {
-                    path,
-                    source: Box::new(source),
-                });
-                None
-            }
-            None => None,
-        };
+        let continuation = after.and_then(|next| self.continuation(next, output));
         let Some(session) = self.session.as_mut() else {
-            return self.recycle(buffer);
+            return self.free.push(buffer);
         };
 
         let Some((next, mut source)) = continuation else {
@@ -590,15 +541,33 @@ impl Controller {
         }
     }
 
+    /// Entry `next`, opened, when the open device carries it gaplessly. One
+    /// that needs another format is kept for its turn, after the drain; one
+    /// that fails to open is reported when its turn comes.
+    fn continuation(&mut self, next: usize, output: OutputFormat) -> Option<(usize, Source)> {
+        let session = self.session.as_ref()?;
+        let path = session.queue.items.get(next)?.path.clone();
+        let dsd = session.dsd;
+        let source = self.open(&path, 0).ok()?;
+        if output.carries(&source.info().stream(dsd)) {
+            return Some((next, source));
+        }
+        self.prepared = Some(Prepared::Ready {
+            path,
+            source: Box::new(source),
+        });
+        None
+    }
+
     /// Queues what the converter still holds of the track that ended (its
     /// filters' tail); returns the buffer to the pool when there is none.
     fn send_tail(&mut self, output: OutputFormat, mut buffer: Vec<u8>) {
         let Some(session) = self.session.as_mut() else {
-            return self.recycle(buffer);
+            return self.free.push(buffer);
         };
         session.feed.source.tail(output.encoding, &mut buffer);
         if buffer.is_empty() {
-            return self.recycle(buffer);
+            return self.free.push(buffer);
         }
         let chunk = Chunk {
             generation: session.generation,
@@ -742,8 +711,7 @@ impl Controller {
         if let Some(session) = self.session.as_mut()
             && !session.feed.decoding
         {
-            session.after_drain =
-                following(session.feed.entry.index, session.queue.len(), repeat, false);
+            session.after_drain = session.after_feed(repeat);
         }
     }
 
@@ -764,12 +732,6 @@ impl Controller {
                 shown.hardware_volume = volume;
             }
         });
-    }
-
-    /// Returns a buffer to the pool. It only fails at shutdown, when there is
-    /// nothing to recycle into.
-    fn recycle(&mut self, buffer: Vec<u8>) {
-        self.free.push(buffer);
     }
 
     fn stop(&mut self) {
@@ -796,12 +758,11 @@ impl Controller {
         {
             return false;
         }
+        let (index, info) = (session.shown.index, session.shown.info);
         // As `begin` does for a track the open device carries.
-        let generation = self.shared.next_generation();
-        self.seq += 1;
-        let entry = Entry {
-            seq: self.seq,
-            ..session.shown
+        let (generation, entry) = self.restart(index, info, frame);
+        let Some(session) = self.session.as_mut() else {
+            return false;
         };
         session.generation = generation;
         session.started = false;
@@ -810,34 +771,55 @@ impl Controller {
         session.feed.entry = entry;
         session.feed.next_frame = frame;
         session.feed.decoding = true;
-        let item = session.queue.items[entry.index].clone();
-        let now = now_playing(&item, &entry, &session.device, session.output, session.dsd);
+        let item = &session.queue.items[entry.index];
+        let now = now_playing(item, &entry, &session.device, session.output, session.dsd);
         let queue_length = session.queue.len();
+        self.show_track(self.shared.waiting_state(), now, queue_length);
+        true
+    }
+
+    /// Starts a new generation for queue entry `index` at `frame`: queued
+    /// audio is void, and a paused writer wakes for it.
+    fn restart(&mut self, index: usize, info: SourceInfo, frame: u64) -> (u64, Entry) {
+        let generation = self.shared.next_generation();
+        self.seq += 1;
         self.shared.paused.store(false, Ordering::Release);
         self.shared.position.store(frame, Ordering::Release);
         self.shared.buffered.store(UNKNOWN, Ordering::Release);
-        // A paused writer wakes for the new generation.
         self.writer_thread.unpark();
+        let entry = Entry {
+            seq: self.seq,
+            index,
+            info,
+        };
+        (generation, entry)
+    }
+
+    /// Publishes a fresh status for a track (re)starting.
+    fn show_track(&self, state: PlaybackState, now: NowPlaying, queue_length: usize) {
         let fresh = PlayerStatus {
-            state: self.shared.waiting_state(),
+            state,
             track: Some(now),
             ..self.fresh_status(queue_length)
         };
         self.update(|status| *status = fresh);
-        true
     }
 
-    /// Opens `path` on a thread of its own, unless it is already prepared.
+    /// The file that plays after the one being decoded, unless it is
+    /// already prepared (or being prepared).
+    fn unprepared_next(&self) -> Option<PathBuf> {
+        let session = self.session.as_ref()?;
+        let path = &session
+            .queue
+            .items
+            .get(session.after_feed(self.repeat)?)?
+            .path;
+        let prepared = self.prepared.as_ref().map(Prepared::path);
+        (prepared != Some(path.as_path())).then(|| path.clone())
+    }
+
+    /// Opens `path` on a thread of its own.
     fn prepare(&mut self, path: PathBuf) {
-        if self
-            .prepared
-            .as_ref()
-            .is_some_and(|prepared| prepared.path() == path)
-        {
-            return;
-        }
-        self.prepare_token += 1;
-        let token = self.prepare_token;
         let inbox = self.inbox_tx.clone();
         let opening = path.clone();
         let spawned = thread::Builder::new()
@@ -845,25 +827,19 @@ impl Controller {
             .spawn(move || {
                 let result = Source::open(&opening);
                 // The controller is gone at shutdown: nobody needs it.
-                let _ = inbox.send(Inbox::Prepared { token, result });
+                let _ = inbox.send(Inbox::Prepared {
+                    path: opening,
+                    result,
+                });
             });
         // Without a thread the track opens when its turn comes, as before.
-        self.prepared = spawned.is_ok().then_some(Prepared::Opening { path, token });
+        self.prepared = spawned.is_ok().then_some(Prepared::Opening { path });
     }
 
-    fn prepared(&mut self, token: u64, result: Result<Source, PlayerError>) {
-        let Some(Prepared::Opening {
-            path,
-            token: wanted,
-        }) = self.prepared.take()
-        else {
-            return;
-        };
-        if token != wanted {
-            self.prepared = Some(Prepared::Opening {
-                path,
-                token: wanted,
-            });
+    /// A thread finished opening `path`. Kept only if it is still the one
+    /// wanted; a result for the same path from an earlier request is as good.
+    fn prepared(&mut self, path: PathBuf, result: Result<Source, PlayerError>) {
+        if !matches!(&self.prepared, Some(Prepared::Opening { path: wanted }) if *wanted == path) {
             return;
         }
         self.prepared = Some(match result {
@@ -875,16 +851,23 @@ impl Controller {
         });
     }
 
-    /// The prepared source for `path`, if it is ready. One still opening is
-    /// dropped: the caller opens the file itself.
-    fn take_prepared(&mut self, path: &Path) -> Option<Source> {
-        match self.prepared.take()? {
-            Prepared::Ready {
-                path: ready,
-                source,
-            } if ready == path => Some(*source),
-            _ => None,
+    /// Opens `path` at `frame`: the prepared source when it is ready and
+    /// starts there, otherwise the file. Anything else prepared is dropped.
+    fn open(&mut self, path: &Path, frame: u64) -> Result<Source, PlayerError> {
+        if let Some(Prepared::Ready {
+            path: ready,
+            source,
+        }) = self.prepared.take()
+            && frame == 0
+            && ready == path
+        {
+            return Ok(*source);
         }
+        let mut source = Source::open(path)?;
+        if frame > 0 {
+            source.seek(frame)?;
+        }
+        Ok(source)
     }
 
     /// Invalidates queued audio and releases the device.
@@ -949,13 +932,4 @@ fn now_playing(
         output,
         dsd,
     }
-}
-
-/// Opens `item`, at `frame` source frames from its start.
-fn open_at(item: &QueueItem, frame: u64) -> Result<Source, PlayerError> {
-    let mut source = Source::open(&item.path)?;
-    if frame > 0 {
-        source.seek(frame)?;
-    }
-    Ok(source)
 }

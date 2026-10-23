@@ -35,8 +35,6 @@ const READ_THROUGH: u64 = 1 << 20;
 #[derive(Debug)]
 pub(crate) struct ReadAhead {
     state: Arc<State>,
-    /// The decoder's position in the file.
-    pos: u64,
 }
 
 /// A view of the window, for the buffered range shown on the seek bar.
@@ -68,6 +66,7 @@ struct Inner {
     bytes: VecDeque<u8>,
     /// Bytes held ahead of `pos`.
     limit: usize,
+    /// Where the decoder reads.
     pos: u64,
     len: u64,
     /// The I/O thread is to continue from here, dropping the window.
@@ -145,7 +144,6 @@ impl ReadAhead {
         Ok((
             Self {
                 state: Arc::clone(&state),
-                pos: 0,
             },
             Progress(state),
         ))
@@ -158,11 +156,10 @@ impl Read for ReadAhead {
             return Ok(0);
         }
         let mut inner = self.state.lock();
-        inner.pos = self.pos;
         loop {
-            let end = inner.end();
-            if (inner.start..end).contains(&self.pos) {
-                let offset = usize::try_from(self.pos - inner.start).unwrap_or(usize::MAX);
+            let (pos, end) = (inner.pos, inner.end());
+            if (inner.start..end).contains(&pos) {
+                let offset = usize::try_from(pos - inner.start).unwrap_or(usize::MAX);
                 let (front, back) = inner.bytes.as_slices();
                 let available = if offset < front.len() {
                     &front[offset..]
@@ -171,22 +168,22 @@ impl Read for ReadAhead {
                 };
                 let n = available.len().min(buf.len());
                 buf[..n].copy_from_slice(&available[..n]);
-                self.pos += n as u64;
-                inner.pos = self.pos;
+                inner.pos += n as u64;
                 inner.trim();
+                let room = inner.wants_io();
                 drop(inner);
-                // Room freed for the I/O thread.
-                self.state.changed.notify_all();
+                if room {
+                    self.state.changed.notify_all();
+                }
                 return Ok(n);
             }
-            if self.pos >= inner.len && inner.restart.is_none() {
+            if pos >= inner.len && inner.restart.is_none() {
                 return Ok(0);
             }
-            let reachable = self.pos >= inner.start && self.pos <= end + READ_THROUGH;
+            let reachable = pos >= inner.start && pos <= end + READ_THROUGH;
             if inner.restart.is_none() && !reachable {
-                inner.restart = Some(self.pos);
-                self.state.changed.notify_all();
-            } else if inner.restart.is_none() && self.pos >= end {
+                inner.restart = Some(pos);
+            } else if inner.restart.is_none() && pos >= end {
                 if let Some((kind, message)) = &inner.error {
                     return Err(io::Error::new(*kind, message.clone()));
                 }
@@ -195,9 +192,11 @@ impl Read for ReadAhead {
                     return Ok(0);
                 }
             }
-            // The I/O thread may be waiting for room that moving `pos` just
-            // made (a seek forward past the window): tell it before waiting.
-            self.state.changed.notify_all();
+            // A seek may have given the I/O thread something to do (a new
+            // place to read, or room past a full window) while it sleeps.
+            if inner.wants_io() {
+                self.state.changed.notify_all();
+            }
             inner = self.state.wait(inner);
         }
     }
@@ -206,19 +205,19 @@ impl Read for ReadAhead {
 impl Seek for ReadAhead {
     /// Only moves the position: reads fetch what is not in memory.
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        let len = self.state.lock().len;
+        let mut inner = self.state.lock();
         let target = match pos {
             SeekFrom::Start(offset) => Some(offset),
-            SeekFrom::Current(delta) => self.pos.checked_add_signed(delta),
-            SeekFrom::End(delta) => len.checked_add_signed(delta),
+            SeekFrom::Current(delta) => inner.pos.checked_add_signed(delta),
+            SeekFrom::End(delta) => inner.len.checked_add_signed(delta),
         };
-        self.pos = target.ok_or_else(|| {
+        inner.pos = target.ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "seek before the start of the file",
             )
         })?;
-        Ok(self.pos)
+        Ok(inner.pos)
     }
 }
 
@@ -237,7 +236,7 @@ impl Progress {
             len: inner.len,
             pos: inner.pos,
             end,
-            complete: inner.eof && end >= inner.len && inner.pos >= inner.start,
+            complete: end >= inner.len && inner.pos >= inner.start,
         }
     }
 

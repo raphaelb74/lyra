@@ -44,9 +44,7 @@
   }
 
   const fill = $derived(percent(shown));
-  const ready = $derived(
-    buffered === null ? fill : Math.max(fill, percent(buffered)),
-  );
+  const ready = $derived(Math.max(fill, percent(buffered ?? min)));
 </script>
 
 <input
