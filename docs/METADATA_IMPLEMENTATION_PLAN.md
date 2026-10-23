@@ -57,8 +57,8 @@ In blocks, each a working library with its own tests. Nothing here changes music
 
 **Block 4: app wiring.** Done with MT3, which is its first user.
 
-- [ ] Typed Rust/TypeScript IPC for previews, commits, undo, reset, cleanup and artwork; selected IDs resolved in Rust; no arbitrary write paths. Long work off the UI thread.
-- [ ] Changed labels reach the queue, Now Playing, search and desktop metadata without touching the stream format or playback buffers.
+- [x] Typed Rust/TypeScript IPC for previews, commits, undo, reset, cleanup and artwork; selected IDs resolved in Rust; no arbitrary write paths. Long work off the UI thread. _With MT3: `album_editor`, `save_album_edits`, `undo_edit`, `propose_fixes`, `apply_fixes`, `choose_artwork` (system picker), `reset_artwork`._
+- [ ] Changed labels reach the queue, Now Playing, search and desktop metadata without touching the stream format or playback buffers. _Queue and Now Playing done with MT3; desktop (MPRIS) metadata not yet checked._
 
 Dropped as more than this needs: separate artist credit and identity tables (MT4 adds MusicBrainz artist IDs as fields, if needed); artwork digests and cache accounting beyond the existing cap; a separate backup service (the upgrade backups are `VACUUM INTO` copies, which now hold edits and chosen artwork).
 
