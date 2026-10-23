@@ -1,22 +1,20 @@
 //! The controller thread: queue, source, commands, and the gapless handoff.
 
 use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{Arc, PoisonError};
-use std::thread::Thread;
+use std::thread::{self, Thread};
 use std::time::Duration;
 
 use crate::dop;
 use crate::order::{Edit, Moved, Queue, Repeat, following};
-use crate::player::{Command, Inbox, QueueItem, Shared};
+use crate::player::{Command, Inbox, POOL_SIZE, QueueItem, Shared, UNKNOWN};
 use crate::sink::{DsdPolicy, Encoding, HardwareVolume, OutputFormat};
 use crate::source::{Source, SourceInfo};
 use crate::status::{ErrorKind, NowPlaying, PlaybackState, PlayerError, PlayerStatus};
 use crate::writer::{Chunk, ToWriter, WriterEvent};
-
-/// Longest the controller waits for a free buffer before re-checking commands.
-const FEED_WAIT: Duration = Duration::from_millis(20);
 
 /// "Previous" restarts the current track once it has played this long.
 const RESTART_AFTER_SECONDS: u64 = 3;
@@ -72,12 +70,39 @@ struct Entry {
     info: SourceInfo,
 }
 
+/// The next track, opened before its turn so a slow disk or network share
+/// does not hold up the gapless handoff.
+enum Prepared {
+    Opening {
+        path: PathBuf,
+        token: u64,
+    },
+    Ready {
+        path: PathBuf,
+        source: Box<Source>,
+    },
+    /// Not tried again: the track opens (and reports why not) on its turn.
+    Failed {
+        path: PathBuf,
+    },
+}
+
+impl Prepared {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Opening { path, .. } | Self::Ready { path, .. } | Self::Failed { path } => path,
+        }
+    }
+}
+
 pub(crate) struct Controller {
     inbox: Receiver<Inbox>,
+    /// For the threads that open tracks ahead.
+    inbox_tx: Sender<Inbox>,
     writer: Sender<ToWriter>,
     writer_thread: Thread,
-    free_rx: Receiver<Vec<u8>>,
-    free_tx: Sender<Vec<u8>>,
+    /// Empty buffers: the pool. The writer holds the others.
+    free: Vec<Vec<u8>>,
     shared: Arc<Shared>,
     on_change: Box<dyn Fn(&PlayerStatus) + Send>,
     session: Option<Session>,
@@ -91,24 +116,26 @@ pub(crate) struct Controller {
     repeat: Repeat,
     /// Bumped whenever the queue changes; published in the status.
     queue_revision: u64,
+    prepared: Option<Prepared>,
+    /// Last token handed to a thread opening a track ahead.
+    prepare_token: u64,
 }
 
 impl Controller {
     pub fn new(
         inbox: Receiver<Inbox>,
+        inbox_tx: Sender<Inbox>,
         writer: Sender<ToWriter>,
         writer_thread: Thread,
-        free_rx: Receiver<Vec<u8>>,
-        free_tx: Sender<Vec<u8>>,
         shared: Arc<Shared>,
         on_change: Box<dyn Fn(&PlayerStatus) + Send>,
     ) -> Self {
         Self {
             inbox,
+            inbox_tx,
             writer,
             writer_thread,
-            free_rx,
-            free_tx,
+            free: (0..POOL_SIZE).map(|_| Vec::new()).collect(),
             shared,
             on_change,
             session: None,
@@ -117,12 +144,15 @@ impl Controller {
             shuffle: false,
             repeat: Repeat::Off,
             queue_revision: 0,
+            prepared: None,
+            prepare_token: 0,
         }
     }
 
     pub fn run(mut self) {
         loop {
-            let message = if self.decoding() {
+            // Blocks unless there is audio to decode and a buffer for it.
+            let message = if self.decoding() && !self.free.is_empty() {
                 match self.inbox.try_recv() {
                     Ok(message) => Some(message),
                     Err(TryRecvError::Empty) => None,
@@ -141,6 +171,8 @@ impl Controller {
                 }
                 Some(Inbox::Command(command)) => self.command(command),
                 Some(Inbox::Writer(event)) => self.writer_event(event),
+                Some(Inbox::Free(buffer)) => self.free.push(buffer),
+                Some(Inbox::Prepared { token, result }) => self.prepared(token, result),
                 None => {}
             }
             if self.decoding() {
@@ -217,6 +249,9 @@ impl Controller {
                 // Restarting the shown track at `frame` also covers a seek
                 // just after a gapless boundary, when the decoder is already
                 // in the next track.
+                if self.seek_in_place(frame) {
+                    return;
+                }
                 if let Some((queue, index, device, dsd)) = self.current()
                     && self.session.as_ref().is_some_and(|s| s.output.is_some())
                 {
@@ -277,7 +312,13 @@ impl Controller {
         let Some(item) = queue.items.get(index).cloned() else {
             return self.stop();
         };
-        let source = match open_at(&item, frame) {
+        let ready = if frame == 0 {
+            self.take_prepared(&item.path)
+        } else {
+            None
+        };
+        let opened = ready.map_or_else(|| open_at(&item, frame), Ok);
+        let source = match opened {
             Ok(source) => source,
             Err(error) => return self.fail(error),
         };
@@ -299,6 +340,7 @@ impl Controller {
         };
         self.shared.paused.store(false, Ordering::Release);
         self.shared.position.store(frame, Ordering::Release);
+        self.shared.buffered.store(UNKNOWN, Ordering::Release);
         *self
             .shared
             .queue
@@ -432,15 +474,31 @@ impl Controller {
             return;
         };
         let Some(output) = session.output else { return };
-        let mut buffer = match self.free_rx.recv_timeout(FEED_WAIT) {
-            Ok(buffer) => buffer,
-            // Writer busy or paused: check commands, then try again.
-            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return,
+        // None free: the writer is busy or paused, and returns one when done.
+        let Some(mut buffer) = self.free.pop() else {
+            return;
         };
         let feed = &mut session.feed;
         match feed.source.next(&output, session.dsd, &mut buffer) {
             Ok(Some(frames)) => {
                 self.shared.conversion.publish(feed.source.conversion());
+                // Near a gapless boundary the feed is ahead of the track
+                // playing, which was read to its end.
+                let buffered = if session.upcoming.is_empty() {
+                    feed.source.buffered_frame()
+                } else {
+                    session.shown.info.total_frames()
+                };
+                self.shared
+                    .buffered
+                    .store(buffered.unwrap_or(UNKNOWN), Ordering::Release);
+                let next = feed
+                    .source
+                    .fully_read()
+                    .then(|| following(feed.entry.index, session.queue.len(), self.repeat, false))
+                    .flatten()
+                    .and_then(|next| session.queue.items.get(next))
+                    .map(|item| item.path.clone());
                 let chunk = Chunk {
                     generation: session.generation,
                     seq: feed.entry.seq,
@@ -450,6 +508,9 @@ impl Controller {
                 };
                 feed.next_frame += frames;
                 self.to_writer(ToWriter::Chunk(chunk));
+                if let Some(path) = next {
+                    self.prepare(path);
+                }
             }
             Ok(None) => self.track_ended(output, buffer),
             Err(error) => {
@@ -463,24 +524,44 @@ impl Controller {
     /// the open device carries it, otherwise let the device drain. `buffer`
     /// is a free buffer, for the end of converted audio.
     fn track_ended(&mut self, output: OutputFormat, buffer: Vec<u8>) {
-        let Some(session) = self.session.as_mut() else {
+        let Some(session) = self.session.as_ref() else {
             return self.recycle(buffer);
         };
+        let dsd = session.dsd;
         let after = following(
             session.feed.entry.index,
             session.queue.len(),
             self.repeat,
             false,
         );
+        let next_path = after
+            .and_then(|next| session.queue.items.get(next))
+            .map(|item| item.path.clone());
         // A file that fails to open is reported when its turn comes.
-        let continuation = after
-            .and_then(|next| {
-                Some((
-                    next,
-                    Source::open(&session.queue.items.get(next)?.path).ok()?,
-                ))
-            })
-            .filter(|(_, source)| output.carries(&source.info().stream(session.dsd)));
+        let opened = after.zip(next_path).and_then(|(next, path)| {
+            let source = match self.take_prepared(&path) {
+                Some(source) => source,
+                None => Source::open(&path).ok()?,
+            };
+            Some((next, path, source))
+        });
+        let continuation = match opened {
+            Some((next, _, source)) if output.carries(&source.info().stream(dsd)) => {
+                Some((next, source))
+            }
+            Some((_, path, source)) => {
+                // It needs another format: kept for its turn, after the drain.
+                self.prepared = Some(Prepared::Ready {
+                    path,
+                    source: Box::new(source),
+                });
+                None
+            }
+            None => None,
+        };
+        let Some(session) = self.session.as_mut() else {
+            return self.recycle(buffer);
+        };
 
         let Some((next, mut source)) = continuation else {
             session.after_drain = after;
@@ -687,8 +768,8 @@ impl Controller {
 
     /// Returns a buffer to the pool. It only fails at shutdown, when there is
     /// nothing to recycle into.
-    fn recycle(&self, buffer: Vec<u8>) {
-        let _ = self.free_tx.send(buffer);
+    fn recycle(&mut self, buffer: Vec<u8>) {
+        self.free.push(buffer);
     }
 
     fn stop(&mut self) {
@@ -698,8 +779,117 @@ impl Controller {
         self.update(|status| *status = fresh);
     }
 
+    /// Seeks the track being decoded, when it is also the one playing: its
+    /// file stays open, so a seek inside the read-ahead window costs no
+    /// I/O. Otherwise (or when the seek fails) returns false, and the track
+    /// is opened again, as [`Self::begin`] does.
+    fn seek_in_place(&mut self, frame: u64) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+        if session.output.is_none()
+            || !session.upcoming.is_empty()
+            || session.feed.entry.seq != session.shown.seq
+            || !session.feed.decoding
+            || session.feed.source.read_to_end()
+            || session.feed.source.seek(frame).is_err()
+        {
+            return false;
+        }
+        // As `begin` does for a track the open device carries.
+        let generation = self.shared.next_generation();
+        self.seq += 1;
+        let entry = Entry {
+            seq: self.seq,
+            ..session.shown
+        };
+        session.generation = generation;
+        session.started = false;
+        session.shown = entry;
+        session.after_drain = None;
+        session.feed.entry = entry;
+        session.feed.next_frame = frame;
+        session.feed.decoding = true;
+        let item = session.queue.items[entry.index].clone();
+        let now = now_playing(&item, &entry, &session.device, session.output, session.dsd);
+        let queue_length = session.queue.len();
+        self.shared.paused.store(false, Ordering::Release);
+        self.shared.position.store(frame, Ordering::Release);
+        self.shared.buffered.store(UNKNOWN, Ordering::Release);
+        // A paused writer wakes for the new generation.
+        self.writer_thread.unpark();
+        let fresh = PlayerStatus {
+            state: self.shared.waiting_state(),
+            track: Some(now),
+            ..self.fresh_status(queue_length)
+        };
+        self.update(|status| *status = fresh);
+        true
+    }
+
+    /// Opens `path` on a thread of its own, unless it is already prepared.
+    fn prepare(&mut self, path: PathBuf) {
+        if self
+            .prepared
+            .as_ref()
+            .is_some_and(|prepared| prepared.path() == path)
+        {
+            return;
+        }
+        self.prepare_token += 1;
+        let token = self.prepare_token;
+        let inbox = self.inbox_tx.clone();
+        let opening = path.clone();
+        let spawned = thread::Builder::new()
+            .name("lyra-prepare".into())
+            .spawn(move || {
+                let result = Source::open(&opening);
+                // The controller is gone at shutdown: nobody needs it.
+                let _ = inbox.send(Inbox::Prepared { token, result });
+            });
+        // Without a thread the track opens when its turn comes, as before.
+        self.prepared = spawned.is_ok().then_some(Prepared::Opening { path, token });
+    }
+
+    fn prepared(&mut self, token: u64, result: Result<Source, PlayerError>) {
+        let Some(Prepared::Opening {
+            path,
+            token: wanted,
+        }) = self.prepared.take()
+        else {
+            return;
+        };
+        if token != wanted {
+            self.prepared = Some(Prepared::Opening {
+                path,
+                token: wanted,
+            });
+            return;
+        }
+        self.prepared = Some(match result {
+            Ok(source) => Prepared::Ready {
+                path,
+                source: Box::new(source),
+            },
+            Err(_) => Prepared::Failed { path },
+        });
+    }
+
+    /// The prepared source for `path`, if it is ready. One still opening is
+    /// dropped: the caller opens the file itself.
+    fn take_prepared(&mut self, path: &Path) -> Option<Source> {
+        match self.prepared.take()? {
+            Prepared::Ready {
+                path: ready,
+                source,
+            } if ready == path => Some(*source),
+            _ => None,
+        }
+    }
+
     /// Invalidates queued audio and releases the device.
     fn close_session(&mut self) {
+        self.prepared = None;
         if self.session.take().is_some() {
             self.shared.conversion.publish(None);
             self.shared.next_generation();

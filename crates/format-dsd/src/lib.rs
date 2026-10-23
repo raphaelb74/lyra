@@ -71,6 +71,15 @@ pub fn multiple(dsd_rate: u32) -> u32 {
     dsd_rate / base
 }
 
+const DSF_MAGIC: &[u8; 4] = b"DSD ";
+const DFF_MAGIC: &[u8; 4] = b"FRM8";
+
+/// Whether a file starting with `magic` is DSF or DFF, from its first bytes
+/// as [`DsdReader::from_reader`] decides.
+pub fn is_dsd(magic: &[u8; 4]) -> bool {
+    magic == DSF_MAGIC || magic == DFF_MAGIC
+}
+
 /// Any seekable byte source.
 pub trait Source: Read + Seek + Send {}
 impl<T: Read + Seek + Send> Source for T {}
@@ -107,8 +116,8 @@ impl DsdReader {
             .map_err(|_| DsdError::NotDsd)?;
         source.seek(SeekFrom::Start(0)).map_err(DsdError::Io)?;
         let inner = match &magic {
-            b"DSD " => Inner::Dsf(dsf::Dsf::open(source)?),
-            b"FRM8" => Inner::Dff(dff::Dff::open(source)?),
+            DSF_MAGIC => Inner::Dsf(dsf::Dsf::open(source)?),
+            DFF_MAGIC => Inner::Dff(dff::Dff::open(source)?),
             _ => return Err(DsdError::NotDsd),
         };
         Ok(Self { inner })

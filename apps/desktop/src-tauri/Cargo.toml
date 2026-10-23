@@ -22,6 +22,8 @@ tauri-build = { workspace = true }
 [dependencies]
 # MPRIS (media keys); already in the tree through audio-alsa.
 dbus.workspace = true
+# poll(2) for the watcher threads' wake-ups; already in the tree through audio-alsa.
+alsa.workspace = true
 # Album cover thumbnails; already in the tree through GTK (Tauri on Linux).
 gdk-pixbuf = "0.18"
 audio-alsa = { workspace = true }

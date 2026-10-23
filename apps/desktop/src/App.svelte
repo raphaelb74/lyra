@@ -87,6 +87,10 @@
     hasNext: false,
   });
   let position = $state(0);
+  /** How far the playing file is read into memory, in seconds. */
+  let buffered = $state<number | null>(null);
+  /** False while the window is minimised or on another workspace. */
+  let visible = $state(document.visibilityState === 'visible');
   let actionError = $state<string | null>(null);
   let view = $state<View>('albums');
   /** Where Now Playing and Diagnostics go back to. */
@@ -341,12 +345,15 @@
     });
   });
 
-  // Poll the position only while audio moves.
+  // Poll the position only while audio moves and someone can see it.
   $effect(() => {
-    if (status.state !== 'playing') return;
+    if (status.state !== 'playing' || !visible) return;
 
     const timer = setInterval(() => {
-      void api.position().then((seconds) => (position = seconds));
+      void api.position().then((now) => {
+        position = now.seconds;
+        buffered = now.bufferedSeconds;
+      });
     }, 250);
 
     return () => {
@@ -357,6 +364,11 @@
 
 <svelte:head><title>Lyra — Music player</title></svelte:head>
 <svelte:window onkeydown={onKey} />
+<svelte:document
+  onvisibilitychange={() => {
+    visible = document.visibilityState === 'visible';
+  }}
+/>
 
 <div class="app" data-connected={connected}>
   <TitleBar />
@@ -496,6 +508,7 @@
   <PlayerBar
     {status}
     {position}
+    {buffered}
     {details}
     onOpen={() => {
       visit('now');

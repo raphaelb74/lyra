@@ -69,6 +69,16 @@ impl From<PlayerError> for IpcError {
     }
 }
 
+/// Where the current track is, for the seek bar.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Position {
+    /// Handed to the device.
+    pub seconds: f64,
+    /// The file is read into memory up to here; `None` when unknown.
+    pub buffered_seconds: Option<f64>,
+}
+
 /// A card's hardware volume, for the in-app control.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

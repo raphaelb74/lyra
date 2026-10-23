@@ -6,10 +6,11 @@ mod mpris;
 mod settings;
 mod thumbs;
 mod volume_watch;
+mod wake;
 mod window_state;
 
 use std::path::Path;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex};
 
 use audio_alsa::AlsaSink;
 use commands::{AppState, LIBRARY_CHANGED_EVENT, LIBRARY_NOTICE_EVENT, is_playable};
@@ -18,6 +19,7 @@ use library::{Library, ScanEvent, Scanner};
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, DragDropEvent, Emitter, Manager, RunEvent, WindowEvent};
 use unda::Player;
+use wake::Wake;
 
 /// Event carrying a [`Status`] after every playback state change.
 const STATUS_EVENT: &str = "player-status";
@@ -39,12 +41,18 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     let sink = AlsaSink::new();
     let sink_stats = sink.stats();
-    // Status changes also go to MPRIS (the desktop's media keys).
-    let (notify_mpris, mpris_updates) = mpsc::channel();
-    let player = Player::new(sink, move |status| {
-        // A closed window has nobody to notify.
-        let _ = handle.emit(STATUS_EVENT, Status::from(status));
-        let _ = notify_mpris.send(());
+    // Status changes also wake MPRIS (the desktop's media keys) and the
+    // volume watcher (the device to follow may have changed).
+    let mpris_wake = Arc::new(Wake::new()?);
+    let volume_wake = Arc::new(Wake::new()?);
+    let player = Player::new(sink, {
+        let (mpris_wake, volume_wake) = (Arc::clone(&mpris_wake), Arc::clone(&volume_wake));
+        move |status| {
+            // A closed window has nobody to notify.
+            let _ = handle.emit(STATUS_EVENT, Status::from(status));
+            mpris_wake.notify();
+            volume_wake.notify();
+        }
     })?;
     let db = app.path().app_data_dir()?.join("library.db");
     let art_dir = app.path().app_cache_dir()?.join("artwork");
@@ -64,10 +72,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         scan_status,
         art_dir,
         app.path().app_config_dir()?.join("settings.json"),
+        Arc::clone(&volume_wake),
     ));
-    volume_watch::spawn(app.handle().clone())?;
-    device_watch::spawn(app.handle().clone())?;
-    mpris::spawn(app.handle().clone(), mpris_updates)?;
+    volume_watch::spawn(app.handle().clone(), Arc::clone(&volume_wake))?;
+    device_watch::spawn(app.handle().clone(), volume_wake)?;
+    mpris::spawn(app.handle().clone(), mpris_wake)?;
     // Pick up changes made while Lyra was closed.
     if has_folders {
         scanner.request();

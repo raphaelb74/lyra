@@ -2,42 +2,49 @@
 //!
 //! The desktop's volume keys and slider change PipeWire's volume, which
 //! moves the card's own controls even while Lyra holds the device. This
-//! thread reads them and passes changes on: to the UI (the in-app control
-//! moves) and to the engine (the bit-perfect verdict follows; DoP stops).
+//! thread sleeps on the card's mixer events and passes changes on: to the UI
+//! (the in-app control moves) and to the engine (the bit-perfect verdict
+//! follows; DoP stops). It also wakes when the device to follow may have
+//! changed: playback started or stopped, the UI shows another device, or a
+//! card came or went.
 
 use std::io;
+use std::os::fd::BorrowedFd;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use audio_alsa::{MixerEvents, Woken};
 use tauri::{AppHandle, Emitter, Manager};
-use unda::{HardwareVolume, PlaybackState};
+use unda::{PlaybackState, PlayerStatus};
 
 use crate::commands::{AppState, volume_info};
 use crate::ipc::DeviceVolume;
+use crate::wake::Wake;
 
 /// Event carrying a [`DeviceVolume`].
 pub const VOLUME_EVENT: &str = "device-volume";
 
-/// Short, so a volume key during DoP stops the noise within a fraction of
-/// a second.
-const INTERVAL: Duration = Duration::from_millis(100);
+/// A change counts once the controls are quiet this long: setting a volume
+/// moves several controls in a row (Lyra's own 0 dB correction too).
+const SETTLE: Duration = Duration::from_millis(40);
 
-pub fn spawn(handle: AppHandle) -> io::Result<()> {
+pub fn spawn(handle: AppHandle, wake: Arc<Wake>) -> io::Result<()> {
     thread::Builder::new()
         .name("lyra-volume".into())
-        .spawn(move || watch(&handle))
+        .spawn(move || watch(&handle, &wake))
         .map(drop)
 }
 
-fn watch(handle: &AppHandle) {
+fn watch(handle: &AppHandle, wake: &Wake) {
     let mut shown: Option<(String, Option<u8>, Option<i64>, bool)> = None;
-    // A reading counts once seen twice in a row: one taken while Lyra sets
-    // 0 dB at the start of a track must not stop it.
-    let mut seen: Option<(String, HardwareVolume)> = None;
-    let mut reported: Option<(String, HardwareVolume)> = None;
+    let mut events: Option<(String, MixerEvents)> = None;
+    // Woken by the mixer, not only by news about which device to follow.
+    let mut mixer_changed = false;
     loop {
-        thread::sleep(INTERVAL);
+        wake.drain();
         let Some(state) = handle.try_state::<AppState>() else {
+            wake.wait(None, None);
             continue;
         };
         let status = state.player.status();
@@ -45,45 +52,93 @@ fn watch(handle: &AppHandle) {
             .track
             .as_ref()
             .filter(|_| !matches!(status.state, PlaybackState::Stopped | PlaybackState::Error))
-            .map(|track| track.device.clone());
-        let Some(device) = playing.clone().or_else(|| state.watched_device()) else {
+            .map(|track| (track.device.clone(), track.output));
+        let device = playing
+            .as_ref()
+            .map(|(device, _)| device.clone())
+            .or_else(|| state.watched_device());
+
+        if events.as_ref().map(|(watched, _)| watched) != device.as_ref() {
+            events = device
+                .as_ref()
+                .and_then(|device| Some((device.clone(), MixerEvents::open(device).ok()?)));
+        }
+
+        if let Some(device) = &device {
+            show(handle, &status, device, &mut shown);
+            // Only a settled mixer change goes to the engine, and only when
+            // the open stream thinks otherwise: the engine measures the
+            // volume itself when it opens the device.
+            if mixer_changed
+                && let Some((playing, Some(output))) = &playing
+                && playing == device
+            {
+                let volume = audio_alsa::hardware_volume(device);
+                if volume != output.hardware_volume {
+                    let _ = state.player.volume_changed(device.clone(), volume);
+                }
+            }
+        }
+
+        mixer_changed = false;
+        let Some((_, mixer)) = &events else {
+            wake.wait(None, None);
             continue;
         };
-
-        if let Ok(level) = audio_alsa::volume(&device) {
-            let lock = status.volume_lock(&device);
-            // Compare in whole hundredths of a dB: readings are exact steps.
-            #[expect(clippy::cast_possible_truncation, reason = "dB values are small")]
-            let key = (
-                device.clone(),
-                level.map(|level| level.percent),
-                level
-                    .and_then(|level| level.decibels)
-                    .map(|db| (db * 100.0).round() as i64),
-                lock.is_some(),
-            );
-            if shown.as_ref() != Some(&key) {
-                shown = Some(key);
-                let _ = handle.emit(
-                    VOLUME_EVENT,
-                    DeviceVolume {
-                        device: device.clone(),
-                        volume: level.map(|level| volume_info(level, lock)),
-                    },
-                );
+        match mixer.wait(wake.fd(), None) {
+            Woken::Mixer => mixer_changed = settle(mixer, wake.fd()),
+            Woken::Gone => {
+                // Unplugged: look again once a card comes or goes.
+                events = None;
+                wake.wait(None, None);
             }
+            Woken::Other | Woken::Timeout => {}
         }
+    }
+}
 
-        if playing.as_deref() == Some(device.as_str()) {
-            let reading = (device.clone(), audio_alsa::hardware_volume(&device));
-            if seen.as_ref() == Some(&reading) && reported.as_ref() != Some(&reading) {
-                let _ = state.player.volume_changed(reading.0.clone(), reading.1);
-                reported = Some(reading.clone());
-            }
-            seen = Some(reading);
-        } else {
-            seen = None;
-            reported = None;
+/// Waits for the controls to be quiet for [`SETTLE`]. False when the card
+/// went away meanwhile.
+fn settle(mixer: &MixerEvents, wake: BorrowedFd<'_>) -> bool {
+    loop {
+        match mixer.wait(wake, Some(SETTLE)) {
+            Woken::Mixer => {}
+            // Other news is handled with this change.
+            Woken::Timeout | Woken::Other => return true,
+            Woken::Gone => return false,
         }
+    }
+}
+
+/// Tells the UI the card's volume when it differs from what it shows.
+fn show(
+    handle: &AppHandle,
+    status: &PlayerStatus,
+    device: &str,
+    shown: &mut Option<(String, Option<u8>, Option<i64>, bool)>,
+) {
+    let Ok(level) = audio_alsa::volume(device) else {
+        return;
+    };
+    let lock = status.volume_lock(device);
+    // Compare in whole hundredths of a dB: readings are exact steps.
+    #[expect(clippy::cast_possible_truncation, reason = "dB values are small")]
+    let key = (
+        device.to_owned(),
+        level.map(|level| level.percent),
+        level
+            .and_then(|level| level.decibels)
+            .map(|db| (db * 100.0).round() as i64),
+        lock.is_some(),
+    );
+    if shown.as_ref() != Some(&key) {
+        *shown = Some(key);
+        let _ = handle.emit(
+            VOLUME_EVENT,
+            DeviceVolume {
+                device: device.to_owned(),
+                volume: level.map(|level| volume_info(level, lock)),
+            },
+        );
     }
 }

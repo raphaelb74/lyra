@@ -25,6 +25,7 @@ import {
   isCandidateList,
   isMatchInfo,
   isCover,
+  isPosition,
   type Guard,
 } from './guards';
 
@@ -193,6 +194,14 @@ export interface ScanStatus {
   total: number;
   last: ScanReport | null;
   error: string | null;
+}
+
+/** Where the current track is, for the seek bar. */
+export interface Position {
+  /** Handed to the device. */
+  seconds: number;
+  /** The file is read into memory up to here; null when unknown. */
+  bufferedSeconds: number | null;
 }
 
 /** Mirrors Rust's `Status`. */
@@ -596,7 +605,7 @@ export function backend(
     stop: () => run('stop', isNothing),
     seek: (seconds: number) => run('seek', isNothing, { seconds }),
     status: () => run('get_status', isStatus),
-    position: () => run('get_position', isNumber),
+    position: () => run('get_position', isPosition),
     playTracks: (trackIds: number[], start: number, device: string) =>
       run('play_tracks', isNothing, { trackIds, start, device }),
     next: () => run('next', isNothing),

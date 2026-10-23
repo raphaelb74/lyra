@@ -4,11 +4,11 @@ use format_pcm::SampleEncoding;
 use std::time::Duration;
 use unda::mock::{MockSink, SinkCall};
 use unda::{
-    DsdTransport, Encoding, ErrorKind, HardwareVolume, OutputFormat, PlaybackState, PlayerStatus,
-    Repeat, SinkError, SinkErrorKind,
+    DsdTransport, Encoding, ErrorKind, HardwareVolume, OutputFormat, POOL_SIZE, PlaybackState,
+    PlayerStatus, Repeat, SinkError, SinkErrorKind,
 };
 
-use crate::{DEVICE, assert_same_bytes, fixture, reference, refuse, start, wait_for};
+use crate::{DEVICE, assert_same_bytes, fixture, opens, reference, refuse, start, wait_for};
 
 #[test]
 fn plays_every_source_byte_through_the_states() {
@@ -209,6 +209,58 @@ fn seek_discards_queued_audio_and_resumes_at_the_frame() {
 }
 
 #[test]
+fn seeks_flac_inside_the_open_file() {
+    const TARGET: usize = 3_000;
+    let mut sink = MockSink::new();
+    sink.write_delay = Duration::from_millis(20);
+    let recorder = sink.recorder.clone();
+    let (player, updates) = start(sink);
+    player
+        .play(
+            fixture("s16_44100.flac"),
+            DEVICE.into(),
+            refuse(DsdTransport::Auto),
+        )
+        .unwrap();
+    wait_for(&updates, PlaybackState::Playing);
+
+    player.seek(TARGET as u64).unwrap();
+    wait_for(&updates, PlaybackState::Stopped);
+    let source = reference("s16_44100.wav");
+    recorder.with(|recording| {
+        assert_eq!(opens(&recording.calls), 1, "the device stays open");
+        assert_same_bytes(&recording.bytes, &source[TARGET * 4..], "after seek");
+    });
+}
+
+#[test]
+fn seeks_back_after_the_whole_file_was_decoded() {
+    const TARGET: usize = 1_000;
+    let mut sink = MockSink::new();
+    sink.write_delay = Duration::from_millis(50);
+    let recorder = sink.recorder.clone();
+    let (player, updates) = start(sink);
+    player
+        .play(
+            fixture("s16_44100.flac"),
+            DEVICE.into(),
+            refuse(DsdTransport::Auto),
+        )
+        .unwrap();
+    let (status, _) = wait_for(&updates, PlaybackState::Playing);
+    let total = status.track.unwrap().source.total_frames().unwrap();
+    // The decoder runs up to the pool's size ahead of the device: with a
+    // file this short it has read to the end before the first block plays.
+    assert!(total < POOL_SIZE as u64 * 4096);
+    player.seek(TARGET as u64).unwrap();
+    wait_for(&updates, PlaybackState::Stopped);
+    let source = reference("s16_44100.wav");
+    recorder.with(|recording| {
+        assert_same_bytes(&recording.bytes, &source[TARGET * 4..], "after seek");
+    });
+}
+
+#[test]
 fn stop_releases_the_device() {
     let mut sink = MockSink::new();
     sink.write_delay = Duration::from_millis(20);
@@ -246,4 +298,31 @@ fn stop_releases_the_device() {
             "stop must not wait for the track to finish"
         );
     });
+}
+
+#[test]
+fn reports_the_whole_track_buffered_once_its_file_is_read() {
+    let mut sink = MockSink::new();
+    sink.write_delay = Duration::from_millis(50);
+    let (player, updates) = start(sink);
+    player
+        .play(
+            fixture("s16_44100.wav"),
+            DEVICE.into(),
+            refuse(DsdTransport::Auto),
+        )
+        .unwrap();
+    let (status, _) = wait_for(&updates, PlaybackState::Playing);
+    let total = status.track.unwrap().source.total_frames().unwrap();
+    // A small file is read whole long before it plays out.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while player.buffered() != Some(total) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "buffered {:?}",
+            player.buffered()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(player.position() <= total);
 }

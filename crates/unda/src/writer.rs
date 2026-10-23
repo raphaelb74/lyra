@@ -11,8 +11,9 @@ use std::time::Duration;
 use crate::player::{Inbox, Shared};
 use crate::sink::{AudioSink, Encoding, OutputFormat, SinkError, StreamFormat};
 
-/// How often a paused writer re-checks for resume, seek or stop.
-const PAUSE_POLL: Duration = Duration::from_millis(20);
+/// Resume, seek and stop wake a paused writer (`Thread::unpark`); this only
+/// bounds the wait should a wake ever be missed.
+const PAUSE_POLL: Duration = Duration::from_secs(1);
 
 /// A block of packed audio, ready for the device.
 #[derive(Debug)]
@@ -72,8 +73,6 @@ pub(crate) enum WriterEvent {
 pub(crate) struct Writer<S> {
     pub sink: S,
     pub input: Receiver<ToWriter>,
-    /// Empty buffers go back to the controller.
-    pub free: Sender<Vec<u8>>,
     pub events: Sender<Inbox>,
     pub shared: Arc<Shared>,
 }
@@ -140,8 +139,9 @@ impl<S: AudioSink> Writer<S> {
                             error,
                         });
                     }
-                    // A closed controller means shutdown; nothing to recycle into.
-                    let _ = self.free.send(chunk.bytes);
+                    // Empty, back to the controller's pool. A closed
+                    // controller means shutdown; nothing to recycle into.
+                    let _ = self.events.send(Inbox::Free(chunk.bytes));
                 }
                 ToWriter::Drain { generation } => {
                     let result = self.wait_while_paused(generation, &mut device);
