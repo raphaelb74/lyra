@@ -128,8 +128,11 @@ def check_appearance(execute, prefix):
             const row = id => {
                 const element = document.getElementById('ui-' + id);
                 const style = getComputedStyle(element);
+                const mark = getComputedStyle(element, '::before');
                 return { background: window.uiColour(style.backgroundColor),
-                    colour: window.uiColour(style.color), shadow: style.boxShadow,
+                    colour: window.uiColour(style.color),
+                    mark: mark.content === 'none' ? null
+                        : { width: mark.width, colour: window.uiColour(mark.backgroundColor) },
                     meta: element.querySelector('.meta') ? window.uiColour(getComputedStyle(element.querySelector('.meta')).color) : null };
             };
             return { theme: document.documentElement.dataset.theme,
@@ -181,9 +184,10 @@ def check_appearance(execute, prefix):
         assert state['selected']['background'] == state['selection'], state
         assert state['both']['background'] == state['playingBase'], state
         assert len({tuple(state[key]) for key in ('hover', 'selection', 'playingBase')}) == 3, state
-        assert '3px' in state['playing']['shadow'], state
-        assert state['selected']['shadow'] == 'none', state
-        assert state['both']['shadow'] == state['playing']['shadow'], state
+        # Playing rows carry a 3 px accent mark on the left; selection never does.
+        assert state['playing']['mark'] == {'width': '3px', 'colour': state['accent']}, state
+        assert state['selected']['mark'] is None, state
+        assert state['both']['mark'] == state['playing']['mark'], state
         assert state['primary']['background'] == state['round']['background'] == state['accent'], state
         for identifier in ('selected', 'playing', 'both'):
             assert contrast(state[identifier]['colour'], state[identifier]['background']) >= 4.5, state
