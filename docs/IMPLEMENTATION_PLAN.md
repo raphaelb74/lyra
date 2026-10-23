@@ -93,7 +93,11 @@ Five PRs: **M4a** library and album browser, **M4b-1** queue, gapless and Now Pl
 Linux stays the reference platform. UI, library and engine are shared; each platform gets its own output crate behind `AudioSink`, with the same rule: the most direct path, exact format, no silent conversion.
 
 - [ ] `audio-wasapi`: WASAPI exclusive mode for bit-perfect PCM and DoP; device enumeration, exact format negotiation, endpoint volume handling.
-- [ ] Native DSD on Windows through ASIO where the DAC's driver provides it (check the Steinberg SDK licence first).
+- [ ] Native DSD on Windows through ASIO where the DAC's driver provides it. Decided direction (2026-10-23), not done yet:
+  - Licence: the ASIO SDK is dual-licensed (Steinberg proprietary or GPLv3, since October 2025). Before ASIO work starts, move the engine to GPL-3.0-or-later: `unda`, `audio-alsa` (and the coming `audio-wasapi`, `audio-asio`), `dsd-pcm`, `format-dsd`, `format-pcm`. The app, `library` and `musicbrainz` stay MIT; installers that link the engine ship as GPLv3 as a whole. Update each crate's `license` and `COPYING`, `deny.toml`, AGENTS.md's GPL rule and the README.
+  - Interop: the SDK is C++ and the driver calls back on its own real-time thread through C function pointers. Prefer a small C++ shim exposing a C ABI, built with `cc`, behind one documented `ffi` module and a safe wrapper (as `cpal`'s `asio-sys`); `cxx` if the surface grows. Not zngur: it mainly exposes Rust to C++, and its CI does not cover MSVC.
+  - Main work: ASIO pulls audio in a callback while UNDA's writer pushes blocking writes; bridge the buffer pool into preallocated callback buffers ([M6 plan](M6_WINDOWS_IMPLEMENTATION.md#6-optional-native-dsd-through-asio)).
+  - Watch Microsoft's in-box USB Audio Class 2 driver with ASIO (preview announced for late 2026, Arm64 first): it would spare users vendor drivers; DSD support unknown. Lyra still builds against the SDK as a host.
 - [ ] `audio-coreaudio`: CoreAudio exclusive (hog mode) with the device's physical format set to the source format; DoP for DSD (CoreAudio has no native DSD).
 - [ ] Hardware evidence per platform in `docs/hardware/`, as for Linux.
 - [ ] Packaging and signing: Windows installer (MSI/NSIS) with code signing; macOS `.dmg` with notarization.
