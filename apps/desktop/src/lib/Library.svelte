@@ -24,6 +24,7 @@
   import { scanText } from './format';
   import { attempt, type Album, type Backend, type ScanStatus } from './ipc';
   import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
+  import { showToast } from './toast.svelte';
 
   interface Props {
     /** Chosen in the sidebar. */
@@ -59,13 +60,8 @@
   const openAlbum = $derived(opened?.from === section ? opened.album : null);
   const titles = { albums: 'Albums', artists: 'Artists', tracks: 'Tracks' };
 
-  /** A save the user can still undo from here. */
-  let undoable = $state(false);
-  let undoNotice = $state<string | null>(null);
-
   /** Opens an album straight on its editor. */
   function edit(album: Album) {
-    undoNotice = null;
     void showAlbum(album, 'edit');
   }
 
@@ -75,10 +71,16 @@
   }
 
   async function undo() {
-    undoable = false;
-    const undone = await attempt(api.undoEdit, onError);
+    if (await attempt(api.undoEdit, onError)) showToast({ text: 'Undone' });
+  }
 
-    undoNotice = undone ? 'Undone.' : null;
+  function saved() {
+    showToast({
+      text: 'Saved',
+      detail: 'Files untouched',
+      action: { label: 'Undo', run: () => void undo() },
+    });
+    turnTo('view');
   }
 
   /** Filters stay while an album is open and between sections. */
@@ -248,19 +250,6 @@
   });
 </script>
 
-{#if undoable || undoNotice}
-  <p class="muted saved" role="status">
-    {#if undoable}
-      Saved in Lyra; your music files are unchanged.
-      <button type="button" class="tertiary small" onclick={() => void undo()}
-        >Undo</button
-      >
-    {:else}
-      {undoNotice}
-    {/if}
-  </p>
-{/if}
-
 {#if openAlbum && opened?.page === 'edit'}
   <AlbumEditor
     {api}
@@ -268,10 +257,7 @@
     onBack={() => {
       turnTo('view');
     }}
-    onSaved={() => {
-      undoable = true;
-      turnTo('view');
-    }}
+    onSaved={saved}
     {onError}
   />
 {:else if openAlbum && opened?.page === 'fix'}
@@ -292,10 +278,7 @@
     onBack={() => {
       turnTo('view');
     }}
-    onSaved={() => {
-      undoable = true;
-      turnTo('view');
-    }}
+    onSaved={saved}
   />
 {:else if openAlbum}
   <AlbumView
@@ -306,14 +289,12 @@
     {onError}
     onBack={closeAlbum}
     onEdit={() => {
-      undoNotice = null;
       turnTo('edit');
     }}
     onFixTags={() => {
       turnTo('fix');
     }}
     onMatch={() => {
-      undoNotice = null;
       turnTo('match');
     }}
   />
@@ -443,9 +424,6 @@
   }
   .tools input {
     width: 220px;
-  }
-  .saved {
-    margin: 0 0 var(--space-3);
   }
   .scanning {
     margin: 0 0 var(--space-4);

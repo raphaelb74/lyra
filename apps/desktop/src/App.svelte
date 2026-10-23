@@ -33,6 +33,8 @@
   import DevicePicker from './lib/DevicePicker.svelte';
   import VolumeControl from './lib/VolumeControl.svelte';
   import { readFlag, writeFlag } from './lib/storage';
+  import Toast from './lib/Toast.svelte';
+  import { dismissToast } from './lib/toast.svelte';
 
   const api = backend();
 
@@ -47,6 +49,16 @@
     | 'diagnostics'
     | 'licences'
     | 'fixtags';
+
+  type Section = 'albums' | 'artists' | 'tracks';
+
+  function isSection(candidate: View): candidate is Section {
+    return (
+      candidate === 'albums' ||
+      candidate === 'artists' ||
+      candidate === 'tracks'
+    );
+  }
 
   const views: readonly { id: View; label: string; icon: IconName }[] = [
     { id: 'albums', label: 'Albums', icon: 'disc-3' },
@@ -80,6 +92,24 @@
   let view = $state<View>('albums');
   /** Where Now Playing and Diagnostics go back to. */
   let back = $state<View>('albums');
+  /** The library stays mounted behind other views, on the section last
+   * shown, so its open album and filters survive a trip to Settings. */
+  let lastSection: Section = 'albums';
+  const section = $derived.by(() => {
+    if (isSection(view)) lastSection = view;
+
+    return lastSection;
+  });
+  let mainElement = $state<HTMLElement>();
+  /** How far each view was scrolled, restored when it comes back. */
+  const scrolled: Partial<Record<View, number>> = {};
+
+  // A new view: back where it was left, and no notice from the old one.
+  $effect(() => {
+    if (mainElement) mainElement.scrollTop = scrolled[view] ?? 0;
+
+    dismissToast();
+  });
   let details = $state<TrackDetails | null>(null);
   /** Bumped when the library changes: an edit may rename what plays. */
   let libraryVersion = $state(0);
@@ -346,83 +376,92 @@
         </button>
       </nav>
     </aside>
-    <main>
-      {#if connectionError}
-        <div class="alert engine" role="alert">
-          <span>{connectionError}</span>
-          <button
-            type="button"
-            class="small"
-            disabled={checking}
-            onclick={checkBackend}>{checking ? 'Retrying…' : 'Retry'}</button
-          >
+    <div class="stage">
+      <main
+        bind:this={mainElement}
+        onscroll={(event) => {
+          scrolled[view] = event.currentTarget.scrollTop;
+        }}
+      >
+        {#if connectionError}
+          <div class="alert engine" role="alert">
+            <span>{connectionError}</span>
+            <button
+              type="button"
+              class="small"
+              disabled={checking}
+              onclick={checkBackend}>{checking ? 'Retrying…' : 'Retry'}</button
+            >
+          </div>
+        {/if}
+        {#if shownError}
+          <p class="alert" role="alert">{shownError}</p>
+        {/if}
+        <div class="keep" hidden={!isSection(view)}>
+          <Library
+            {section}
+            {api}
+            device={selectedDevice}
+            playingId={libraryId}
+            onError={showError}
+          />
         </div>
-      {/if}
-      {#if shownError}
-        <p class="alert" role="alert">{shownError}</p>
-      {/if}
-      {#if view === 'albums' || view === 'artists' || view === 'tracks'}
-        <Library
-          section={view}
-          {api}
-          device={selectedDevice}
-          playingId={libraryId}
-          onError={showError}
-        />
-      {:else if view === 'playlists'}
-        <Playlists
-          {api}
-          device={selectedDevice}
-          playingId={libraryId}
-          onError={showError}
-        />
-      {:else if view === 'now'}
-        <NowPlaying
-          {status}
-          {details}
-          device={playingDevice}
-          onBack={() => (view = back)}
-        />
-      {:else if view === 'settings'}
-        <Settings
-          {api}
-          {appInfo}
-          {connected}
-          {checking}
-          {device}
-          onCheck={checkBackend}
-          onOpenDiagnostics={() => {
-            visit('diagnostics');
-          }}
-          onOpenLicences={() => {
-            visit('licences');
-          }}
-          onOpenFixTags={() => {
-            visit('fixtags');
-          }}
-          onError={showError}
-        />
-      {:else if view === 'fixtags'}
-        <FixTags
-          {api}
-          albumId={null}
-          scope="Whole library"
-          backLabel="Settings"
-          onBack={() => (view = 'settings')}
-          onError={showError}
-        />
-      {:else if view === 'licences'}
-        <Licences onBack={() => (view = 'settings')} />
-      {:else}
-        <Diagnostics
-          {api}
-          {device}
-          {status}
-          onBack={() => (view = 'settings')}
-          onError={showError}
-        />
-      {/if}
-    </main>
+        {#if view === 'playlists'}
+          <Playlists
+            {api}
+            device={selectedDevice}
+            playingId={libraryId}
+            onError={showError}
+          />
+        {:else if view === 'now'}
+          <NowPlaying
+            {status}
+            {details}
+            device={playingDevice}
+            onBack={() => (view = back)}
+          />
+        {:else if view === 'settings'}
+          <Settings
+            {api}
+            {appInfo}
+            {connected}
+            {checking}
+            {device}
+            onCheck={checkBackend}
+            onOpenDiagnostics={() => {
+              visit('diagnostics');
+            }}
+            onOpenLicences={() => {
+              visit('licences');
+            }}
+            onOpenFixTags={() => {
+              visit('fixtags');
+            }}
+            onError={showError}
+          />
+        {:else if view === 'fixtags'}
+          <FixTags
+            {api}
+            albumId={null}
+            scope="Whole library"
+            backLabel="Settings"
+            onBack={() => (view = 'settings')}
+            onError={showError}
+          />
+        {:else if view === 'licences'}
+          <Licences onBack={() => (view = 'settings')} />
+        {:else if view === 'diagnostics'}
+          <Diagnostics
+            {api}
+            {device}
+            {status}
+            onBack={() => (view = 'settings')}
+            onError={showError}
+          />
+        {/if}
+      </main>
+      <Toast />
+    </div>
     {#if queueOpen}
       <div class="queue-pane" transition:slide={panelMotion()}>
         <QueuePanel
@@ -578,12 +617,27 @@
 
     padding: var(--space-2) var(--page-gutter) var(--space-6);
     min-width: 0;
-    max-width: 1400px;
     overflow-y: auto;
   }
   /* Views flow top to bottom; one may fill the height (Artists). */
-  main > :global(*) {
+  main > :global(*),
+  .keep > :global(*) {
     flex-shrink: 0;
+  }
+  /* The library stays mounted while hidden: it lays out as part of main. */
+  .keep {
+    display: contents;
+  }
+  .keep[hidden] {
+    display: none;
+  }
+  /* Holds the toast over the view, whatever the view scrolls to. */
+  .stage {
+    flex: 1;
+    min-width: 0;
+    max-width: 1400px;
+    display: flex;
+    position: relative;
   }
   /* Fixed inner width: the pane slides in without its text reflowing. */
   .queue-pane {

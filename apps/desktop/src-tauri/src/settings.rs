@@ -128,7 +128,7 @@ impl Settings {
     }
 }
 
-fn temporary_path(path: &Path) -> PathBuf {
+pub fn temporary_path(path: &Path) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_owned();
     name.push(".tmp");
     path.with_file_name(name)

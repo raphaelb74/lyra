@@ -3,6 +3,7 @@
 
   import Icon from './Icon.svelte';
   import { attempt, type Backend, type Proposal } from './ipc';
+  import { showToast } from './toast.svelte';
 
   interface Props {
     api: Backend;
@@ -27,8 +28,6 @@
   /** Fixes unticked in the review. */
   const skipped = new SvelteSet<string>();
   let busy = $state(false);
-  let applied = $state<string | null>(null);
-  let undoable = $state(false);
 
   function keyOf(proposal: Proposal): string {
     return `${proposal.target.kind}:${String(proposal.target.id)}:${proposal.field}`;
@@ -86,18 +85,19 @@
 
     if (done !== null) return;
 
-    applied = `Applied ${plural(fixes.length)}. Saved in Lyra; your music files are unchanged.`;
-    undoable = true;
+    showToast({
+      text: `Applied ${plural(fixes.length)}`,
+      detail: 'Files untouched',
+      action: { label: 'Undo', run: () => void undo() },
+    });
     reviewing = null;
     skipped.clear();
     await load();
   }
 
   async function undo() {
-    undoable = false;
-    const undone = await attempt(api.undoEdit, onError);
+    if (await attempt(api.undoEdit, onError)) showToast({ text: 'Undone' });
 
-    applied = undone ? 'Undone.' : null;
     await load();
   }
 
@@ -115,17 +115,6 @@
     <h2 id="fix-title">Fix tags</h2>
     <p class="muted">{scope} · offline, saved in Lyra only</p>
   </div>
-
-  {#if applied}
-    <p class="confirm" role="status">
-      {applied}
-      {#if undoable}
-        <button type="button" class="tertiary small" onclick={() => void undo()}
-          >Undo</button
-        >
-      {/if}
-    </p>
-  {/if}
 
   {#if proposals === null}
     <p class="muted" role="status">Looking for fixes…</p>
@@ -237,9 +226,6 @@
     font-size: var(--type-heading);
     line-height: var(--leading-heading);
     font-weight: var(--weight-strong);
-  }
-  .confirm {
-    margin-bottom: var(--space-4);
   }
   .kinds {
     list-style: none;

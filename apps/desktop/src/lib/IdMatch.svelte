@@ -418,7 +418,9 @@
                       {/each}
                     </select>
                     {#if pair?.lengthsAgree === false && pair.lengthDifferenceSeconds !== null}
-                      <span class="note num"
+                      <span
+                        class="note num"
+                        title="Your file's length. Lengths are compared, never changed."
                         >{seconds(mine?.seconds ?? null)} ({difference(
                           pair.lengthDifferenceSeconds,
                         )})</span
