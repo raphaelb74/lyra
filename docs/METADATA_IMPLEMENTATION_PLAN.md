@@ -6,17 +6,17 @@ Date: 22 October 2026. Status: future work, all phases unstarted. Implements [ME
 
 Finish Linux M5 release work first, particularly DAC format-change validation and library preservation. The metadata phases below use the temporary prefix **MT**, avoiding a collision with the existing M6 Windows/macOS milestone. Adopt their numbering in the main implementation plan only when this work is scheduled.
 
-Recommended delivery order: **MT0 → MT1 → MT2 → MT3**, then **MT4 → MT5**, with **MT6** enabled only after evidence supports it. MT3 gives an immediately useful offline editor. MT4 and MT5 are independently useful: online proposals do not require file writers, and file writers do not require online services. MT7 is optional expansion. Implement one phase at a time and keep the workspace buildable.
+Recommended delivery order: **MT0 → MT1 → MT2 → MT3**, then **MT4 → MT5 → MT6**, with **MT7** enabled only after evidence supports it. MT3 gives an immediately useful offline editor. MT4 and MT5 are independently useful: online proposals do not require file writers, and file writers do not require online services. MT6 (organizing files) reuses MT5's journal and recovery. MT8 is optional expansion. Implement one phase at a time and keep the workspace buildable.
 
 The [Windows plan](M6_WINDOWS_IMPLEMENTATION.md) shares decisions about path identity, replacement semantics, image handling and durable backups. Design those boundaries before choosing Linux-specific shortcuts. Neither proposal authorizes Windows playback or network changes to the current v1 scope by itself.
 
 ## MT0 — Preservation fixes and dependency/format spike
 
-- [ ] Address review findings T01/T02: distinguish missing/incomplete scans from deletions; preserve tracks/playlist relationships during failed reads and folder consolidation.
+- [x] Address review finding T01: distinguish missing/incomplete scans from deletions; preserve tracks/playlist relationships during failed reads and folder consolidation (done in M5). T02, edition identity, moves to MT1.
 - [ ] Reconfirm required fields, library-first default, and explicit write/online actions; update the main specification and read-only promise when implementation is authorized.
-- [ ] Audit current ID3/FLAC readers and candidate writers for unknown-frame/block preservation, duplicate/multi-value fields, ID3 versions, malformed inputs and supported container variants.
-- [ ] Compare focused `metaflac` + existing `id3` with `lofty` where relevant. Read exact-version licences and sources; test capabilities rather than adopting a generic supported-format claim.
-- [ ] Document FLAC, DSF, WAV and DFF writer capabilities separately. Define refusal behavior for unsupported RIFF sizes, DFF metadata conventions, links and filesystems.
+- [x] Audit current ID3/FLAC readers and candidate writers for unknown-frame/block preservation, duplicate/multi-value fields, ID3 versions, malformed inputs and supported container variants ([decision record](METADATA_DECISIONS.md)).
+- [x] Compare focused `metaflac` + existing `id3` with `lofty` where relevant. Read exact-version licences and sources; test capabilities rather than adopting a generic supported-format claim. Outcome: `lofty` for FLAC (and later formats) behind Lyra's own before/after checks, since it silently drops malformed comments; `id3` + own container patch for DSF/DFF.
+- [x] Document FLAC, DSF, WAV and DFF writer capabilities separately (capability matrix in the decision record; WAV and DFF stay library-edit-only). Refusal behaviour for links and filesystems is defined with the MT5a write protocol.
 - [ ] Confirm MusicBrainz API use and a field/content licensing map; confirm Cover Art Archive image handling. Keep Discogs, AcoustID and editorial integrations outside the initial dependency set.
 - [ ] Record an initial 10k-track scan/playback baseline and choose concurrency/I/O budgets from measurement.
 
@@ -24,14 +24,16 @@ The [Windows plan](M6_WINDOWS_IMPLEMENTATION.md) shares decisions about path ide
 
 ## MT1 — Stable identities, layered data and backup
 
-- [ ] Add forward-only migrations after the current schema. Back up the database safely before migration.
-- [ ] Separate stable local release identity from album title/artist; retain existing track/playlist IDs. Design conservative reconstruction for already-merged editions.
-- [ ] Add file observations, manual overrides, source preferences and accepted provider IDs/values with typed fields and revisions.
-- [ ] Represent absent/set/clear/reset independently. Define release-wide versus track-specific field resolution.
+- [x] Add forward-only migrations after the current schema. Back up the database safely before migration (`VACUUM INTO`, newest three kept; migrations may run Rust code, with foreign keys checked before each commits).
+- [x] Separate stable local release identity from album title/artist; retain existing track/playlist IDs. Design conservative reconstruction for already-merged editions. _Migration 5: grouping by MusicBrainz release ID, else release folder (disc folders joined), album and album artist; the next scan regroups, and a release whose tracks all move keeps its ID and artwork._
+- [x] Track identity independent of the path: a move or rename (MT6, or done outside Lyra) updates the path, not the ID. _Migration 6: `audio_id` (FLAC audio MD5, else codec, size, rate, channels and length); only a unique match on both sides counts as a move._
+- [ ] Add file observations, manual overrides, source preferences and accepted provider IDs/values with typed fields and revisions. _File values, edits with origin (manual, rule, provider) and a fixed field list done (migration 7); source preferences and revisions remain._
+- [x] Represent absent/set/clear/reset independently. Define release-wide versus track-specific field resolution. _Each field has a track or release scope; a release field's file value is its first track's._
 - [ ] Distinguish artist credits from artist identity; allow offline entities with no provider ID.
+- [ ] Matching keys (NFC, full Unicode lower-casing, collapsed whitespace, invisible characters removed) for artists and releases, replacing SQLite's ASCII-only `NOCASE`; file values stored exactly, with an unreadable-text flag for invalid bytes ([decisions](METADATA_DECISIONS.md) 5–7). Adds `unicode-normalization`. _Artists (migration 4) and releases (album and album-artist keys in the grouping, migration 5) done; exact file values come with block 4._
 - [ ] Add durable artwork references, immutable asset digests and disposable thumbnail/cache accounting.
-- [ ] Add edit transaction history and a versioned backup/restore workflow covering the DB and selected artwork. Backup excludes credentials and evictable response caches.
-- [ ] Make rescans update only observations; preserve edits and surface unavailable tracks. Use revisions to reject stale scanner results.
+- [ ] Add edit transaction history and a versioned backup/restore workflow covering the DB and selected artwork. Backup excludes credentials and evictable response caches. _History and undo of saved steps done; backup/restore as a user action comes with the editor._
+- [ ] Make rescans update only observations; preserve edits and surface unavailable tracks. Use revisions to reject stale scanner results. _Rescans replace file values only; edits stay and are marked for review when the file changes under them. Revisions remain (MT2)._
 
 **Done when:** migration tests preserve IDs and playlists; two editions with identical display names remain separate; local overrides survive full/incremental scans and restart; backup restores a complete consistent library. Cover MT01, MT02, MT14 and MT15 model cases.
 
@@ -40,6 +42,7 @@ The [Windows plan](M6_WINDOWS_IMPLEMENTATION.md) shares decisions about path ide
 ## MT2 — Edit service, preview and artwork lifecycle
 
 - [ ] Implement pure field validation and effective-value resolution with typed errors and operation semantics.
+- [ ] Cleanup rules as pure functions proposing edits: text hygiene, encoding repair, numbers, dates, album artist, featured artists, capitals, duplicate artists, genres, sort names ([decision](METADATA_DECISIONS.md) 10). A corpus of badly tagged fixtures, including names each rule must leave alone.
 - [ ] Add revision-bound edit previews and atomic local edit commits; include affected IDs and release grouping consequences.
 - [ ] Implement local edit undo with revision conflict checks and explicit reset-to-file operations.
 - [ ] Add restricted local artwork selection through Rust, bounded decode, durable storage, thumbnail invalidation and total cache accounting.
@@ -52,6 +55,7 @@ The [Windows plan](M6_WINDOWS_IMPLEMENTATION.md) shares decisions about path ide
 ## MT3 — Embedded offline editor
 
 - [ ] Add album/track entry points and selection-aware General, Tracks, Artwork and Sources tabs.
+- [ ] **Tidy up library**: run the cleanup rules over the library or a selection; review proposals grouped by rule with counts and examples; accept per rule or per item; undo.
 - [ ] Add accessible multi-selection, mixed values, explicit clear/reset, field validation and unsaved-change handling.
 - [ ] Separate album artist from track artist and show selection scope. A shared artist rename is not implied.
 - [ ] Implement **Save in Lyra**, undo/reset and read-only file capability messaging. File writing/online controls remain unavailable until their phases ship.
@@ -104,7 +108,18 @@ The [Windows plan](M6_WINDOWS_IMPLEMENTATION.md) shares decisions about path ide
 
 **Done when:** each enabled format has a dated capability matrix and round-trip/interoperability evidence. A failing/unproven format stays library-edit-only with an explanation. Do not block FLAC/DSF delivery on DFF support, and do not describe the editor as writing every supported playback format.
 
-## MT6 — Optional automatic enrichment and release hardening
+## MT6 — Organize files
+
+- [ ] Template engine on effective values: presets and custom templates, multi-disc and compilation rules, fallbacks for missing fields. Pure and unit-tested.
+- [ ] Filesystem-safe names: illegal characters, reserved names, leading dots, trailing dots and spaces, NFC, 255-byte components on a character boundary, case-only renames through a temporary name.
+- [ ] Preview grouped by album: moves, collisions, other files (covers, booklets, cue/log) moving or staying, skipped files.
+- [ ] Execution on the MT5a journal: atomic rename on one filesystem; copy, verify and delete across filesystems; path updated in place in the library; playing and prefetched files deferred; no scan during a batch.
+- [ ] Undo by journal, refusing changed files; crash reconciliation; optional removal of emptied folders.
+- [ ] **Organize folders** in the UI, from the library, an album or a selection, after cleanup or a match.
+
+**Done when:** MT17–MT20 pass on ext4 and on an exFAT image; a filesystem comparison after undo matches the original tree.
+
+## MT7 — Optional automatic enrichment and release hardening
 
 - [ ] Evaluate matching against synthetic/manual-labelled cases: remasters, compilations, split discs, duplicate names, hidden/bonus tracks and incomplete tags.
 - [ ] Add optional scan-triggered proposal jobs only after online consent; low-priority bounded concurrency and cancellable scheduling.
@@ -115,9 +130,9 @@ The [Windows plan](M6_WINDOWS_IMPLEMENTATION.md) shares decisions about path ide
 
 **Done when:** all promised format/workflow acceptance rows pass, unresolved cases are disabled or explicitly scoped, and the standard project checks pass. Automation remains optional and playback policy is unchanged.
 
-## MT7 — Separately scoped extensions
+## MT8 — Separately scoped extensions
 
-Candidates: Discogs after an approved persistence/attribution policy; AcoustID after separate licensing/privacy/CPU design; richer role credits and classical works/movements; custom text fields; M3U8 exchange; file naming/moving with safe relinking; rule-based actions. Each requires its own specification delta and acceptance criteria. No scripting interpreter or third-party tagger code is bundled by default.
+Candidates: Discogs after an approved persistence/attribution policy; AcoustID after separate licensing/privacy/CPU design; richer role credits and classical works/movements; custom text fields; M3U8 exchange; custom naming scripts and organizing new imports automatically; rule-based actions. Each requires its own specification delta and acceptance criteria. No scripting interpreter or third-party tagger code is bundled by default.
 
 ## Validation and implementation boundaries
 
@@ -136,8 +151,9 @@ These are engineering estimates for one developer familiar with the codebase, in
 | MT4, reviewed MusicBrainz/CAA                  | 1–3 weeks                                                      |
 | MT5a–b, safe FLAC/DSF writes and recovery      | 2–4 weeks                                                      |
 | MT5c, WAV/DFF                                  | 1–3+ weeks depending on preservation/interoperability findings |
-| MT6, automation/measurement/hardening          | 1–2 weeks                                                      |
+| MT6, organize files                            | 1–2 weeks after MT5a                                           |
+| MT7, automation/measurement/hardening          | 1–2 weeks                                                      |
 
-The first useful offline editor is therefore roughly 3–6 developer weeks after prerequisites; the broader initial system is roughly 7–15 weeks including release hardening, excluding optional WAV/DFF/automation expansion. Re-estimate after MT0 using actual writer and migration results. Existing merged albums, unfamiliar tag variants, disk recovery and Windows semantics can expand these ranges.
+The first useful offline editor is therefore roughly 3–6 developer weeks after prerequisites; the broader initial system, organizing files included, is roughly 8–17 weeks including release hardening, excluding optional WAV/DFF/automation expansion. Re-estimate after MT0 using actual writer and migration results. Existing merged albums, unfamiliar tag variants, disk recovery and Windows semantics can expand these ranges.
 
 Before coding, settle exact field/date/list mappings, the writer dependencies and unsupported variants, edition migration rules, backup storage UX and provider field licences. The specification already proposes conservative defaults; these are design decisions for implementation review, not reasons to change current files during this documentation task.

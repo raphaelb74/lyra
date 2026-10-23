@@ -339,7 +339,7 @@ time-core	0.1.9	MIT OR Apache-2.0	registry+https://github.com/rust-lang/crates.i
 time-macros	0.2.32	MIT OR Apache-2.0	registry+https://github.com/rust-lang/crates.io-index
 tinystr	0.8.4	Unicode-3.0	registry+https://github.com/rust-lang/crates.io-index
 tinyvec	1.13.3	Zlib OR Apache-2.0 OR MIT	registry+https://github.com/rust-lang/crates.io-index
-tokio	1.54.0	MIT	registry+https://github.com/rust-lang/crates.io-index
+tokio	1.54.1	MIT	registry+https://github.com/rust-lang/crates.io-index
 tokio-util	0.7.20	MIT	registry+https://github.com/rust-lang/crates.io-index
 toml	0.8.2	MIT OR Apache-2.0	registry+https://github.com/rust-lang/crates.io-index
 toml	1.1.8+spec-1.1.0	MIT OR Apache-2.0	registry+https://github.com/rust-lang/crates.io-index
@@ -361,6 +361,7 @@ try-lock	0.2.5	MIT	registry+https://github.com/rust-lang/crates.io-index
 typeid	1.0.3	MIT OR Apache-2.0	registry+https://github.com/rust-lang/crates.io-index
 typenum	1.20.1	MIT OR Apache-2.0	registry+https://github.com/rust-lang/crates.io-index
 unicode-ident	1.0.27	(MIT OR Apache-2.0) AND Unicode-3.0	registry+https://github.com/rust-lang/crates.io-index
+unicode-normalization	0.1.26	(MIT OR Apache-2.0) AND Unicode-3.0	registry+https://github.com/rust-lang/crates.io-index
 unicode-segmentation	1.13.3	MIT OR Apache-2.0	registry+https://github.com/rust-lang/crates.io-index
 url	2.5.8	MIT OR Apache-2.0	registry+https://github.com/rust-lang/crates.io-index
 urlpattern	0.6.0	MIT	registry+https://github.com/rust-lang/crates.io-index

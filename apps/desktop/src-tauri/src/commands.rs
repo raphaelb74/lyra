@@ -168,7 +168,9 @@ fn library_error(error: &LibraryError) -> IpcError {
         LibraryError::AlreadyCovered { .. }
         | LibraryError::NotADirectory(_)
         | LibraryError::Invalid(_) => "invalid_request",
-        LibraryError::Db(_) | LibraryError::Io(_) => "library_failed",
+        LibraryError::Db(_) | LibraryError::Io(_) | LibraryError::Upgrade { .. } => {
+            "library_failed"
+        }
     };
     IpcError {
         code,
