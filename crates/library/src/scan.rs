@@ -5,7 +5,8 @@
 //! not read again. Tags are read outside transactions and written in small
 //! batches, so the UI can read (WAL) and edit folders while a scan runs.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
@@ -668,11 +669,51 @@ fn settle(conn: &mut Connection, regroup: Regroup) -> Result<Vec<String>, Librar
         }
     }
 
+    hand_over_edits(&transaction, &regroup)?;
     for album in regroup.touched {
         shown::refresh_release(&transaction, album)?;
     }
     transaction.commit()?;
     Ok(unused)
+}
+
+/// A release this scan emptied hands its edits to the releases created for
+/// its tracks (a merge of discs, say), rather than losing them when it is
+/// pruned; older releases first. A release that already existed keeps its
+/// own edits.
+fn hand_over_edits(conn: &Connection, regroup: &Regroup) -> Result<(), LibraryError> {
+    let mut went: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
+    for (&track, &previous) in &regroup.previous {
+        if let Some(old) = previous {
+            went.entry(old).or_default().push(track);
+        }
+    }
+    for (old, tracks) in went {
+        let emptied: bool = conn
+            .prepare_cached(
+                "SELECT EXISTS (SELECT 1 FROM albums WHERE id = ?1)
+                 AND NOT EXISTS (SELECT 1 FROM tracks WHERE album_id = ?1)",
+            )?
+            .query_row([old], |row| row.get(0))?;
+        if !emptied {
+            continue;
+        }
+        let mut counts: HashMap<i64, usize> = HashMap::new();
+        for track in tracks {
+            let now: Option<i64> = conn
+                .prepare_cached("SELECT album_id FROM tracks WHERE id = ?1")?
+                .query_row([track], |row| row.get(0))
+                .optional()?;
+            if let Some(now) = now.filter(|now| regroup.created.contains(now)) {
+                *counts.entry(now).or_default() += 1;
+            }
+        }
+        let mut to: Vec<(i64, usize)> = counts.into_iter().collect();
+        to.sort_unstable_by_key(|&(id, count)| (Reverse(count), id));
+        let to: Vec<i64> = to.into_iter().map(|(id, _)| id).collect();
+        edits::follow(conn, old, &to)?;
+    }
+    Ok(())
 }
 
 /// SQLite integers are signed 64-bit.
@@ -702,8 +743,9 @@ mod tests {
             .split(',')
             .map(|column| column.trim().to_owned())
             .collect();
-        // Identity, and the path the move sets itself.
-        expected.extend(["id".to_owned(), "path".to_owned()]);
+        // Identity, the path the move sets itself, and the revision its
+        // triggers set.
+        expected.extend(["id".to_owned(), "path".to_owned(), "revision".to_owned()]);
         assert_eq!(columns, expected);
     }
 }

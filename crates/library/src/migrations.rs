@@ -189,6 +189,53 @@ const MIGRATIONS: &[Migration] = &[
     // 8: FLAC and WAV tags were never read (the scanner skipped the latest
     // metadata revision, which is a file's only one). Read them again.
     Migration::Sql("UPDATE tracks SET mtime_ns = -1 WHERE codec IN ('flac', 'wav');"),
+    // 9: revisions. One counter rises on every change; a track or release
+    // keeps the value of its last change, so a preview can tell whether
+    // what it saw is still so. A track changes with its edits or its file
+    // (size, mtime: every read sets them), a release with its edits or its
+    // tracks. Triggers, so that no writer can forget.
+    Migration::Sql(
+        "
+    CREATE TABLE revision (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        last INTEGER NOT NULL
+    );
+    INSERT INTO revision (id, last) VALUES (1, 0);
+    ALTER TABLE tracks ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE albums ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+
+    CREATE TRIGGER edits_inserted AFTER INSERT ON edits BEGIN
+        UPDATE revision SET last = last + 1;
+        UPDATE tracks SET revision = (SELECT last FROM revision) WHERE id = NEW.track_id;
+        UPDATE albums SET revision = (SELECT last FROM revision) WHERE id = NEW.album_id;
+    END;
+    CREATE TRIGGER edits_updated AFTER UPDATE ON edits BEGIN
+        UPDATE revision SET last = last + 1;
+        UPDATE tracks SET revision = (SELECT last FROM revision) WHERE id = NEW.track_id;
+        UPDATE albums SET revision = (SELECT last FROM revision) WHERE id = NEW.album_id;
+    END;
+    CREATE TRIGGER edits_deleted AFTER DELETE ON edits BEGIN
+        UPDATE revision SET last = last + 1;
+        UPDATE tracks SET revision = (SELECT last FROM revision) WHERE id = OLD.track_id;
+        UPDATE albums SET revision = (SELECT last FROM revision) WHERE id = OLD.album_id;
+    END;
+    CREATE TRIGGER tracks_inserted AFTER INSERT ON tracks BEGIN
+        UPDATE revision SET last = last + 1;
+        UPDATE tracks SET revision = (SELECT last FROM revision) WHERE id = NEW.id;
+        UPDATE albums SET revision = (SELECT last FROM revision) WHERE id = NEW.album_id;
+    END;
+    CREATE TRIGGER tracks_updated AFTER UPDATE OF album_id, size, mtime_ns ON tracks BEGIN
+        UPDATE revision SET last = last + 1;
+        UPDATE tracks SET revision = (SELECT last FROM revision) WHERE id = NEW.id;
+        UPDATE albums SET revision = (SELECT last FROM revision)
+            WHERE id IN (OLD.album_id, NEW.album_id);
+    END;
+    CREATE TRIGGER tracks_deleted AFTER DELETE ON tracks BEGIN
+        UPDATE revision SET last = last + 1;
+        UPDATE albums SET revision = (SELECT last FROM revision) WHERE id = OLD.album_id;
+    END;
+    ",
+    ),
 ];
 
 /// Brings the schema up to date, after a backup of an existing database

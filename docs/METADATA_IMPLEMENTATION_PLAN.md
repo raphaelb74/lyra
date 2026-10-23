@@ -45,11 +45,11 @@ In blocks, each a working library with its own tests. Nothing here changes music
 
 **Block 2: edit service.**
 
-- [ ] Revisions per track and release; previews that report shown values before and after, and affected IDs; commits bound to the revisions a preview saw, so a stale preview saves nothing.
-- [ ] Undo with conflict checks: a step is undone only while its edits are still what it saved. Explicit reset to file values.
-- [ ] Field validation completed (MusicBrainz ID form, lengths, multi-value rules) with typed errors.
-- [ ] Source preferences: which origin wins when a rule and a provider both propose a field. _From MT1._
-- [ ] A release's edits follow its tracks when the release is replaced, instead of going with it.
+- [x] Revisions per track and release; previews that report shown values before and after, and affected IDs; commits bound to the revisions a preview saw, so a stale preview saves nothing. _Migration 9: revision triggers; `preview_edits`, `commit_edits`._
+- [x] Undo with conflict checks: a step is undone only while its edits are still what it saved. Explicit reset to file values. _`reset_edits`._
+- [x] Field validation completed (MusicBrainz ID form, lengths, multi-value rules) with typed errors. _`LibraryError::InvalidEdit` with a `Problem`._
+- [x] Source preferences: which origin wins when a rule and a provider both propose a field. _From MT1. Fixed order: manual, provider, rule._
+- [x] A release's edits follow its tracks when the release is replaced, instead of going with it. _To releases the scan created for them._
 
 **Block 3: artists and artwork.**
 

@@ -167,7 +167,9 @@ fn library_error(error: &LibraryError) -> IpcError {
     let code = match error {
         LibraryError::AlreadyCovered { .. }
         | LibraryError::NotADirectory(_)
-        | LibraryError::Invalid(_) => "invalid_request",
+        | LibraryError::Invalid(_)
+        | LibraryError::InvalidEdit { .. } => "invalid_request",
+        LibraryError::Stale | LibraryError::UndoConflict => "changed_meanwhile",
         LibraryError::Db(_) | LibraryError::Io(_) | LibraryError::Upgrade { .. } => {
             "library_failed"
         }

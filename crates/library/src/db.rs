@@ -11,7 +11,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::edits::Target;
 use crate::migrations;
+use crate::values::{Field, Problem};
 
 /// Shown when a file has no artist tag.
 pub const UNKNOWN_ARTIST: &str = "Unknown Artist";
@@ -31,6 +33,16 @@ pub enum LibraryError {
     NotADirectory(PathBuf),
     /// A request the user can fix (empty name, unknown playlist, …).
     Invalid(String),
+    /// An edit that cannot be saved; nothing was saved.
+    InvalidEdit {
+        target: Target,
+        field: Field,
+        problem: Problem,
+    },
+    /// What a preview showed has changed since; nothing was saved.
+    Stale,
+    /// The edits a step saved have changed since; nothing was undone.
+    UndoConflict,
     /// Upgrading the database to `version` failed; nothing was changed.
     Upgrade {
         version: usize,
@@ -51,6 +63,13 @@ impl fmt::Display for LibraryError {
             ),
             Self::NotADirectory(path) => write!(f, "{} is not a folder", path.display()),
             Self::Invalid(reason) => f.write_str(reason),
+            Self::InvalidEdit { field, problem, .. } => {
+                write!(f, "{} {}", field.name(), problem.message())
+            }
+            Self::Stale => f.write_str("The library changed in the meantime; nothing was saved."),
+            Self::UndoConflict => {
+                f.write_str("Those edits have changed since; nothing was undone.")
+            }
             Self::Upgrade { version, reason } => {
                 write!(f, "library database upgrade to version {version}: {reason}")
             }

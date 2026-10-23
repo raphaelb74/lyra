@@ -22,9 +22,9 @@ pub use cleanup::{Proposal, Rule};
 pub use db::{
     Album, Artist, Folder, Library, LibraryError, Track, UNKNOWN_ARTIST, VARIOUS_ARTISTS,
 };
-pub use edits::{Edit, EditChange, Origin, SavedEdit, Target};
+pub use edits::{Edit, EditChange, FieldPreview, Origin, Preview, Revisions, SavedEdit, Target};
 pub use playlists::{Entry, Playlist};
 pub use scan::{ScanProgress, ScanSummary, is_audio_file, scan};
 pub use scanner::{ScanEvent, Scanner};
 pub use tags::{Picture, Scanned, read as read_tags};
-pub use values::{Field, FileValue, Scope};
+pub use values::{Field, FileValue, Problem, Scope};

@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use rusqlite::params;
 
 use crate::db::{Library, LibraryError, VARIOUS_ARTISTS};
-use crate::edits::{Edit, EditChange, Origin, Target};
+use crate::edits::{self, Edit, EditChange, Origin, Target};
 use crate::key::key;
 use crate::values::{self, Field, Kind, Scope};
 
@@ -186,11 +186,15 @@ pub(crate) fn propose(snapshot: &Snapshot) -> Vec<Proposal> {
             .push(Target::Track(*id));
     }
 
-    for field in Field::ALL.into_iter().filter(|f| f.kind() == Kind::Text) {
+    for field in Field::ALL {
         let targets = scoped(field, &tracks, &releases);
-        work.each_value(targets, field, Rule::TextHygiene, text::hygiene);
-        if !is_id(field) {
-            work.each_value(targets, field, Rule::EncodingRepair, text::repair_encoding);
+        match field.kind() {
+            Kind::Text => {
+                work.each_value(targets, field, Rule::TextHygiene, text::hygiene);
+                work.each_value(targets, field, Rule::EncodingRepair, text::repair_encoding);
+            }
+            Kind::Id => work.each_value(targets, field, Rule::TextHygiene, text::hygiene),
+            _ => {}
         }
     }
 
@@ -253,18 +257,6 @@ fn scoped<'a>(field: Field, tracks: &'a [Target], releases: &'a [Target]) -> &'a
         Scope::Track => tracks,
         Scope::Release => releases,
     }
-}
-
-fn is_id(field: Field) -> bool {
-    matches!(
-        field,
-        Field::ReleaseId
-            | Field::ReleaseGroupId
-            | Field::RecordingId
-            | Field::ReleaseTrackId
-            | Field::ArtistId
-            | Field::AlbumArtistId
-    )
 }
 
 /// Numbers in their plain form, totals out of `3/12`, discs out of album
@@ -500,7 +492,11 @@ impl Library {
     /// shown. Changes nothing. Fields whose file value was too long to keep
     /// whole are left out.
     pub fn propose_cleanup(&self) -> Result<Vec<Proposal>, LibraryError> {
-        Ok(propose(&self.snapshot()?))
+        // A field a stronger origin edited is not the rules' to change.
+        let held = edits::outranking(&self.conn, &Origin::Rule(String::new()))?;
+        let mut proposals = propose(&self.snapshot()?);
+        proposals.retain(|proposal| !held.contains(&(proposal.target, proposal.field)));
+        Ok(proposals)
     }
 
     fn snapshot(&self) -> Result<Snapshot, LibraryError> {

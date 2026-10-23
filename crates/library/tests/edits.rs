@@ -3,7 +3,7 @@
 mod common;
 
 use id3::{Tag, TagLike, Version};
-use library::{Edit, Field, Library, LibraryError, Origin, SavedEdit, Target};
+use library::{Edit, Field, Library, LibraryError, Origin, Problem, SavedEdit, Target};
 use std::fs;
 
 use common::{
@@ -173,22 +173,43 @@ fn an_invalid_change_saves_nothing() {
     let dir = temp_dir("an_invalid_change_saves_nothing");
     let root = dir.join("music");
     let (mut library, [first, _], album) = edited_library(&dir, &root);
-    for changes in [
-        vec![
-            set(Target::Track(first), Field::Title, "Fine"),
-            set(Target::Track(first), Field::Track, "three"),
-        ],
-        vec![set(
-            Target::Track(first),
-            Field::Album,
-            "A track has no album field",
-        )],
-        vec![set(Target::Release(album), Field::Date, "22.08.1994")],
-        vec![set(Target::Track(999), Field::Title, "No such track")],
+    for (changes, problem) in [
+        (
+            vec![
+                set(Target::Track(first), Field::Title, "Fine"),
+                set(Target::Track(first), Field::Track, "three"),
+            ],
+            Problem::NotANumber,
+        ),
+        (
+            vec![set(
+                Target::Track(first),
+                Field::Album,
+                "A track has no album field",
+            )],
+            Problem::WrongScope,
+        ),
+        (
+            vec![set(Target::Release(album), Field::Date, "22.08.1994")],
+            Problem::NotADate,
+        ),
+        (
+            vec![set(Target::Track(first), Field::Title, "A\0B")],
+            Problem::SeveralValues,
+        ),
+        (
+            vec![set(Target::Track(999), Field::Title, "No such track")],
+            Problem::NoSuchTarget,
+        ),
     ] {
         let result = library.save_edits(&changes, &Origin::Manual);
         assert!(
-            matches!(result, Err(LibraryError::Invalid(_))),
+            matches!(result, Err(LibraryError::InvalidEdit { problem: p, .. }) if p == problem),
+            "{changes:?}: {result:?}"
+        );
+        let preview = library.preview_edits(&changes, &Origin::Manual);
+        assert!(
+            matches!(preview, Err(LibraryError::InvalidEdit { .. })),
             "{changes:?}"
         );
     }

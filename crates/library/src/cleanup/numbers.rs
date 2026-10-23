@@ -74,11 +74,11 @@ const MONTHS: [&str; 12] = [
 /// without guessing (`04/05/1973`: April or May?).
 pub(crate) fn iso_date(value: &str) -> Option<String> {
     let value = value.trim();
-    if values::is_valid(Field::Date, value) {
+    if values::check(Field::Date, value).is_ok() {
         return None;
     }
     let iso = numeric_date(value).or_else(|| named_date(value))?;
-    values::is_valid(Field::Date, &iso).then_some(iso)
+    values::check(Field::Date, &iso).is_ok().then_some(iso)
 }
 
 /// `1973-4-13`, `1973/04/13`, `13.04.1973`, `13/04/1973`, `4/13/1973`,
@@ -146,21 +146,10 @@ fn format_date(year: u32, month: u32, day: Option<u32>) -> Option<String> {
     }
     match day {
         None => Some(format!("{year:04}-{month:02}")),
-        Some(day) if (1..=days_in(year, month)).contains(&day) => {
+        Some(day) if (1..=values::days_in(year, month)).contains(&day) => {
             Some(format!("{year:04}-{month:02}-{day:02}"))
         }
         Some(_) => None,
-    }
-}
-
-fn days_in(year: u32, month: u32) -> u32 {
-    match month {
-        2 if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) => {
-            29
-        }
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        _ => 31,
     }
 }
 
