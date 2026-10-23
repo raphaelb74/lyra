@@ -1821,8 +1821,11 @@ dependencies = [
 name = "library"
 version = "0.1.0"
 dependencies = [
+ "dsd-pcm",
  "format-dsd",
+ "format-pcm",
  "id3",
+ "libc",
  "rusqlite",
  "symphonia",
  "unicode-normalization",

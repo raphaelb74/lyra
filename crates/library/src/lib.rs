@@ -9,6 +9,10 @@ mod cleanup;
 mod db;
 mod edits;
 mod key;
+mod loudness;
+mod measure;
+mod measurer;
+mod meter;
 mod migrations;
 mod playlists;
 mod scan;
@@ -28,8 +32,11 @@ pub use edits::{
     Edit, EditChange, FieldPreview, FieldState, Origin, Preview, Revisions, SavedEdit, Target,
 };
 pub use key::key as matching_key;
+pub use loudness::{Loudness, Unmeasured};
+pub use measure::measure_loudness;
+pub use measurer::{MeasureEvent, Measurer};
 pub use playlists::{Entry, Playlist};
 pub use scan::{ScanProgress, ScanSummary, is_audio_file, scan};
 pub use scanner::{ScanEvent, Scanner};
-pub use tags::{Picture, Scanned, read as read_tags};
+pub use tags::{Picture, Scanned, TaggedLoudness, read as read_tags};
 pub use values::{Field, FileValue, Problem, Scope};

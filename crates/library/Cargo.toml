@@ -10,8 +10,11 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+dsd-pcm.workspace = true
 format-dsd.workspace = true
+format-pcm.workspace = true
 id3.workspace = true
+libc.workspace = true
 rusqlite.workspace = true
 symphonia.workspace = true
 unicode-normalization.workspace = true

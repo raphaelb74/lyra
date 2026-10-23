@@ -10,8 +10,12 @@ Read `docs/SPECIFICATION.md` and `docs/IMPLEMENTATION_PLAN.md` before modifying 
 - Playback must not use Web Audio, GStreamer, PulseAudio, or PipeWire. The only audio sink in v1 is direct ALSA hardware.
 - Treat native DSD support as runtime-detected. Implement DoP as a transport mode, not a sample conversion.
 - Do not silently fall back to PCM conversion, change rates, or apply software volume. Show output format and transport in UI.
+- Volume, volume levelling and caps act only on the DAC's own hardware volume, never on samples; levelling is off by default and stays off during DoP.
 - No allocation, file I/O, blocking synchronization, or log formatting in the steady-state realtime writer loop. Use bounded queues; document underrun behavior.
 - Prefer safe Rust. Any `unsafe` needs a narrowly scoped justification and tests.
+- Efficiency is a product goal: no polling where an event exists; background work (scans, loudness measuring) is bounded to what the user needs now and runs at idle priority. Measure before and after a performance change.
+- Hot crates (decoders, DSD conversion, loudness measuring) are optimised in the dev profile (`Cargo.toml`), so `npm run tauri dev` behaves like a release build.
+- A new Tauri command goes in `generate_handler!` (`src-tauri/src/lib.rs`), in `build.rs` and in `capabilities/default.json`; a test checks the three agree.
 - Avoid GPL/AGPL dependencies unless explicitly approved. Record third-party licenses.
 - Use rustfmt, clippy, cargo test; format and type-check frontend before completing a milestone.
 - Do not claim bit-perfect output until supported by test vectors and ALSA/hardware verification.
@@ -27,6 +31,6 @@ Read `docs/SPECIFICATION.md` and `docs/IMPLEMENTATION_PLAN.md` before modifying 
 
 ## Definition of done
 
-- `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`
-- `npm run check` and `npm run build` in `apps/desktop`
+- `scripts/check.sh` passes (fmt, clippy `-D warnings`, Rust and UI tests, lint, cargo-deny, .deb build); close `tauri dev` first, it holds the binary the .deb build replaces
+- `npm run test:desktop` under `xvfb-run` for UI or IPC changes
 - No regression in bit-perfect fixtures; no unapproved DSP; UI error states handled.

@@ -42,6 +42,55 @@ pub struct Scanned {
     /// encoder left it blank.
     pub audio_md5: Option<[u8; 16]>,
     pub picture: Option<Picture>,
+    pub loudness: TaggedLoudness,
+}
+
+/// Loudness a file's gain tags state, in hundredths of a LUFS. `R128_*`
+/// tags win over `REPLAYGAIN_*` ones: they are exact, the others rounded.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TaggedLoudness {
+    pub track: Option<i32>,
+    pub album: Option<i32>,
+}
+
+impl TaggedLoudness {
+    /// Takes the value of a gain tag; other keys are ignored.
+    fn note(&mut self, key: &str, value: &str) {
+        let key = key.to_ascii_lowercase();
+        let (slot, loudness, exact) = match key.as_str() {
+            "replaygain_track_gain" => (&mut self.track, replaygain(value), false),
+            "replaygain_album_gain" => (&mut self.album, replaygain(value), false),
+            "r128_track_gain" => (&mut self.track, r128(value), true),
+            "r128_album_gain" => (&mut self.album, r128(value), true),
+            _ => return,
+        };
+        if let Some(loudness) = loudness
+            && (exact || slot.is_none())
+        {
+            *slot = Some(loudness);
+        }
+    }
+}
+
+/// `REPLAYGAIN_*` tags aim at −18 LUFS: `-6.52 dB` means −11.48 LUFS.
+fn replaygain(value: &str) -> Option<i32> {
+    let number = value
+        .trim()
+        .trim_end_matches(|c: char| c.is_ascii_alphabetic());
+    let gain: f64 = number.trim().parse().ok()?;
+    hundredths(-18.0 - gain)
+}
+
+/// R128 tags (Opus) aim at −23 LUFS, in 1/256 dB steps.
+fn r128(value: &str) -> Option<i32> {
+    let steps: i32 = value.trim().parse().ok()?;
+    hundredths(-23.0 - f64::from(steps) / 256.0)
+}
+
+/// `None` for values no real recording has.
+#[expect(clippy::cast_possible_truncation, reason = "checked to be within ±80")]
+fn hundredths(lufs: f64) -> Option<i32> {
+    (lufs.is_finite() && (-80.0..=20.0).contains(&lufs)).then(|| (lufs * 100.0).round() as i32)
 }
 
 impl Scanned {
@@ -61,17 +110,20 @@ pub struct Picture {
 /// Reads a FLAC, WAV, DSF or DFF file. The error is a short reason for the
 /// scan report.
 pub fn read(path: &Path) -> Result<Scanned, String> {
-    let is_dsd = path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("dsf") || extension.eq_ignore_ascii_case("dff")
-        });
-    if is_dsd {
+    if is_dsd(path) {
         read_dsd(path)
     } else {
         read_pcm(path)
     }
+}
+
+/// A DSF or DFF file, by its name.
+pub(crate) fn is_dsd(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("dsf") || extension.eq_ignore_ascii_case("dff")
+        })
 }
 
 fn read_pcm(path: &Path) -> Result<Scanned, String> {
@@ -141,6 +193,18 @@ fn read_revision(scanned: &mut Scanned, revision: &MetadataRevision) {
         // names.
         let mut last: Option<&RawTag> = None;
         for tag in &container.tags {
+            if let RawValue::String(value) = &tag.raw.value {
+                match &tag.std {
+                    // ID3 and APE gains arrive under their own frame keys.
+                    Some(StandardTag::ReplayGainTrackGain(_)) => {
+                        scanned.loudness.note("replaygain_track_gain", value);
+                    }
+                    Some(StandardTag::ReplayGainAlbumGain(_)) => {
+                        scanned.loudness.note("replaygain_album_gain", value);
+                    }
+                    _ => scanned.loudness.note(&tag.raw.key, value),
+                }
+            }
             let by_key = key_field(&tag.raw.key);
             let field = match (tag.std.as_ref().and_then(std_field), by_key) {
                 (Some(std), Some(key)) if std != key => {
@@ -343,6 +407,7 @@ fn apply_id3(scanned: &mut Scanned, tag: &id3::Tag) {
     for frame in tag.frames() {
         let content = frame.content();
         if let Some(text) = content.extended_text() {
+            scanned.loudness.note(&text.description, &text.value);
             if let Some(field) = txxx_field(&text.description) {
                 push_id3(&mut scanned.values, field, &text.value);
             }
@@ -402,7 +467,24 @@ fn push_id3(values: &mut Vec<FileValue>, field: Field, text: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::image_mime;
+    use super::{TaggedLoudness, image_mime};
+
+    #[test]
+    fn gain_tags_become_loudness() {
+        let mut loudness = TaggedLoudness::default();
+        loudness.note("REPLAYGAIN_TRACK_GAIN", "-6.52 dB");
+        loudness.note("replaygain_album_gain", "+2.00 dB");
+        assert_eq!(loudness.track, Some(-1148));
+        assert_eq!(loudness.album, Some(-2000));
+        // R128 (Opus, −23 LUFS, 1/256 dB) wins whichever comes first.
+        loudness.note("R128_TRACK_GAIN", "-1280");
+        loudness.note("REPLAYGAIN_TRACK_GAIN", "-9.00 dB");
+        assert_eq!(loudness.track, Some(-1800));
+        loudness.note("REPLAYGAIN_ALBUM_GAIN", "loud");
+        loudness.note("REPLAYGAIN_ALBUM_GAIN", "-400 dB");
+        loudness.note("comment", "-1.0 dB");
+        assert_eq!(loudness.album, Some(-2000));
+    }
 
     #[test]
     fn only_shown_image_types_are_kept() {

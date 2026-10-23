@@ -47,6 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "get_volume",
             "set_volume",
             "set_volume_db",
+            "set_muted",
             "get_diagnostics",
             "probe_device",
             "album_editor",

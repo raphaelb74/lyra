@@ -102,6 +102,38 @@
     },
   ];
 
+  const levellings: Option<Settings['levelling']>[] = [
+    {
+      value: 'off',
+      label: 'Off',
+      hint: 'Every file at its own level.',
+    },
+    {
+      value: 'auto',
+      label: 'Auto',
+      hint: 'Album level for albums played in order, track level otherwise.',
+    },
+    {
+      value: 'album',
+      label: 'Album',
+      hint: 'Albums matched, each keeping its own dynamics.',
+    },
+    {
+      value: 'track',
+      label: 'Track',
+      hint: 'Every track matched.',
+    },
+  ];
+
+  /** Highest volume per device; 0 means no cap. */
+  const caps: Option<number>[] = [
+    { value: 0, label: 'None', hint: 'Up to the DAC’s 0 dB.' },
+    { value: -6, label: '−6 dB', hint: 'Never above −6 dB.' },
+    { value: -12, label: '−12 dB', hint: 'Never above −12 dB.' },
+    { value: -20, label: '−20 dB', hint: 'Never above −20 dB.' },
+    { value: -30, label: '−30 dB', hint: 'Never above −30 dB.' },
+  ];
+
   const delays: Option<number>[] = [
     { value: 0, label: 'Off', hint: 'Starts at once.' },
     { value: 250, label: '0.25 s', hint: 'For fast DACs.' },
@@ -164,6 +196,27 @@
 
     void save({
       dopDevices: value === 'on' ? [...others, device.name] : others,
+    });
+  }
+
+  function chooseLevelling(value: Settings['levelling']) {
+    void save({ levelling: value });
+  }
+
+  /** Caps the selected device's volume, the volume keys included. */
+  function chooseCap(value: number) {
+    if (settings === null || device === undefined) return;
+
+    const name = device.name;
+
+    const others = Object.entries(settings.volumeCaps).filter(
+      ([known]) => known !== name,
+    );
+
+    void save({
+      volumeCaps: Object.fromEntries(
+        value === 0 ? others : [...others, [name, value]],
+      ),
     });
   }
 
@@ -333,6 +386,25 @@
           onChoose={chooseFallback}
         />
       </div>
+      <div class="setting">
+        <div class="setting-text">
+          <h4 id="levelling-label">Volume levelling</h4>
+          <p class="muted">
+            {hint(levellings, settings.levelling)}
+            {#if settings.levelling !== 'off'}
+              Moves the DAC’s own volume, never the samples; on DACs whose
+              volume is digital, levelled tracks are not bit-perfect.
+            {/if}
+          </p>
+        </div>
+        <Segmented
+          labelledby="levelling-label"
+          name="volume-levelling"
+          options={levellings}
+          value={settings.levelling}
+          onChoose={chooseLevelling}
+        />
+      </div>
       {#if settings.dsdFallback === 'convert'}
         <div class="setting">
           <div class="setting-text">
@@ -371,6 +443,22 @@
           options={dopChoices}
           value={playsDop}
           onChoose={chooseDop}
+        />
+      </div>
+      {@const cap = settings.volumeCaps[device.name] ?? 0}
+      <div class="setting">
+        <div class="setting-text">
+          <h4 id="cap-label">{device.label} volume cap</h4>
+          <p class="muted">
+            {hint(caps, cap)} Levelling and the volume keys stay under it.
+          </p>
+        </div>
+        <Segmented
+          labelledby="cap-label"
+          name="volume-cap"
+          options={caps}
+          value={cap}
+          onChoose={chooseCap}
         />
       </div>
     {/if}

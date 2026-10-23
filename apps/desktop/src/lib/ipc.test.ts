@@ -197,6 +197,8 @@ describe('playback commands', () => {
       resyncDelayMs: 500,
       dopDevices: ['hw:CARD=E30,DEV=0'],
       onlineLookups: false,
+      levelling: 'auto',
+      volumeCaps: { 'hw:CARD=E30,DEV=0': -12 },
     } satisfies Settings;
 
     const runCommand = vi.fn(() => Promise.resolve(settings));
@@ -350,16 +352,38 @@ describe('playback commands', () => {
       maxDecibels: 0,
       usb: false,
       locked: null,
+      muted: false,
+      capDecibels: 0,
+      levelling: null,
+    };
+
+    const levelled = {
+      ...level,
+      levelling: {
+        offsetDecibels: -4.5,
+        basis: 'album',
+        loudness: -13.5,
+        deviceDecibels: -28,
+        limited: false,
+      },
     };
 
     const volume = (value: JsonValue) =>
       backend(() => Promise.resolve(value), true).volume('hw:CARD=PCH,DEV=0');
 
     await expect(volume(level)).resolves.toEqual(level);
+    await expect(volume(levelled)).resolves.toEqual(levelled);
     await expect(volume(null)).resolves.toBeNull();
-    await expect(volume({ ...level, usb: 'no' })).rejects.toMatchObject({
-      code: 'invalid_response',
-    });
+
+    for (const malformed of [
+      { ...level, usb: 'no' },
+      { ...level, muted: 'yes' },
+      { ...levelled, levelling: { ...levelled.levelling, basis: 'disc' } },
+    ]) {
+      await expect(volume(malformed)).rejects.toMatchObject({
+        code: 'invalid_response',
+      });
+    }
   });
 
   it('accepts the album editor and nothing malformed', async () => {

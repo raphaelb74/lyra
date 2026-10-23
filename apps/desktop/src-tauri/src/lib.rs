@@ -2,6 +2,7 @@ mod commands;
 mod device_watch;
 mod id_match;
 mod ipc;
+mod levelling;
 mod mpris;
 mod settings;
 mod thumbs;
@@ -14,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use audio_alsa::{AlsaSink, Wake};
 use commands::{AppState, LIBRARY_CHANGED_EVENT, LIBRARY_NOTICE_EVENT, is_playable};
 use ipc::{ScanReport, ScanStatus, Status, THUMB_PATH};
-use library::{Library, ScanEvent, Scanner};
+use library::{Library, MeasureEvent, Measurer, ScanEvent, Scanner};
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, DragDropEvent, Emitter, Manager, RunEvent, WindowEvent};
 use unda::Player;
@@ -57,10 +58,25 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let library = Library::open(&db)?;
     let has_folders = !library.folders()?.is_empty();
     let scan_status = Arc::new(Mutex::new(ScanStatus::default()));
+    // A new measurement may change the level of the track playing.
+    let measurer = Measurer::new(db.clone(), {
+        let volume_wake = Arc::clone(&volume_wake);
+        move |event| {
+            if let MeasureEvent::Measured { .. } = event {
+                volume_wake.notify();
+            }
+        }
+    });
     let scanner = Scanner::new(db, art_dir.clone(), {
         let handle = app.handle().clone();
         let scan_status = Arc::clone(&scan_status);
-        move |event| on_scan_event(&handle, &scan_status, event)
+        let measurer = measurer.clone();
+        move |event| {
+            if let ScanEvent::Finished(_) = event {
+                measurer.poke();
+            }
+            on_scan_event(&handle, &scan_status, event);
+        }
     });
     app.manage(AppState::new(
         player,
@@ -71,6 +87,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         art_dir,
         app.path().app_config_dir()?.join("settings.json"),
         Arc::clone(&volume_wake),
+        measurer,
     ));
     volume_watch::spawn(app.handle().clone(), Arc::clone(&volume_wake))?;
     device_watch::spawn(app.handle().clone(), volume_wake)?;
@@ -127,6 +144,7 @@ pub fn run() -> tauri::Result<()> {
             commands::seek,
             commands::get_status,
             commands::get_position,
+            commands::set_muted,
             commands::list_folders,
             commands::pick_folder,
             commands::remove_folder,
@@ -171,7 +189,10 @@ pub fn run() -> tauri::Result<()> {
             // restore its volume explicitly.
             if let Some(state) = handle.try_state::<AppState>() {
                 state.scanner.cancel();
+                state.measurer.set_enabled(false);
                 state.player.shutdown();
+                // Back to the listening level, without the track's offset.
+                state.end_levelling();
             }
         }
     });
@@ -274,6 +295,31 @@ fn artwork(art_dir: &Path, request: &str) -> Response<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A command missing from `build.rs` or the capability is refused at
+    /// run time ("not allowed"); catch it here instead.
+    #[test]
+    fn every_command_is_listed_and_allowed() {
+        let source = include_str!("lib.rs");
+        let handler = &source[source.find("generate_handler![").unwrap()..];
+        let handler = &handler[..handler.find(']').unwrap()];
+        let commands: Vec<&str> = handler
+            .split("commands::")
+            .skip(1)
+            .map(|rest| rest.split([',', ' ', '\n']).next().unwrap())
+            .collect();
+        assert!(commands.len() > 40, "{commands:?}");
+        let build = include_str!("../build.rs");
+        let capability = include_str!("../capabilities/default.json");
+        for command in commands {
+            assert!(
+                build.contains(&format!("\"{command}\"")),
+                "{command} not in build.rs"
+            );
+            let permission = format!("\"allow-{}\"", command.replace('_', "-"));
+            assert!(capability.contains(&permission), "{command} not allowed");
+        }
+    }
 
     #[test]
     fn app_info_crosses_the_ipc_handler() {

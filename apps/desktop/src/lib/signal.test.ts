@@ -42,6 +42,21 @@ describe('signal path', () => {
     ]);
   });
 
+  it('adds what levelling does to the DAC volume', () => {
+    const levelled = (offsetDecibels: number | null) =>
+      signalStages(track, 'SE', {
+        offsetDecibels,
+        basis: 'album',
+        loudness: -13.5,
+        deviceDecibels: -12.5,
+        limited: false,
+      })[2]?.text;
+
+    expect(levelled(-4.5)).toBe('−12.5 dB · levelled −4.5 dB (album)');
+    expect(levelled(3)).toBe('−12.5 dB · levelled +3.0 dB (album)');
+    expect(levelled(null)).toBe('−12.5 dB · levelling: measuring');
+  });
+
   it('names conversion and its gain, and DSD rates in MHz', () => {
     const dsd: Track = {
       ...track,

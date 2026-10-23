@@ -248,6 +248,7 @@ export interface TrackDetails {
 /** Mirrors Rust's `VolumeInfo`: a card's hardware volume. */
 export interface VolumeInfo {
   percent: number;
+  /** The listening level: while levelling, the DAC is moved from it. */
   decibels: number | null;
   /** The total range in dB, when every control reports dB. */
   minDecibels: number | null;
@@ -256,6 +257,25 @@ export interface VolumeInfo {
   usb: boolean;
   /** Why the volume cannot change now (DoP playing). */
   locked: string | null;
+  /** `null` when the card has no mute switch. */
+  muted: boolean | null;
+  /** Highest level allowed on this device, in dB. */
+  capDecibels: number;
+  /** Set while volume levelling moves this device's volume. */
+  levelling: LevellingInfo | null;
+}
+
+/** Mirrors Rust's `LevellingInfo`: what levelling does to the track playing. */
+export interface LevellingInfo {
+  /** Added to the listening level; `null` until the loudness is known. */
+  offsetDecibels: number | null;
+  basis: 'album' | 'track' | null;
+  /** The loudness levelled, in LUFS. */
+  loudness: number | null;
+  /** The DAC volume Lyra set. */
+  deviceDecibels: number;
+  /** The cap or 0 dB kept the DAC lower than levelling wanted. */
+  limited: boolean;
 }
 
 /** Mirrors Rust's `Settings`. */
@@ -271,6 +291,10 @@ export interface Settings {
   dopDevices: string[];
   /** ID Match may ask MusicBrainz and the Cover Art Archive. Off by default. */
   onlineLookups: boolean;
+  /** Volume levelling through the DAC's volume. Off by default. */
+  levelling: 'off' | 'auto' | 'album' | 'track';
+  /** Highest volume per device, in whole dB from −40 to 0. */
+  volumeCaps: Record<string, number>;
 }
 
 /** Mirrors Rust's `DiagnosticsInfo`: one device, read now. */
@@ -658,6 +682,8 @@ export function backend(
       run<VolumeInfo | null>('set_volume', isVolume, { device, percent }),
     setVolumeDb: (device: string, decibels: number) =>
       run<VolumeInfo | null>('set_volume_db', isVolume, { device, decibels }),
+    setMuted: (device: string, muted: boolean) =>
+      run<VolumeInfo | null>('set_muted', isVolume, { device, muted }),
     settings: () => run('get_settings', isSettings),
     diagnostics: (device: string) =>
       run('get_diagnostics', isDiagnostics, { device }),

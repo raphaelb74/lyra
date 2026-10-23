@@ -17,5 +17,5 @@ pub use diagnostics::{KernelReport, SinkReport, SinkStats, kernel_report};
 pub use error::{AlsaError, Holder};
 pub use events::{MixerEvents, Woken};
 pub use sink::{AlsaSink, BufferConfig};
-pub use volume::{VolumeLevel, hardware_volume, set_volume, set_volume_db, volume};
+pub use volume::{VolumeLevel, hardware_volume, set_muted, set_volume, set_volume_db, volume};
 pub use wake::Wake;

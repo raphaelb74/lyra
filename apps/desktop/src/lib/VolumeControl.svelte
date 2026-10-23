@@ -12,7 +12,8 @@
   import type { IconName } from '../assets/icons/lucide';
   import Popover from './Popover.svelte';
   import Slider from './Slider.svelte';
-  import { decibels } from './format';
+  import { decibels, levelled } from './format';
+  import { levelling } from './levelling.svelte';
   import { snap, volumeScale, type VolumeScale } from './volume';
 
   interface Props {
@@ -38,11 +39,15 @@
   const playback = $derived(
     `${status.state}:${status.track?.output?.transport ?? 'none'}`,
   );
+  /** What the DAC is at: the listening level, or levelling's setting. */
+  const deviceDecibels = $derived(
+    volume?.levelling?.deviceDecibels ?? volume?.decibels ?? null,
+  );
   const notBitPerfect = $derived(
     volume !== null &&
       volume.usb &&
-      volume.decibels !== null &&
-      volume.decibels < 0,
+      deviceDecibels !== null &&
+      deviceDecibels < 0,
   );
 
   /** Loads for `forDevice` in `forPlayback`; a stale reply is dropped. */
@@ -110,6 +115,32 @@
       : decibels(level.decibels);
   }
 
+  async function toggleMute(level: VolumeInfo) {
+    const changed = await attempt(
+      () => api.setMuted(device, level.muted !== true),
+      onError,
+    );
+
+    if (changed !== undefined) volume = changed;
+  }
+
+  /** `Levelled −4.5 dB · album`, or why the level is not moved yet. */
+  function levellingText(level: VolumeInfo): string | null {
+    const levelling = level.levelling;
+
+    if (levelling === null) return null;
+
+    const text = levelled(levelling);
+
+    const held = !levelling.limited
+      ? ''
+      : level.capDecibels < 0
+        ? ', held by the cap'
+        : ', held at 0 dB';
+
+    return `${text.charAt(0).toUpperCase()}${text.slice(1)}${held}`;
+  }
+
   /** Said only when something is off; shortcuts live in Settings › Keyboard. */
   function hint(level: VolumeInfo): string | null {
     if (level.locked !== null) return level.locked;
@@ -120,7 +151,9 @@
   function icon(level: VolumeInfo): IconName {
     if (level.locked !== null) return 'lock';
 
-    return level.percent === 0 ? 'volume-x' : 'volume-2';
+    return level.muted === true || level.percent === 0
+      ? 'volume-x'
+      : 'volume-2';
   }
 
   /** The wheel over the button or the slider: one step, up is louder. */
@@ -150,6 +183,11 @@
   $effect(() => {
     void load(device, playback);
   });
+
+  // The signal path shows it too.
+  $effect(() => {
+    levelling[device] = volume?.levelling ?? null;
+  });
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -159,6 +197,7 @@
   {@const scale = volumeScale(volume)}
   {@const text = valueText(volume)}
   {@const note = hint(volume)}
+  {@const levelled = levellingText(volume)}
   <div
     class="volume"
     class:warn={notBitPerfect}
@@ -189,6 +228,18 @@
           onInput={(value: number) => void change(scale, value)}
         />
       </div>
+      {#if levelled}<p class="hint num">{levelled}</p>{/if}
+      {#if level.muted !== null}
+        <button
+          type="button"
+          class="small with-icon"
+          aria-pressed={level.muted}
+          onclick={() => void toggleMute(level)}
+        >
+          <Icon name={level.muted ? 'volume-2' : 'volume-x'} size={14} />
+          {level.muted ? 'Unmute' : 'Mute'}
+        </button>
+      {/if}
       {#if note}<p class="hint">{note}</p>{/if}
     </Popover>
   </div>

@@ -125,7 +125,17 @@
     devices.find((d) => d.name === status.track?.device),
   );
   const libraryId = $derived(status.track?.libraryId ?? null);
-  const shownError = $derived(actionError ?? status.error?.message ?? null);
+  /** The engine's error the user closed; it stays hidden until another. */
+  let dismissedError = $state<string | null>(null);
+  const engineError = $derived(status.error?.message ?? null);
+  const shownError = $derived(
+    actionError ?? (engineError === dismissedError ? null : engineError),
+  );
+
+  function dismissError() {
+    actionError = null;
+    dismissedError = engineError;
+  }
 
   const UNEXPECTED = 'Lyra cannot reach its audio engine.';
 
@@ -308,6 +318,9 @@
 
     const unlisten = [
       onStatus((next) => {
+        // A cleared error may come back later: show it again then.
+        if (next.error === null) dismissedError = null;
+
         status = next;
       }),
       onLibraryChanged(() => {
@@ -424,7 +437,15 @@
           </div>
         {/if}
         {#if shownError}
-          <p class="alert" role="alert">{shownError}</p>
+          <div class="alert dismissable" role="alert">
+            <p>{shownError}</p>
+            <button
+              type="button"
+              class="icon"
+              aria-label="Dismiss"
+              onclick={dismissError}><Icon name="x" size={14} /></button
+            >
+          </div>
         {/if}
         <div class="keep" hidden={!isSection(view)}>
           <Library

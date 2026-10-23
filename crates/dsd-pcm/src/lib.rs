@@ -80,11 +80,51 @@ pub struct Converter {
     peak: f64,
 }
 
+/// How hard the filters work.
+#[derive(Clone, Copy, Debug)]
+struct Filters {
+    pass_hz: f64,
+    attenuation_db: f64,
+    bit_attenuation_db: f64,
+}
+
+/// For listening: see the crate documentation.
+const PLAYBACK: Filters = Filters {
+    pass_hz: PASS_HZ,
+    attenuation_db: ATTENUATION_DB,
+    bit_attenuation_db: BIT_ATTENUATION_DB,
+};
+
+/// For measuring loudness: DSD's noise 60 dB down is far below what moves
+/// a loudness reading, and the K-weighted level above 18 kHz is
+/// negligible. About five times cheaper than [`PLAYBACK`].
+const ANALYSIS: Filters = Filters {
+    pass_hz: 18_000.0,
+    attenuation_db: 60.0,
+    bit_attenuation_db: 60.0,
+};
+
 impl Converter {
     /// `None` when `dsd_rate` or `output_rate` is not supported (see
     /// [`output_rates`]) or `channels` is 0. `gain_db` is applied to every
     /// sample, e.g. −3.0 for 3 dB of headroom.
     pub fn new(dsd_rate: u32, output_rate: u32, channels: usize, gain_db: f64) -> Option<Self> {
+        Self::with_filters(dsd_rate, output_rate, channels, gain_db, PLAYBACK)
+    }
+
+    /// A cheaper converter for measuring, never for listening: its filters
+    /// let more of DSD's noise through and roll off from 18 kHz.
+    pub fn for_analysis(dsd_rate: u32, output_rate: u32, channels: usize) -> Option<Self> {
+        Self::with_filters(dsd_rate, output_rate, channels, 0.0, ANALYSIS)
+    }
+
+    fn with_filters(
+        dsd_rate: u32,
+        output_rate: u32,
+        channels: usize,
+        gain_db: f64,
+        filters: Filters,
+    ) -> Option<Self> {
         let bytes_per_output = bytes_per_first_output(dsd_rate)?;
         if channels == 0 || !OUTPUT_RATES.contains(&output_rate) {
             return None;
@@ -94,6 +134,7 @@ impl Converter {
             f64::from(dsd_rate),
             bytes_per_output,
             f64::from(FIRST_RATE) - band_edge,
+            filters,
         );
 
         let mut stages = Vec::new();
@@ -109,7 +150,13 @@ impl Converter {
                 f64::from(next) - band_edge
             };
             stages.push(Decimator {
-                taps: lowpass(f64::from(rate), PASS_HZ, stage_stop, ATTENUATION_DB, 1),
+                taps: lowpass(
+                    f64::from(rate),
+                    filters.pass_hz,
+                    stage_stop,
+                    filters.attenuation_db,
+                    1,
+                ),
             });
             rate = next;
         }
@@ -246,8 +293,14 @@ struct BitFilter {
 }
 
 impl BitFilter {
-    fn new(rate: f64, step: usize, stop_hz: f64) -> Self {
-        let taps = lowpass(rate, PASS_HZ, stop_hz, BIT_ATTENUATION_DB, 8);
+    fn new(rate: f64, step: usize, stop_hz: f64, filters: Filters) -> Self {
+        let taps = lowpass(
+            rate,
+            filters.pass_hz,
+            stop_hz,
+            filters.bit_attenuation_db,
+            8,
+        );
         // Centred on bit 7 of byte `lead`; trailing bits of the last byte are 0.
         let lead = (taps.len() - 1) / 2 / 8;
         let groups = taps.len().div_ceil(8);

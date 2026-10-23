@@ -46,6 +46,9 @@ tauri-plugin-dialog = "2.8.3"
 ureq = "3.5.0"
 # Tests only: gzip bodies for the client's decompression limit; already in the tree through ureq.
 flate2 = "1.1.10"
+# Idle CPU priority for the loudness measuring thread; already in the tree
+# through alsa and Tauri.
+libc = "0.2.191"
 # Library matching keys (NFC); no dependencies of its own.
 unicode-normalization = "0.1.26"
 
@@ -85,6 +88,17 @@ debug = false
 # DSD→PCM conversion runs in real time and is about 50× slower unoptimized:
 # a dev build would drop out constantly.
 [profile.dev.package.dsd-pcm]
+opt-level = 3
+
+# Decoding and loudness measuring: ten times slower unoptimized, which a dev
+# build would feel as levelling that takes minutes instead of seconds.
+[profile.dev.package.format-pcm]
+opt-level = 3
+
+[profile.dev.package.format-dsd]
+opt-level = 3
+
+[profile.dev.package.library]
 opt-level = 3
 
 [profile.release]

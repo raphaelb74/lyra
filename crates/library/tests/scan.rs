@@ -3,15 +3,15 @@
 mod common;
 
 use id3::{Tag, TagLike, Version};
-use library::{Library, LibraryError, ScanEvent, Scanner, scan};
+use library::{Library, LibraryError, ScanEvent, Scanner, TaggedLoudness, read_tags, scan};
 use std::fs;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use common::{
-    JPEG, fixture, id3_tag, library_with_playlist, music, playlist_ids, run_scan, tagged_dsf,
-    temp_dir,
+    JPEG, fixture, flac_with_comments, id3_tag, library_with_playlist, music, playlist_ids,
+    run_scan, tagged_dsf, temp_dir,
 };
 
 #[test]
@@ -451,4 +451,39 @@ fn spellings_of_one_artist_are_one_artist() {
     // The first spelling read names the artist.
     assert_eq!(artists[0].name, "Bj\u{f6}rk");
     assert_eq!((artists[0].albums, artists[0].tracks), (1, 3));
+}
+
+#[test]
+fn reads_gain_tags_from_flac_and_dsf() {
+    let dir = temp_dir("reads_gain_tags_from_flac_and_dsf");
+    let flac = dir.join("gain.flac");
+    fs::write(
+        &flac,
+        flac_with_comments(&[b"REPLAYGAIN_TRACK_GAIN=-6.52 dB", b"R128_ALBUM_GAIN=-1280"]),
+    )
+    .unwrap();
+    assert_eq!(
+        read_tags(&flac).unwrap().loudness,
+        TaggedLoudness {
+            track: Some(-1148),
+            album: Some(-1800),
+        }
+    );
+
+    let mut tag = Tag::new();
+    tag.add_frame(id3::frame::ExtendedText {
+        description: "REPLAYGAIN_ALBUM_GAIN".into(),
+        value: "+1.50 dB".into(),
+    });
+    let mut bytes = Vec::new();
+    tag.write_to(&mut bytes, Version::Id3v24).unwrap();
+    let dsf = dir.join("gain.dsf");
+    fs::write(&dsf, tagged_dsf(&bytes)).unwrap();
+    assert_eq!(
+        read_tags(&dsf).unwrap().loudness,
+        TaggedLoudness {
+            track: None,
+            album: Some(-1950),
+        }
+    );
 }

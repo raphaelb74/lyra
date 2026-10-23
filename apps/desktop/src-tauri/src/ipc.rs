@@ -80,11 +80,13 @@ pub struct Position {
 }
 
 /// A card's hardware volume, for the in-app control.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VolumeInfo {
     /// 0–100 along the control's steps.
     pub percent: u8,
+    /// The listening level: while levelling, the DAC is moved from it by
+    /// the offset in [`Self::levelling`].
     pub decibels: Option<f64>,
     /// The total range in dB, when every control reports dB.
     pub min_decibels: Option<f64>,
@@ -93,6 +95,29 @@ pub struct VolumeInfo {
     pub usb: bool,
     /// Why the volume cannot change now (DoP playing), if it cannot.
     pub locked: Option<&'static str>,
+    /// `None` when the card has no mute switch.
+    pub muted: Option<bool>,
+    /// Highest level allowed on this device, in dB (Settings › Output).
+    pub cap_decibels: f64,
+    /// Set while volume levelling moves this device's volume.
+    pub levelling: Option<LevellingInfo>,
+}
+
+/// What volume levelling does to the track playing.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LevellingInfo {
+    /// Added to the listening level; `None` until the track's loudness is
+    /// known.
+    pub offset_decibels: Option<f64>,
+    /// `album` or `track`.
+    pub basis: Option<&'static str>,
+    /// The loudness levelled, in LUFS.
+    pub loudness: Option<f64>,
+    /// The DAC volume Lyra set.
+    pub device_decibels: f64,
+    /// The cap or 0 dB kept the DAC lower than levelling wanted.
+    pub limited: bool,
 }
 
 /// A device's volume changed (event payload).

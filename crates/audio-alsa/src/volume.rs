@@ -118,6 +118,9 @@ pub struct VolumeLevel {
     /// USB DACs often apply their volume digitally: below 0 dB the samples
     /// change. Built-in cards are not checked.
     pub usb: bool,
+    /// Whether the card is muted; `None` when its controls have no mute
+    /// switch.
+    pub muted: Option<bool>,
 }
 
 /// Preferred controls on cards other than USB DACs, most global first;
@@ -145,6 +148,24 @@ pub fn set_volume(device: &str, percent: u8) -> Result<Option<VolumeLevel>, Alsa
         let raw = min + ((max - min) * i64::from(percent.min(100)) + 50) / 100;
         selem
             .set_playback_volume_all(raw)
+            .map_err(|source| AlsaError::Alsa {
+                device: device.to_owned(),
+                source,
+            })?;
+    }
+    Ok(level(&controls, usb))
+}
+
+/// Mutes or unmutes the card with its controls' mute switches, leaving the
+/// volume where it is. `Ok(None)` when it has no volume control.
+pub fn set_muted(device: &str, muted: bool) -> Result<Option<VolumeLevel>, AlsaError> {
+    let card = card_control(device);
+    let mixer = open_mixer(device, &card)?;
+    let usb = is_usb_audio(&card);
+    let controls = controls(&mixer, usb);
+    for selem in controls.iter().filter(|selem| selem.has_playback_switch()) {
+        selem
+            .set_playback_switch_all(i32::from(!muted))
             .map_err(|source| AlsaError::Alsa {
                 device: device.to_owned(),
                 source,
@@ -234,6 +255,7 @@ fn level(controls: &[Selem<'_>], usb: bool) -> Option<VolumeLevel> {
     let mut percent: Option<i64> = None;
     let mut decibels = Some(0.0);
     let mut range = Some((0, 0));
+    let mut muted: Option<bool> = None;
     for selem in controls {
         let Some(channel) = SelemChannelId::all()
             .iter()
@@ -246,6 +268,11 @@ fn level(controls: &[Selem<'_>], usb: bool) -> Option<VolumeLevel> {
         let Ok(raw) = selem.get_playback_volume(channel) else {
             continue;
         };
+        if selem.has_playback_switch()
+            && let Ok(on) = selem.get_playback_switch(channel)
+        {
+            muted = Some(muted.unwrap_or(false) || on == 0);
+        }
         let position = if max > min {
             (((raw - min) * 100 + (max - min) / 2) / (max - min)).clamp(0, 100)
         } else {
@@ -273,6 +300,7 @@ fn level(controls: &[Selem<'_>], usb: bool) -> Option<VolumeLevel> {
         decibels,
         decibel_range,
         usb,
+        muted,
     })
 }
 

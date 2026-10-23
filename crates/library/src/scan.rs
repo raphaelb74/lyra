@@ -395,14 +395,14 @@ fn write_track(
         .prepare_cached(
             "INSERT INTO tracks (folder_id, path, size, mtime_ns, album_id, artist_id, title,
              disc, track, duration_ms, codec, sample_rate, bits_per_sample, channels, genre,
-             album_artist_id, compilation, audio_id)
+             album_artist_id, compilation, audio_id, tagged_loudness, tagged_album_loudness)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-             ?18)
+             ?18, ?19, ?20)
          ON CONFLICT (path) DO UPDATE SET folder_id = ?1, size = ?3, mtime_ns = ?4,
              album_id = ?5, artist_id = ?6, title = ?7, disc = ?8, track = ?9,
              duration_ms = ?10, codec = ?11, sample_rate = ?12, bits_per_sample = ?13,
              channels = ?14, genre = ?15, album_artist_id = ?16, compilation = ?17,
-             audio_id = ?18
+             audio_id = ?18, tagged_loudness = ?19, tagged_album_loudness = ?20
          RETURNING id",
         )?
         .query_row(
@@ -425,6 +425,8 @@ fn write_track(
                 album_artist_id,
                 scanned.shown(Field::Compilation).as_deref() == Some("1"),
                 audio_id(file.size, &scanned),
+                scanned.loudness.track,
+                scanned.loudness.album,
             ],
             |row| row.get(0),
         )?;
@@ -522,7 +524,7 @@ fn follow_moves(
 /// from its new file. A test checks it against the schema.
 const FILE_COLUMNS: &str = "folder_id, size, mtime_ns, album_id, artist_id, title, disc, track,
     duration_ms, codec, sample_rate, bits_per_sample, channels, genre, album_artist_id,
-    compilation, audio_id";
+    compilation, audio_id, tagged_loudness, tagged_album_loudness";
 
 /// Gives track `old` everything of track `new`, its moved file, then
 /// deletes `new`.

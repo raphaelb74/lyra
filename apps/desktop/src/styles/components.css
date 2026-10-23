@@ -214,6 +214,14 @@
     margin-bottom: var(--space-5);
   }
 
+  /* With a close button at the end. */
+  .alert.dismissable {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+
   /* Short confirmation or warning beside a control. */
   .note {
     color: var(--warning);

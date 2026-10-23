@@ -20,6 +20,7 @@ import type {
   DeviceInfo,
   Folder,
   JsonValue,
+  LevellingInfo,
   LibraryTrack,
   Output,
   PlaybackDiagnostics,
@@ -128,7 +129,23 @@ export function isVolume(
       isNullableNumber(value.minDecibels) &&
       isNullableNumber(value.maxDecibels) &&
       isFlag(value.usb) &&
-      isNullableText(value.locked))
+      isNullableText(value.locked) &&
+      (value.muted === null || isFlag(value.muted)) &&
+      isNumber(value.capDecibels) &&
+      (value.levelling === null || isLevelling(value.levelling)))
+  );
+}
+
+function isLevelling(value: Field): value is JsonValue & LevellingInfo {
+  return (
+    isRecord(value) &&
+    isNullableNumber(value.offsetDecibels) &&
+    (value.basis === null ||
+      value.basis === 'album' ||
+      value.basis === 'track') &&
+    isNullableNumber(value.loudness) &&
+    isNumber(value.deviceDecibels) &&
+    isFlag(value.limited)
   );
 }
 
@@ -143,7 +160,13 @@ export function isSettings(value: Field): value is JsonValue & Settings {
     isNumber(value.resyncDelayMs) &&
     Array.isArray(value.dopDevices) &&
     value.dopDevices.every(isText) &&
-    isFlag(value.onlineLookups)
+    isFlag(value.onlineLookups) &&
+    (value.levelling === 'off' ||
+      value.levelling === 'auto' ||
+      value.levelling === 'album' ||
+      value.levelling === 'track') &&
+    isRecord(value.volumeCaps) &&
+    Object.values(value.volumeCaps).every(isNumber)
   );
 }
 

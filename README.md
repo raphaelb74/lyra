@@ -23,13 +23,13 @@
 
 ## Why
 
-I built Lyra for myself. I wanted a player for my local library, on Linux, that sends each file to my DAC exactly as it is, native DSD included, and stays light. None of the players I tried did all of that, so I wrote one.
+I built Lyra for myself. I wanted a player for my local library, on Linux, that sends each file to my DAC exactly as it is, native DSD included, and stays light. None of the players I tried did all of that, so I started this project.
 
-On a Linux desktop, music usually goes through the sound server first: mixed with everything else, often resampled, sometimes turned down in software. You paid for a DAC; it rarely gets the file you bought.
+On a Linux desktop, music usually goes through the sound server first: mixed with everything else, often resampled, sometimes turned down in software. You paid for a DAC, expensive speakers and/or headphones, .
 
 Lyra takes the short road. Its engine, **UNDA**, written in Rust, opens the DAC directly through ALSA and hands it the samples untouched, at the file's own rate and depth. PCM stays PCM. DSD goes out as native DSD, or as DoP when that is what the DAC speaks. When something can't be played bit-perfectly, Lyra says so instead of quietly converting it.
 
-And it stays light. No bundled browser, no background services. **Efficiency is a product goal**: every feature has to justify its memory and CPU. Idle, Lyra wakes about three times a second and uses a tenth of a percent of one core.
+And it stays light. No bundled browser, no background services. **Efficiency is a must**: every feature has to justify its memory and CPU. Idle, Lyra wakes about three times a second and uses a tenth of a percent of one core. (Development machine : MacBook Pro early 2013 - i5-5287U @ 2.90GHz - 8GB DDR3 DRAM)
 
 - **Direct to hardware.** Rust straight to an ALSA `hw:` device. No Web Audio, PulseAudio or PipeWire in the playback path.
 - **No hidden processing.** No resampling, no software volume. If the DAC can't take a format, you're told why.

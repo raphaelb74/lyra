@@ -7,20 +7,25 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use audio_alsa::SinkStats;
-use library::{EditChange, Library, LibraryError, Origin, Revisions, Scanner, Target};
+use library::{
+    EditChange, Library, LibraryError, Loudness, Measurer, Origin, Revisions, Scanner, Target,
+};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::DialogExt;
-use unda::{Player, QueueItem};
+use unda::{Player, PlayerStatus, QueueItem};
 
 use crate::ipc::{
     AcceptIn, AlbumEditor, AlbumInfo, AppInfo, ArtistInfo, CapabilitiesInfo, ChangeIn, DeviceInfo,
-    DiagnosticsInfo, EditorTrack, FieldInfo, FolderInfo, IpcError, LibraryTrack, PlaylistEntry,
-    PlaylistInfo, Position, ProposalInfo, QueueEntry, RepeatMode, RevisionInfo, ScanStatus, Status,
-    TrackDetails, VolumeInfo, art_url, file_name, frames_to_seconds, ms_to_seconds, thumb_url,
+    DiagnosticsInfo, EditorTrack, FieldInfo, FolderInfo, IpcError, LevellingInfo, LibraryTrack,
+    PlaylistEntry, PlaylistInfo, Position, ProposalInfo, QueueEntry, RepeatMode, RevisionInfo,
+    ScanStatus, Status, TrackDetails, VolumeInfo, art_url, file_name, frames_to_seconds,
+    ms_to_seconds, thumb_url,
 };
-use crate::settings::Settings;
+use crate::levelling::{self, Basis, Context, Leveller};
+use crate::settings::{Levelling, Settings};
 use audio_alsa::Wake;
 
 /// Event telling the UI to reload folders and albums.
@@ -46,6 +51,10 @@ pub struct AppState {
     watched: Mutex<Option<String>>,
     /// Tells the volume watcher `watched` changed.
     volume_wake: Arc<Wake>,
+    /// Volume levelling on the device playing; the volume watcher drives it.
+    pub leveller: Leveller,
+    /// Measures loudness the library's tags leave out, while levelling is on.
+    pub measurer: Measurer,
     /// MusicBrainz and the Cover Art Archive, for ID Match. Makes no request
     /// until a command asks, and those refuse while lookups are off.
     pub musicbrainz: musicbrainz::Client,
@@ -68,6 +77,7 @@ impl AppState {
         art_dir: PathBuf,
         settings_path: PathBuf,
         volume_wake: Arc<Wake>,
+        measurer: Measurer,
     ) -> Self {
         let state = Self {
             player,
@@ -80,6 +90,8 @@ impl AppState {
             settings_path,
             watched: Mutex::new(None),
             volume_wake,
+            leveller: Leveller::default(),
+            measurer,
             musicbrainz: musicbrainz::Client::new(
                 musicbrainz::Service::official(),
                 env!("CARGO_PKG_VERSION"),
@@ -98,10 +110,73 @@ impl AppState {
         locked(&self.settings).clone()
     }
 
-    /// Stores `settings` and applies what the engine uses.
+    /// Stores `settings` and applies what the engine and levelling use.
     fn apply_settings(&self, settings: Settings) {
         self.player.set_resync_delay(settings.resync_delay());
+        self.measurer
+            .set_enabled(settings.levelling != Levelling::Off);
         *locked(&self.settings) = settings;
+        // Levelling, or a volume cap, may have changed.
+        self.volume_wake.notify();
+    }
+
+    /// What the volume control shows for `device`'s card at `level`.
+    pub fn volume_info(&self, device: &str, level: audio_alsa::VolumeLevel) -> VolumeInfo {
+        let shown = self.leveller.shown(device);
+        VolumeInfo {
+            percent: level.percent,
+            decibels: shown.map_or(level.decibels, |shown| Some(shown.listening)),
+            min_decibels: level.decibel_range.map(|(min, _)| min),
+            max_decibels: level.decibel_range.map(|(_, max)| max),
+            usb: level.usb,
+            locked: self.player.status().volume_lock(device),
+            muted: level.muted,
+            cap_decibels: self.settings().volume_cap(device),
+            levelling: shown.map(|shown| LevellingInfo {
+                offset_decibels: shown.offset.map(|offset| offset.decibels),
+                basis: shown.offset.map(|offset| match offset.basis {
+                    Basis::Album => "album",
+                    Basis::Track => "track",
+                }),
+                loudness: shown.offset.map(|offset| offset.loudness),
+                device_decibels: level.decibels.unwrap_or(shown.listening),
+                limited: shown.limited,
+            }),
+        }
+    }
+
+    /// How long audio written now takes to reach the DAC: the device
+    /// buffer, full while playing.
+    pub fn output_latency(&self) -> Duration {
+        let rate = self
+            .player
+            .status()
+            .track
+            .and_then(|track| track.output)
+            .map(|output| output.sample_rate);
+        match (self.sink_stats.report(), rate) {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "buffers are far below 2⁵² frames"
+            )]
+            (Some(report), Some(rate)) if rate > 0 => {
+                Duration::from_secs_f64(report.buffer.buffer_frames as f64 / f64::from(rate))
+            }
+            _ => Duration::ZERO,
+        }
+    }
+
+    /// What levelling needs about the track playing (see
+    /// [`levelling::input`]).
+    pub fn levelling_input(&self, status: &PlayerStatus) -> Option<(Loudness, Context)> {
+        levelling::input(&self.library(), &self.player.queue(), status)
+    }
+
+    /// Stops levelling and gives the DAC back the listening level.
+    pub fn end_levelling(&self) {
+        if let Some((device, listening)) = self.leveller.end() {
+            let _ = audio_alsa::set_volume_db(&device, listening);
+        }
     }
 
     fn library(&self) -> MutexGuard<'_, Library> {
@@ -648,7 +723,7 @@ pub fn get_volume(
         state.volume_wake.notify();
     }
     let level = audio_alsa::volume(&device).map_err(|error| volume_error(&error))?;
-    Ok(level.map(|level| volume_info(level, state.player.status().volume_lock(&device))))
+    Ok(level.map(|level| state.volume_info(&device, level)))
 }
 
 /// Moves `device`'s hardware volume; refused while DoP plays on it.
@@ -663,8 +738,9 @@ pub fn set_volume(
     })
 }
 
-/// Sets `device`'s total hardware attenuation in dB; refused while DoP
-/// plays on it.
+/// Sets `device`'s listening level in dB, at most its cap; refused while
+/// DoP plays on it. While levelling, the DAC takes the level plus the
+/// track's offset.
 #[tauri::command]
 pub fn set_volume_db(
     device: String,
@@ -676,9 +752,26 @@ pub fn set_volume_db(
             "The volume must be a number of dB",
         ));
     }
+    let cap = state.settings().volume_cap(&device);
     change_volume(device, &state, |device| {
+        let decibels = state
+            .leveller
+            .set_listening(device, decibels, cap)
+            .unwrap_or(decibels.min(cap));
         audio_alsa::set_volume_db(device, decibels)
     })
+}
+
+/// Mutes or unmutes `device`'s card with its mute switch.
+#[tauri::command]
+pub fn set_muted(
+    device: String,
+    muted: bool,
+    state: State<'_, AppState>,
+) -> Result<Option<VolumeInfo>, IpcError> {
+    let device = hardware_device(device)?;
+    let level = audio_alsa::set_muted(&device, muted).map_err(|error| volume_error(&error))?;
+    Ok(level.map(|level| state.volume_info(&device, level)))
 }
 
 /// Applies `set` to a hardware device's volume, unless DoP holds it at 0 dB.
@@ -692,7 +785,7 @@ fn change_volume(
         return Err(IpcError::invalid_request(reason));
     }
     let level = set(&device).map_err(|error| volume_error(&error))?;
-    Ok(level.map(|level| volume_info(level, None)))
+    Ok(level.map(|level| state.volume_info(&device, level)))
 }
 
 /// What the kernel and Lyra report about `device` right now. Cheap: procfs
@@ -749,17 +842,6 @@ fn hardware_device(device: String) -> Result<String, IpcError> {
         Err(IpcError::invalid_request(format!(
             "{device} is not a hardware device"
         )))
-    }
-}
-
-pub fn volume_info(level: audio_alsa::VolumeLevel, locked: Option<&'static str>) -> VolumeInfo {
-    VolumeInfo {
-        percent: level.percent,
-        decibels: level.decibels,
-        min_decibels: level.decibel_range.map(|(min, _)| min),
-        max_decibels: level.decibel_range.map(|(_, max)| max),
-        usb: level.usb,
-        locked,
     }
 }
 

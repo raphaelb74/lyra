@@ -4,6 +4,7 @@
 //! Lyra from starting. Saving writes a temporary file and renames it, so a
 //! crash never leaves half a file.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -21,8 +22,11 @@ pub const CONVERSION_GAINS_DB: [i8; 3] = [0, 3, 6];
 /// Pauses offered before playback when the format changes, in ms.
 pub const RESYNC_DELAYS_MS: [u16; 5] = [0, 250, 500, 1000, 2000];
 
-/// Most devices remembered as decoding DoP; far more than anyone plugs in.
-const MAX_DOP_DEVICES: usize = 64;
+/// Most devices remembered (DoP, volume caps); far more than anyone plugs in.
+const MAX_DEVICES: usize = 64;
+
+/// Lowest volume cap offered, in dB: below it the slider has no room.
+pub const MIN_VOLUME_CAP_DB: i8 = -40;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -41,6 +45,13 @@ pub struct Settings {
     /// ID Match may ask MusicBrainz and the Cover Art Archive. Off until the
     /// user turns it on; nothing goes online at startup or during scans.
     pub online_lookups: bool,
+    /// Volume levelling through the DAC's own volume. Off by default: it
+    /// costs bit-perfect playback on DACs that attenuate digitally.
+    pub levelling: Levelling,
+    /// Highest volume per device (`hw:CARD=…,DEV=…`), in dB, from
+    /// [`MIN_VOLUME_CAP_DB`] to 0: neither Lyra, levelling nor the volume
+    /// keys go above it.
+    pub volume_caps: BTreeMap<String, i8>,
 }
 
 impl Default for Settings {
@@ -53,6 +64,8 @@ impl Default for Settings {
             resync_delay_ms: 500,
             dop_devices: Vec::new(),
             online_lookups: false,
+            levelling: Levelling::Off,
+            volume_caps: BTreeMap::new(),
         }
     }
 }
@@ -73,6 +86,19 @@ pub enum Fallback {
     #[default]
     Refuse,
     Convert,
+}
+
+/// Which loudness volume levelling matches.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Levelling {
+    #[default]
+    Off,
+    /// Album loudness while an album plays in order, track loudness
+    /// otherwise (shuffle, playlists).
+    Auto,
+    Album,
+    Track,
 }
 
 impl Settings {
@@ -98,11 +124,20 @@ impl Settings {
     pub fn is_valid(&self) -> bool {
         CONVERSION_GAINS_DB.contains(&self.conversion_gain_db)
             && RESYNC_DELAYS_MS.contains(&self.resync_delay_ms)
-            && self.dop_devices.len() <= MAX_DOP_DEVICES
+            && self.dop_devices.len() <= MAX_DEVICES
+            && self.dop_devices.iter().all(|device| is_device(device))
+            && self.volume_caps.len() <= MAX_DEVICES
             && self
-                .dop_devices
+                .volume_caps
                 .iter()
-                .all(|device| device.starts_with("hw:") && device.len() <= 128)
+                .all(|(device, cap)| is_device(device) && (MIN_VOLUME_CAP_DB..=0).contains(cap))
+    }
+
+    /// The highest volume Lyra may set on `device`, in dB.
+    pub fn volume_cap(&self, device: &str) -> f64 {
+        self.volume_caps
+            .get(device)
+            .map_or(0.0, |&cap| f64::from(cap))
     }
 
     pub fn resync_delay(&self) -> Duration {
@@ -128,6 +163,10 @@ impl Settings {
     }
 }
 
+fn is_device(name: &str) -> bool {
+    name.starts_with("hw:") && name.len() <= 128
+}
+
 pub fn temporary_path(path: &Path) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_owned();
     name.push(".tmp");
@@ -138,7 +177,7 @@ pub fn temporary_path(path: &Path) -> PathBuf {
 mod tests {
     use unda::{DsdFallback, DsdTransport};
 
-    use super::{Fallback, Settings, Transport};
+    use super::{Fallback, Levelling, Settings, Transport};
 
     /// A fresh folder per test: tests run in parallel.
     fn folder(test: &str) -> std::path::PathBuf {
@@ -159,6 +198,8 @@ mod tests {
             resync_delay_ms: 1000,
             dop_devices: vec!["hw:CARD=E30,DEV=0".to_owned()],
             online_lookups: true,
+            levelling: Levelling::Auto,
+            volume_caps: [("hw:CARD=E30,DEV=0".to_owned(), -12)].into(),
         };
         settings.save(&path).unwrap();
         assert_eq!(Settings::load(&path), settings);
@@ -167,6 +208,8 @@ mod tests {
         assert_eq!(policy.fallback, DsdFallback::Convert { gain_db: 3 });
         assert!(policy.dop_confirmed);
         assert!(!settings.dsd_policy("hw:CARD=PCH,DEV=0").dop_confirmed);
+        assert!((settings.volume_cap("hw:CARD=E30,DEV=0") + 12.0).abs() < f64::EPSILON);
+        assert!(settings.volume_cap("hw:CARD=PCH,DEV=0").abs() < f64::EPSILON);
     }
 
     #[test]
@@ -179,12 +222,16 @@ mod tests {
             r#"{"dsdTransport": "pcm"}"#,
             r#"{"resyncDelayMs": 300}"#,
             r#"{"dopDevices": ["/etc/passwd"]}"#,
+            r#"{"levelling": "loud"}"#,
+            r#"{"volumeCaps": {"hw:CARD=SE,DEV=0": 3}}"#,
+            r#"{"volumeCaps": {"default": -10}}"#,
         ] {
             std::fs::write(&path, content).unwrap();
             assert_eq!(Settings::load(&path), Settings::default(), "{content}");
         }
-        // Online lookups stay off unless the file turns them on.
+        // Online lookups and levelling stay off unless the file turns them on.
         assert!(!Settings::default().online_lookups);
+        assert_eq!(Settings::default().levelling, Levelling::Off);
         // Unknown and missing fields are fine: older and newer files load.
         std::fs::write(&path, r#"{"dsdFallback": "convert", "theme": "dark"}"#).unwrap();
         assert_eq!(Settings::load(&path).dsd_fallback, Fallback::Convert);

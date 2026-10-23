@@ -10,6 +10,9 @@ const usb: VolumeInfo = {
   maxDecibels: 0,
   usb: true,
   locked: null,
+  muted: false,
+  capDecibels: 0,
+  levelling: null,
 };
 
 describe('volume scale', () => {
@@ -27,6 +30,12 @@ describe('volume scale', () => {
     const scale = volumeScale({ ...usb, minDecibels: -40, maxDecibels: 6 });
 
     expect([scale.min, scale.max]).toEqual([-40, 0]);
+  });
+
+  it('stops at the device cap', () => {
+    const scale = volumeScale({ ...usb, decibels: -10, capDecibels: -20 });
+
+    expect([scale.max, scale.value]).toEqual([-20, -20]);
   });
 
   it('parks the handle at the floor when the device is quieter', () => {

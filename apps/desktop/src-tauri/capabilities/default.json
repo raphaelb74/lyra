@@ -55,6 +55,7 @@
     "allow-get-volume",
     "allow-set-volume",
     "allow-set-volume-db",
+    "allow-set-muted",
     "allow-get-diagnostics",
     "allow-probe-device",
     "allow-album-editor",

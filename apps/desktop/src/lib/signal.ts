@@ -1,5 +1,5 @@
-import { decibels, wireLabel } from './format';
-import type { Output, Step, Track } from './ipc';
+import { decibels, levelled, wireLabel } from './format';
+import type { LevellingInfo, Output, Step, Track } from './ipc';
 
 /** One stage of the signal path, from the engine's report only. */
 export interface Stage {
@@ -47,8 +47,17 @@ function volumeText(output: Output): string {
   }
 }
 
+/** `· levelled −4.5 dB (album)` after the DAC volume, while levelling. */
+function levellingText(levelling: LevellingInfo | null): string {
+  return levelling === null ? '' : ` · ${levelled(levelling)}`;
+}
+
 /** Source, processing, DAC volume, output and device, in that order. */
-export function signalStages(track: Track, deviceLabel: string): Stage[] {
+export function signalStages(
+  track: Track,
+  deviceLabel: string,
+  levelling: LevellingInfo | null = null,
+): Stage[] {
   const source =
     track.dsdMultiple === null
       ? `${track.codec.toUpperCase()} · ${String(track.bitsPerSample)}-bit · ${rate(track.sampleRate)}`
@@ -74,7 +83,10 @@ export function signalStages(track: Track, deviceLabel: string): Stage[] {
           ? 'None'
           : track.processing.map(stepText).join(' · '),
     },
-    { title: 'DAC volume', text: volumeText(output) },
+    {
+      title: 'DAC volume',
+      text: `${volumeText(output)}${levellingText(levelling)}`,
+    },
     {
       title: 'Output',
       text: `${wireLabel(track, output)}${channels(output.channels)}`,

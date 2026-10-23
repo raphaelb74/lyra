@@ -17,8 +17,9 @@ export interface VolumeScale {
   value: number;
 }
 
-/** In dB from max(−60 dB, the device floor) to 0 dB when every control
- * reports dB; otherwise 0–100 % along the control's steps. */
+/** In dB from max(−60 dB, the device floor) to the device's cap (0 dB at
+ * most) when every control reports dB; otherwise 0–100 % along the
+ * control's steps. */
 export function volumeScale(level: VolumeInfo): VolumeScale {
   const { decibels, minDecibels, maxDecibels } = level;
 
@@ -33,7 +34,7 @@ export function volumeScale(level: VolumeInfo): VolumeScale {
     };
   }
 
-  const max = Math.min(0, maxDecibels);
+  const max = Math.min(0, maxDecibels, level.capDecibels);
   const min = Math.min(max, Math.max(FLOOR_DB, minDecibels));
 
   return {

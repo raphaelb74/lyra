@@ -1,6 +1,7 @@
 <script lang="ts">
   import { verdictLabel } from './format';
   import type { DeviceInfo, Track } from './ipc';
+  import { levelling } from './levelling.svelte';
   import { signalStages } from './signal';
 
   interface Props {
@@ -12,7 +13,13 @@
   const { track, device }: Props = $props();
 
   // ALSA names and the kernel's hw_params stay in Diagnostics.
-  const stages = $derived(signalStages(track, device?.label ?? track.device));
+  const stages = $derived(
+    signalStages(
+      track,
+      device?.label ?? track.device,
+      levelling[track.device] ?? null,
+    ),
+  );
   const output = $derived(track.output);
 </script>
 

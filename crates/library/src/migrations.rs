@@ -250,6 +250,23 @@ const MIGRATIONS: &[Migration] = &[
     // 11: where chosen artwork came from: null for a file the user picked,
     // else the online source's name.
     Migration::Sql("ALTER TABLE chosen_art ADD COLUMN source TEXT;"),
+    // 12: loudness, for volume levelling. What the gain tags say (hundredths
+    // of a LUFS), and what Lyra measured: a histogram of the audio named by
+    // `audio_id` (another audio_id means the file changed). Every file is
+    // read again for its tags.
+    Migration::Sql(
+        "
+    ALTER TABLE tracks ADD COLUMN tagged_loudness INTEGER;
+    ALTER TABLE tracks ADD COLUMN tagged_album_loudness INTEGER;
+    CREATE TABLE loudness (
+        track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+        audio_id TEXT NOT NULL,
+        blocks BLOB,
+        failed INTEGER NOT NULL DEFAULT 0
+    );
+    UPDATE tracks SET mtime_ns = -1;
+    ",
+    ),
 ];
 
 /// Brings the schema up to date, after a backup of an existing database

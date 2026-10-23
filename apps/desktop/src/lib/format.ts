@@ -1,4 +1,11 @@
-import type { Output, ScanStatus, SourceFormat, Track, Verdict } from './ipc';
+import type {
+  LevellingInfo,
+  Output,
+  ScanStatus,
+  SourceFormat,
+  Track,
+  Verdict,
+} from './ipc';
 
 /** `FLAC 24/96`, `WAV 16/44.1`, `DSD64 · DSF`. */
 export function sourceLabel(track: Track): string {
@@ -155,6 +162,19 @@ export function wireLabel(track: Track, output: Output): string {
 /** `−12.5 dB`, `0.0 dB`; `unit` for `dBFS`. */
 export function decibels(value: number, unit = 'dB'): string {
   return `${value.toFixed(1).replace('-', '−')} ${unit}`;
+}
+
+/** A change of level: `+3.0 dB`, `−4.5 dB`. */
+export function gain(value: number): string {
+  return value > 0 ? `+${decibels(value)}` : decibels(value);
+}
+
+/** `levelled −4.5 dB (album)`, or `levelling: measuring` until the
+ * loudness is known. */
+export function levelled(levelling: LevellingInfo): string {
+  if (levelling.offsetDecibels === null) return 'levelling: measuring';
+
+  return `levelled ${gain(levelling.offsetDecibels)} (${levelling.basis ?? 'track'})`;
 }
 
 /** `44.1`, `96`, `352.8`. */
