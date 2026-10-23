@@ -28,16 +28,6 @@
     U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
-/* The wordmark only: one weight, Latin. */
-@font-face {
-  font-family: 'Cormorant Garamond';
-  font-style: normal;
-  font-display: block;
-  font-weight: 600;
-  src: url('../assets/fonts/cormorant-garamond-latin-600-normal.woff2')
-    format('woff2');
-}
-
 @layer tokens {
   :root {
     color-scheme: dark;
@@ -94,7 +84,6 @@
     /* Type: size and line height pairs. */
     --font-ui: Manrope, system-ui, sans-serif;
     --font-mono: ui-monospace, 'DejaVu Sans Mono', monospace;
-    --font-brand: 'Cormorant Garamond', Georgia, serif;
     --type-caption: 12px;
     --leading-caption: 16px;
     --type-small: 13px;
@@ -105,8 +94,6 @@
     --leading-title: 24px;
     --type-heading: 26px;
     --leading-heading: 32px;
-    /* Cormorant's capitals are small for their size. */
-    --type-brand: 22px;
     --type-display: clamp(28px, 3.2vw, 40px);
     --leading-display: 1.15;
     --weight-regular: 450;

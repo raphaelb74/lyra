@@ -5,6 +5,7 @@
 
   import Icon from './Icon.svelte';
   import LyraMark from './LyraMark.svelte';
+  import LyraWordmark from './LyraWordmark.svelte';
 
   /**
    * Lyra draws its own title bar (the system one is off in tauri.conf.json).
@@ -41,7 +42,7 @@
   <div class="side" data-tauri-drag-region>
     <span class="wordmark" data-tauri-drag-region
       ><span class="mark" data-tauri-drag-region><LyraMark size={26} /></span
-      ><span class="name" data-tauri-drag-region>Lyra</span></span
+      ><span class="name" data-tauri-drag-region><LyraWordmark /></span></span
     >
   </div>
   <div class="main" data-tauri-drag-region>
@@ -96,21 +97,14 @@
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    font-family: var(--font-brand);
-    font-size: var(--type-brand);
-    line-height: 1;
-    font-weight: var(--weight-strong);
-    letter-spacing: 0.3em;
-    text-transform: uppercase;
     color: var(--text);
   }
   .mark {
     display: flex;
     color: var(--accent);
   }
-  /* Letter spacing trails the last letter; take it back to stay centred. */
   .name {
-    margin-right: -0.3em;
+    display: flex;
   }
   .main {
     flex: 1;

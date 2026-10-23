@@ -76,8 +76,6 @@ def assets() -> list[dict]:
     return [
         {'name': 'Manrope', 'version': 'font', 'license': 'OFL-1.1',
          'texts': [text_id((a / 'fonts/OFL.txt').read_text())]},
-        {'name': 'Cormorant Garamond', 'version': 'font', 'license': 'OFL-1.1',
-         'texts': [text_id((a / 'fonts/OFL-Cormorant.txt').read_text())]},
         {'name': 'Lucide', 'version': 'icons', 'license': 'ISC',
          'texts': [text_id((a / 'icons/LICENSE').read_text())]},
         {'name': 'DSD and FLAC logos', 'version': 'artwork', 'license': 'Public domain',
