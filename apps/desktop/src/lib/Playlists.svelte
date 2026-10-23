@@ -122,7 +122,7 @@
             maxlength="200"
             bind:value={renaming}
           />
-          <button type="submit">Save</button>
+          <button type="submit" class="primary">Save</button>
           <button type="button" onclick={() => (renaming = null)}>Cancel</button
           >
         </form>
@@ -150,9 +150,7 @@
       </div>
     </header>
     {#if entries.length === 0}
-      <p class="muted">
-        Empty. Add tracks with the + buttons in albums and the track list.
-      </p>
+      <p class="muted">Empty. Add tracks from their ⋯ menu.</p>
     {:else}
       <ol class="rows">
         {#each entries as entry, index (entry.entryId)}
@@ -255,11 +253,13 @@
           maxlength="200"
           bind:value={newName}
         />
-        <button type="submit" disabled={newName.trim() === ''}>Create</button>
+        <button type="submit" class="primary" disabled={newName.trim() === ''}
+          >Create</button
+        >
       </form>
     </div>
     {#if playlists.length === 0}
-      <p class="muted">No playlists yet. Create one, then add tracks to it.</p>
+      <p class="muted">No playlists yet.</p>
     {:else}
       <ul class="list">
         {#each playlists as playlist (playlist.id)}

@@ -1,10 +1,12 @@
 mod commands;
+mod device_watch;
 mod id_match;
 mod ipc;
 mod mpris;
 mod settings;
 mod thumbs;
 mod volume_watch;
+mod window_state;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, mpsc};
@@ -21,9 +23,19 @@ use unda::Player;
 const STATUS_EVENT: &str = "player-status";
 /// Event carrying a [`ScanStatus`] while a scan runs and when it ends.
 const SCAN_EVENT: &str = "scan-status";
+/// The window's size between launches, in the config folder.
+const WINDOW_FILE: &str = "window.json";
 
 /// Starts the engine, the library and the desktop integrations.
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // Hidden until it has last session's size, so it never jumps.
+    if let Some(window) = app
+        .get_webview_window("main")
+        .map(|main| main.as_ref().window())
+    {
+        let _ = window_state::restore(&window, &app.path().app_config_dir()?.join(WINDOW_FILE));
+        window.show()?;
+    }
     let handle = app.handle().clone();
     let sink = AlsaSink::new();
     let sink_stats = sink.stats();
@@ -54,6 +66,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         app.path().app_config_dir()?.join("settings.json"),
     ));
     volume_watch::spawn(app.handle().clone())?;
+    device_watch::spawn(app.handle().clone())?;
     mpris::spawn(app.handle().clone(), mpris_updates)?;
     // Pick up changes made while Lyra was closed.
     if has_folders {
@@ -73,10 +86,18 @@ pub fn run() -> tauri::Result<()> {
                 responder.respond(artwork(&art_dir, &name));
             });
         })
-        .on_window_event(|window, event| {
-            if let WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) = event {
+        .on_window_event(|window, event| match event {
+            WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) => {
                 on_drop(window.app_handle(), paths);
             }
+            WindowEvent::CloseRequested { .. } => {
+                // Nothing to do about a failure while closing: the next
+                // launch opens at the default size.
+                if let Ok(folder) = window.path().app_config_dir() {
+                    let _ = window_state::save(window, &folder.join(WINDOW_FILE));
+                }
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
@@ -121,6 +142,7 @@ pub fn run() -> tauri::Result<()> {
             commands::set_settings,
             commands::get_volume,
             commands::set_volume,
+            commands::set_volume_db,
             commands::get_diagnostics,
             commands::probe_device,
             commands::album_editor,

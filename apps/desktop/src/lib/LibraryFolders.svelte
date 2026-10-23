@@ -70,7 +70,7 @@
       <p class="muted" role="status" data-testid="scan-status">
         {notice ??
           (scan === null || scanText(scan) === ''
-            ? 'Lyra reads FLAC, WAV, DSF and DFF, and never changes your files.'
+            ? 'FLAC, WAV, DSF and DFF. Your files are never changed.'
             : scanText(scan))}
       </p>
     </div>
@@ -116,9 +116,7 @@
     </div>
   {:else}
     <div class="setting">
-      <p class="muted">
-        No folders yet. Add one, or drop a folder onto the window.
-      </p>
+      <p class="muted">No folders yet. Add one, or drop it here.</p>
     </div>
   {/each}
 </div>

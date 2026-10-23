@@ -227,7 +227,7 @@
   <div class="scroll" bind:this={scroller}>
     {#if playing}
       <h3 class="group-title">Now playing</h3>
-      <div class="now">
+      <div class="now playing-mark">
         {#if playing.art}
           <img
             class="art"
@@ -251,10 +251,7 @@
     {/if}
 
     {#if entries.length === 0}
-      <p class="muted empty">
-        Nothing queued. Play an album, or right-click music and choose Play next
-        or Add to queue.
-      </p>
+      <p class="muted empty">Nothing queued.</p>
     {:else if upNext.length === 0}
       <h3 class="group-title">Up next</h3>
       <p class="muted empty">Nothing after this track.</p>
@@ -281,7 +278,7 @@
             >
               <button
                 type="button"
-                class="entry"
+                class="row entry"
                 title={entry.title}
                 aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                 disabled={status.track === null && device === ''}
@@ -322,7 +319,7 @@
                       >{entry.artist}</small
                     >{/if}
                 </span>
-                <span class="time num"
+                <span class="time meta num"
                   >{entry.durationSeconds === null
                     ? ''
                     : clock(entry.durationSeconds)}</span
@@ -399,9 +396,16 @@
     align-items: center;
     gap: var(--space-3);
     padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-s);
+    position: relative;
+    background: var(--surface-playing);
   }
   .now strong {
     font-weight: var(--weight-medium);
+    color: var(--accent);
+  }
+  .now small {
+    color: var(--text-on-emphasis);
   }
   .art {
     flex-shrink: 0;
@@ -482,7 +486,9 @@
   }
   .time {
     font-size: var(--type-caption);
-    color: var(--text-muted);
+  }
+  .entry[data-selected='true'] small {
+    color: var(--text-on-emphasis);
   }
   /* Row actions replace the length on hover or keyboard focus. */
   .actions {
@@ -501,10 +507,11 @@
     opacity: 1;
     pointer-events: auto;
   }
-  li:hover .entry,
-  li:focus-within .entry,
-  .entry[data-selected='true'] {
-    background: var(--surface-hover);
+  li:where(:hover, :focus-within) {
+    --row-idle-surface: var(--surface-hover);
+  }
+  li:has(.entry[data-selected='true']) .actions {
+    background: var(--surface-selected-hover);
   }
   li:hover .time,
   li:focus-within .time {
@@ -513,5 +520,6 @@
   .actions .icon {
     width: var(--hit-row);
     height: var(--hit-row);
+    min-height: var(--hit-row);
   }
 </style>

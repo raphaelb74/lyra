@@ -4,6 +4,8 @@
   import { onMount } from 'svelte';
 
   import Icon from './Icon.svelte';
+  import LyraMark from './LyraMark.svelte';
+  import LyraWordmark from './LyraWordmark.svelte';
 
   /**
    * Lyra draws its own title bar (the system one is off in tauri.conf.json).
@@ -39,8 +41,8 @@
 <header class="titlebar">
   <div class="side" data-tauri-drag-region>
     <span class="wordmark" data-tauri-drag-region
-      ><span class="mark" aria-hidden="true" data-tauri-drag-region>♮</span
-      ><span class="name" data-tauri-drag-region>Lyra</span></span
+      ><span class="mark" data-tauri-drag-region><LyraMark size={26} /></span
+      ><span class="name" data-tauri-drag-region><LyraWordmark /></span></span
     >
   </div>
   <div class="main" data-tauri-drag-region>
@@ -81,24 +83,28 @@
     height: var(--titlebar-height);
     user-select: none;
   }
+  /* The wordmark is centred over the sidebar. */
   .side {
     flex: 0 0 var(--sidebar-width);
     display: flex;
     align-items: center;
-    padding: 0 var(--space-5);
+    justify-content: center;
+    padding: 0 var(--space-4);
     background: var(--surface);
     border-right: 1px solid var(--line);
   }
   .wordmark {
-    font-size: var(--type-small);
-    line-height: var(--leading-small);
-    font-weight: var(--weight-strong);
-    letter-spacing: 0.24em;
-    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
     color: var(--text);
   }
   .mark {
+    display: flex;
     color: var(--accent);
+  }
+  .name {
+    display: flex;
   }
   .main {
     flex: 1;
@@ -122,9 +128,6 @@
   .controls .close:hover:not(:disabled) {
     background: var(--danger-surface);
     color: var(--danger);
-  }
-  .name {
-    margin-left: var(--space-2);
   }
   @media (max-width: 1000px) {
     .side {

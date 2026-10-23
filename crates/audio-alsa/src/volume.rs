@@ -113,6 +113,8 @@ pub struct VolumeLevel {
     pub percent: u8,
     /// Total attenuation, when every control reports dB.
     pub decibels: Option<f64>,
+    /// Lowest and highest total in dB, when every control reports dB.
+    pub decibel_range: Option<(f64, f64)>,
     /// USB DACs often apply their volume digitally: below 0 dB the samples
     /// change. Built-in cards are not checked.
     pub usb: bool,
@@ -151,6 +153,52 @@ pub fn set_volume(device: &str, percent: u8) -> Result<Option<VolumeLevel>, Alsa
     Ok(level(&controls, usb))
 }
 
+/// Sets the card's total playback attenuation to `decibels` (at most 0 dB,
+/// within the controls' range). On a USB DAC with controls in series the
+/// first ones take the attenuation and the rest stay at 0 dB. Controls
+/// without dB information are left alone.
+pub fn set_volume_db(device: &str, decibels: f64) -> Result<Option<VolumeLevel>, AlsaError> {
+    let card = card_control(device);
+    let mixer = open_mixer(device, &card)?;
+    let usb = is_usb_audio(&card);
+    let (selems, ranges): (Vec<_>, Vec<_>) = controls(&mixer, usb)
+        .into_iter()
+        .filter_map(|selem| {
+            let (MilliBel(min), MilliBel(max)) = selem.get_playback_db_range();
+            (min < max).then_some((selem, (min, max)))
+        })
+        .unzip();
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "clamped to 0 dB and above −10⁶ dB"
+    )]
+    let target = (decibels.clamp(-1e6, 0.0) * 100.0).round() as i64;
+    for (selem, centibels) in selems.iter().zip(split_attenuation(target, &ranges)) {
+        selem
+            .set_playback_db_all(MilliBel(centibels), Round::Floor)
+            .map_err(|source| AlsaError::Alsa {
+                device: device.to_owned(),
+                source,
+            })?;
+    }
+    Ok(level(&selems, usb))
+}
+
+/// Shares `target` centibels (≤ 0) among controls in series, given each
+/// one's (min, max) range: the first take as much as they can, the rest
+/// get their highest value up to 0 dB.
+fn split_attenuation(target: i64, ranges: &[(i64, i64)]) -> Vec<i64> {
+    let mut remaining = target;
+    ranges
+        .iter()
+        .map(|&(min, max)| {
+            let part = remaining.clamp(min, max.min(0).max(min));
+            remaining -= part;
+            part
+        })
+        .collect()
+}
+
 fn open_mixer(device: &str, card: &str) -> Result<Mixer, AlsaError> {
     Mixer::new(card, false).map_err(|source| AlsaError::Alsa {
         device: device.to_owned(),
@@ -185,6 +233,7 @@ fn controls(mixer: &Mixer, usb: bool) -> Vec<Selem<'_>> {
 fn level(controls: &[Selem<'_>], usb: bool) -> Option<VolumeLevel> {
     let mut percent: Option<i64> = None;
     let mut decibels = Some(0.0);
+    let mut range = Some((0, 0));
     for selem in controls {
         let Some(channel) = SelemChannelId::all()
             .iter()
@@ -204,6 +253,9 @@ fn level(controls: &[Selem<'_>], usb: bool) -> Option<VolumeLevel> {
         };
         percent = Some(percent.map_or(position, |lowest| lowest.min(position)));
         let (min_db, max_db) = selem.get_playback_db_range();
+        range = range
+            .filter(|_| min_db != max_db)
+            .map(|(low, high)| (low + min_db.0, high + max_db.0));
         let db = (min_db != max_db)
             .then(|| selem.get_playback_vol_db(channel).ok())
             .flatten();
@@ -214,9 +266,12 @@ fn level(controls: &[Selem<'_>], usb: bool) -> Option<VolumeLevel> {
             _ => None,
         };
     }
+    #[expect(clippy::cast_precision_loss, reason = "dB values are small")]
+    let decibel_range = range.map(|(low, high)| (low as f64 / 100.0, high as f64 / 100.0));
     Some(VolumeLevel {
         percent: u8::try_from(percent?).unwrap_or(100),
         decibels,
+        decibel_range,
         usb,
     })
 }
@@ -299,7 +354,25 @@ fn is_usb_audio(ctl_name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{HardwareVolume, combine};
+    use super::{HardwareVolume, combine, split_attenuation};
+
+    #[test]
+    fn attenuation_goes_to_the_first_controls() {
+        // One control: all of it, within range.
+        assert_eq!(split_attenuation(-2050, &[(-12700, 0)]), vec![-2050]);
+        assert_eq!(split_attenuation(-20000, &[(-12700, 0)]), vec![-12700]);
+        // In series: the first takes what it can, the rest stay at 0 dB.
+        assert_eq!(
+            split_attenuation(-3000, &[(-12700, 0), (-12700, 0)]),
+            vec![-3000, 0]
+        );
+        assert_eq!(
+            split_attenuation(-15000, &[(-12700, 0), (-12700, 0)]),
+            vec![-12700, -2300]
+        );
+        // A control with gain above 0 dB is held at 0 dB.
+        assert_eq!(split_attenuation(0, &[(-6000, 600)]), vec![0]);
+    }
 
     #[test]
     fn attenuations_add_up() {

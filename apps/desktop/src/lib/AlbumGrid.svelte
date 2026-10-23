@@ -16,6 +16,7 @@
   {#each albums as album (album.id)}
     <li>
       <button
+        class="content"
         type="button"
         onclick={() => {
           onOpen(album);

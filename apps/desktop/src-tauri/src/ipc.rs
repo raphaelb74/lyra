@@ -76,6 +76,9 @@ pub struct VolumeInfo {
     /// 0–100 along the control's steps.
     pub percent: u8,
     pub decibels: Option<f64>,
+    /// The total range in dB, when every control reports dB.
+    pub min_decibels: Option<f64>,
+    pub max_decibels: Option<f64>,
     /// USB DAC: below 0 dB the samples usually change (not bit-perfect).
     pub usb: bool,
     /// Why the volume cannot change now (DoP playing), if it cannot.

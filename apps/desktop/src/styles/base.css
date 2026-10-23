@@ -11,6 +11,14 @@
 
   /* An application, not a page: text is not selectable or draggable,
      except where people read or type it. */
+  /* The window never scrolls as a page; views scroll inside it. */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   body {
     user-select: none;
     -webkit-user-select: none;
@@ -74,15 +82,19 @@
     outline: none;
   }
 
-  /* Buttons: secondary by default; .primary once per view. */
+  /* Buttons: one secondary default; primary, tertiary and icon variants.
+     Components own layout, while colours and control states live here. */
   button {
     font: inherit;
+    font-size: var(--type-small);
+    line-height: var(--leading-small);
     font-weight: var(--weight-medium);
     color: inherit;
     background: transparent;
     border: 1px solid var(--line-strong);
     border-radius: var(--radius-m);
-    padding: var(--space-2) var(--space-4);
+    min-height: var(--control-height);
+    padding: 0 var(--space-3);
     cursor: pointer;
     transition:
       background-color var(--dur-fast) var(--ease),
@@ -92,22 +104,16 @@
 
   button:hover:not(:disabled) {
     background: var(--surface-hover);
+    border-color: var(--control-border-hover);
+  }
+
+  button:active:not(:disabled) {
+    background: var(--surface-selected);
   }
 
   button:disabled {
     cursor: default;
     opacity: 0.4;
-  }
-
-  button.primary {
-    background: var(--text);
-    border-color: var(--text);
-    color: var(--bg);
-  }
-
-  button.primary:hover:not(:disabled) {
-    background: var(--text-secondary);
-    border-color: var(--text-secondary);
   }
 
   button.tertiary {
@@ -117,6 +123,7 @@
   }
 
   button.tertiary:hover:not(:disabled) {
+    border-color: transparent;
     color: var(--text);
   }
 
@@ -125,13 +132,47 @@
     place-items: center;
     width: var(--hit);
     height: var(--hit);
+    min-height: var(--hit);
     padding: 0;
     border-color: transparent;
     color: var(--text-secondary);
   }
 
   button.icon:hover:not(:disabled) {
+    border-color: transparent;
     color: var(--text);
+  }
+
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+  }
+
+  button.primary:hover:not(:disabled) {
+    background: var(--accent-light);
+    border-color: var(--accent-light);
+    color: var(--on-accent);
+  }
+
+  button.primary:active:not(:disabled) {
+    background: var(--accent-mid);
+    border-color: var(--accent-mid);
+    color: var(--on-accent);
+  }
+
+  /* The same primary treatment for album/artist and player transports. */
+  button.primary.icon {
+    width: var(--hit-primary);
+    height: var(--hit-primary);
+    min-height: var(--hit-primary);
+    border-radius: var(--radius-round);
+  }
+
+  button.primary:disabled {
+    background: var(--surface-hover);
+    border-color: var(--line);
+    color: var(--text-muted);
   }
 
   /* A toggle that is on (shuffle, repeat, queue): accent and a dot. */
@@ -163,10 +204,18 @@
     white-space: nowrap;
   }
 
-  button.small {
-    padding: var(--space-1) var(--space-3);
-    font-size: var(--type-caption);
+  /* A button that holds content (an album card, an artist, the playing
+     track) rather than a label: body text, not control text. */
+  button.content {
+    font-size: var(--type-body);
     line-height: var(--leading-body);
+  }
+
+  button.small {
+    min-height: var(--control-height-small);
+    padding: 0 var(--space-2);
+    font-size: var(--type-caption);
+    line-height: var(--leading-caption);
   }
 
   button.danger {
@@ -174,31 +223,163 @@
     color: var(--danger);
   }
 
-  /* Fields. */
+  button.danger:hover:not(:disabled),
+  button.danger:active:not(:disabled) {
+    background: var(--danger-surface);
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  /* Fields: the same height, radius and hover border as buttons. Focus
+     shows an accent border with a soft halo instead of the outline. */
   input:not([type='radio'], [type='checkbox'], [type='range']),
   select,
   textarea {
     font: inherit;
     font-size: var(--type-small);
     color: inherit;
-    background: var(--surface);
+    background-color: var(--surface);
     border: 1px solid var(--line-strong);
-    border-radius: var(--radius-s);
-    padding: var(--space-2) var(--space-3);
-    transition: border-color var(--dur-fast) var(--ease);
+    border-radius: var(--radius-m);
+    padding: var(--space-1) var(--space-3);
+    transition:
+      border-color var(--dur-fast) var(--ease),
+      box-shadow var(--dur-fast) var(--ease);
   }
 
-  input:not([type='radio'], [type='checkbox'], [type='range']):hover,
-  select:hover {
-    border-color: var(--text-muted);
+  input:not([type='radio'], [type='checkbox'], [type='range']),
+  select {
+    min-height: var(--control-height);
+  }
+
+  textarea {
+    padding: var(--space-2) var(--space-3);
+  }
+
+  :is(
+      input:not([type='radio'], [type='checkbox'], [type='range']),
+      select
+    ):hover:not(:disabled) {
+    border-color: var(--control-border-hover);
+  }
+
+  :is(
+    input:not([type='radio'], [type='checkbox'], [type='range']),
+    select,
+    textarea
+  ):focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-halo);
+  }
+
+  :is(
+    input:not([type='radio'], [type='checkbox'], [type='range']),
+    select,
+    textarea
+  ):disabled {
+    cursor: not-allowed;
+    background-color: transparent;
+    border-color: var(--line);
+    color: var(--text-muted);
+  }
+
+  /* Select: GTK's arrow replaced by a chevron in --text-secondary. */
+  select {
+    appearance: none;
+    padding-right: calc(var(--space-3) + 14px + var(--space-2));
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa0a7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right var(--space-3) center;
+    background-size: 14px;
+    cursor: pointer;
+  }
+
+  select option {
+    background: var(--surface-raised);
+    color: var(--text);
+  }
+
+  /* Checkbox: drawn here, since WebKitGTK ignores accent-color. The tick
+     is a data URI in --on-accent. */
+  input[type='checkbox'] {
+    appearance: none;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-s);
+    background-color: transparent;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 12px;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-fast) var(--ease),
+      border-color var(--dur-fast) var(--ease);
+  }
+
+  input[type='checkbox']:hover:not(:disabled) {
+    border-color: var(--control-border-hover);
+  }
+
+  input[type='checkbox']:checked {
+    border-color: var(--accent);
+    background-color: var(--accent);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230d0f12' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+  }
+
+  input[type='checkbox']:checked:hover:not(:disabled) {
+    border-color: var(--accent-light);
+    background-color: var(--accent-light);
+  }
+
+  input[type='checkbox']:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+
+  label:has(> input[type='checkbox']) {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
   }
 
   input::placeholder {
     color: var(--text-muted);
   }
 
+  /* Search: a lens in front, and a cross to clear instead of GTK's
+     backspace-arrow icon. The lens is a data URI, so its grey repeats
+     --text-muted. */
+  input[type='search'] {
+    padding-left: calc(var(--space-3) + 14px + var(--space-2));
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a929d' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: var(--space-3) center;
+    background-size: 14px;
+  }
+
+  input[type='search']::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-left: var(--space-2);
+    background-color: var(--text-secondary);
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E");
+    -webkit-mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    cursor: pointer;
+  }
+
+  input[type='search']::-webkit-search-cancel-button:hover {
+    background-color: var(--text);
+  }
+
   input[type='radio'],
-  input[type='checkbox'],
   input[type='range'] {
     accent-color: var(--accent);
   }

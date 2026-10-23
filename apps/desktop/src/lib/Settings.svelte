@@ -11,6 +11,7 @@
   import ShortcutList from './ShortcutList.svelte';
   import Segmented from './Segmented.svelte';
   import type { Option } from './segmented';
+  import { applyTheme, readTheme, THEMES, type Theme } from './theme';
 
   interface Props {
     api: Backend;
@@ -40,74 +41,72 @@
     onError,
   }: Props = $props();
 
+  let theme = $state(readTheme());
+
   const transports: Option<Settings['dsdTransport']>[] = [
     {
       value: 'auto',
       label: 'Auto',
-      hint: 'Native DSD when the DAC offers it, otherwise DoP if it plays DoP.',
+      hint: 'Native DSD when available, otherwise DoP.',
     },
     {
       value: 'native',
       label: 'Native',
-      hint: 'Only native DSD; other DACs refuse DSD files.',
+      hint: 'Native DSD only.',
     },
     {
       value: 'dop',
       label: 'DoP',
-      hint: 'DSD packed in PCM frames, for DACs that decode DoP.',
+      hint: 'DSD carried in PCM frames.',
     },
   ];
   const dopChoices: Option<'off' | 'on'>[] = [
     {
       value: 'off',
       label: 'Off',
-      hint: 'DoP goes only to DACs that also play native DSD. Turn on if the manual says this one supports DoP.',
+      hint: 'DoP only to DACs with native DSD.',
     },
     {
       value: 'on',
       label: 'On',
-      hint: 'This DAC receives DSD over DoP. A DAC without DoP would play it as noise.',
+      hint: 'This DAC decodes DoP.',
     },
   ];
   const fallbacks: Option<Settings['dsdFallback']>[] = [
     {
       value: 'refuse',
       label: 'Refuse',
-      hint: 'The track does not play, and Lyra says why.',
+      hint: 'The track is skipped.',
     },
     {
       value: 'convert',
       label: 'Convert',
-      hint: 'Plays as 24-bit PCM. Never bit-perfect, and labelled so.',
+      hint: 'Plays as PCM. Not bit-perfect.',
     },
   ];
   const gains: Option<number>[] = [
     {
       value: 0,
       label: '0 dB',
-      hint: 'Never clips: peaks reach about −3 dBFS.',
+      hint: 'Never clips.',
     },
     {
       value: 3,
       label: '+3 dB',
-      hint: 'Closer to PCM loudness; the loudest masters may clip.',
+      hint: 'Louder. Hot masters may clip.',
     },
     {
       value: 6,
       label: '+6 dB',
-      hint: 'SACD reference level; loud masters clip.',
+      hint: 'SACD level. Loud masters clip.',
     },
   ];
 
   const delays: Option<number>[] = [
     { value: 0, label: 'Off', hint: 'Starts at once.' },
-    { value: 250, label: '0.25 s', hint: 'For DACs that switch quickly.' },
-    {
-      value: 500,
-      label: '0.5 s',
-      hint: 'Enough for most DACs.',
-    },
-    { value: 1000, label: '1 s', hint: 'If the first notes are noise or cut.' },
+    { value: 250, label: '0.25 s', hint: 'For fast DACs.' },
+    { value: 500, label: '0.5 s', hint: 'Suits most DACs.' },
+    { value: 1000, label: '1 s', hint: 'If the first notes are cut.' },
     { value: 2000, label: '2 s', hint: 'For slow DACs.' },
   ];
 
@@ -126,7 +125,7 @@
 
   async function save(
     change: Partial<Settings>,
-    confirmation = 'Saved. Applies from the next track.',
+    confirmation = 'Applies from the next track',
   ) {
     const current = settings;
 
@@ -195,13 +194,32 @@
     {/if}
   </div>
 
+  <h3 class="group-title">Appearance</h3>
+  <div class="panel">
+    <div class="setting">
+      <div class="setting-text">
+        <h4 id="theme-label">Accent</h4>
+      </div>
+      <Segmented
+        labelledby="theme-label"
+        name="theme"
+        options={THEMES}
+        value={theme}
+        onChoose={(choice: Theme) => {
+          theme = choice;
+          applyTheme(choice);
+        }}
+      />
+    </div>
+  </div>
+
   <h3 class="group-title">Library</h3>
   <LibraryFolders {api} {onError} />
   <div class="panel match">
     <div class="setting">
       <div class="setting-text">
         <h4>Fix tags</h4>
-        <p class="muted">Review messy tags across the library. Offline.</p>
+        <p class="muted">Tidy tags across the library.</p>
       </div>
       <button type="button" class="small with-icon" onclick={onOpenFixTags}
         ><Icon name="sparkles" size={14} />Review fixes…</button
@@ -213,8 +231,8 @@
           <h4>Online lookups</h4>
           <p class="muted">
             {settings.onlineLookups
-              ? 'On: ID Match can ask MusicBrainz about an album you choose.'
-              : 'Off: Lyra never goes online.'}
+              ? 'MusicBrainz, for ID Match.'
+              : 'Lyra stays offline.'}
           </p>
         </div>
         {#if settings.onlineLookups}
@@ -235,31 +253,15 @@
       </div>
       {#if disclosing}
         <div class="disclosure" role="group" aria-labelledby="online-title">
-          <h4 id="online-title">Before ID Match goes online</h4>
+          <h4 id="online-title">Before going online</h4>
           <ul>
+            <li>Only when you open ID Match on an album.</li>
             <li>
-              Only when you open ID Match on an album: never at startup or
-              during a scan.
+              Sends its title and artist to MusicBrainz and the Cover Art
+              Archive. Nothing about you, beyond your IP address.
             </li>
-            <li>
-              Lyra sends that album's title and artist, or the MusicBrainz ID it
-              is tagged with, to musicbrainz.org, and asks coverartarchive.org
-              for covers.
-            </li>
-            <li>
-              Requests name Lyra, its version and a project contact address. No
-              account, file name or anything else about you is sent. As with any
-              website, those services see your IP address.
-            </li>
-            <li>
-              Nothing changes until you save, and saved changes stay in Lyra;
-              your music files are untouched.
-            </li>
+            <li>Nothing changes until you save. Your files stay untouched.</li>
           </ul>
-          <p class="muted">
-            Data from MusicBrainz is public domain (CC0). Covers come from the
-            Cover Art Archive and belong to their owners.
-          </p>
           <div class="actions">
             <button
               type="button"
@@ -297,9 +299,9 @@
       </div>
       <div class="setting">
         <div class="setting-text">
-          <h4 id="delay-label">Silence before a format change</h4>
+          <h4 id="delay-label">Resync delay</h4>
           <p class="muted">
-            Lets the DAC switch rate or mode. {hint(
+            Silence while the DAC changes format. {hint(
               delays,
               settings.resyncDelayMs,
             )}
@@ -315,11 +317,11 @@
       </div>
       <div class="setting">
         <div class="setting-text">
-          <h4 id="fallback-label">DSD on outputs without DSD</h4>
+          <h4 id="fallback-label">DSD on PCM-only DACs</h4>
           <p class="muted">
             {hint(fallbacks, settings.dsdFallback)}
             {#if settings.dsdFallback === 'convert' && settings.dsdTransport !== 'auto'}
-              Needs the Auto transport.
+              Needs Auto transport.
             {/if}
           </p>
         </div>
@@ -377,8 +379,8 @@
         <h4>Diagnostics</h4>
         <p class="muted">
           {device === undefined
-            ? 'Choose an output device first.'
-            : `Buffer, dropouts and driver details for ${device.label}.`}
+            ? 'Choose an output first.'
+            : 'Buffer, dropouts and driver.'}
         </p>
       </div>
       <button
@@ -398,10 +400,8 @@
     <div class="setting">
       <div class="setting-text">
         <h4>{appInfo === null ? 'Lyra' : `Lyra ${appInfo.version}`}</h4>
-        <p class="muted" data-testid="backend-status">
-          {connected
-            ? `UNDA engine connected · ${appInfo?.platform ?? ''}`
-            : 'UNDA engine not connected'}
+        <p class="muted engine" data-testid="backend-status">
+          {connected ? 'UNDA engine connected' : 'UNDA engine not connected'}
         </p>
       </div>
       <button type="button" class="small" disabled={checking} onclick={onCheck}
@@ -411,7 +411,7 @@
     <div class="setting">
       <div class="setting-text">
         <h4>Licences</h4>
-        <p class="muted">The open-source components Lyra is built on.</p>
+        <p class="muted">Open-source components.</p>
       </div>
       <button type="button" class="small" onclick={onOpenLicences}>Open</button>
     </div>
@@ -419,6 +419,19 @@
 </section>
 
 <style>
+  .engine {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .engine::before {
+    content: '';
+    width: var(--space-5);
+    height: var(--space-1);
+    flex-shrink: 0;
+    border-radius: var(--radius-s);
+    background: var(--unda-spectrum);
+  }
   .settings {
     max-width: 760px;
   }

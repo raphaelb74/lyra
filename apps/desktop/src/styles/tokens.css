@@ -32,19 +32,44 @@
   :root {
     color-scheme: dark;
 
-    /* Colour: graphite surfaces, one cool accent (the lit lamp). */
+    /* Shared neutral foundation, from the Lyra colour system. */
     --bg: #0d0f12;
     --surface: #15181c;
     --surface-raised: #1c2025;
-    --surface-hover: #22272d;
-    --surface-selected: #272d35;
+    --surface-hover: #232830;
+    --surface-selected: #2c333d;
+    --surface-selected-hover: #394452;
+    --control-border-hover: #73859c;
     --line: #2a2f36;
-    --line-strong: #3a4049;
+    --line-strong: #3e4550;
     --text: #f1f2f3;
-    --text-secondary: #9a9fa7;
-    /* Below 4.5:1 on hover and selected surfaces: use secondary there. */
-    --text-muted: #838a94;
-    --accent: #b8c7d9;
+    --text-secondary: #9aa0a7;
+    --text-on-emphasis: #bec4cc;
+    /* Readable small text; the palette's darker grey is decorative only.
+       Muted row metadata switches to secondary on hover/selection. */
+    --text-muted: #8a929d;
+    --on-accent: #0d0f12;
+
+    /* UNDA brand spectrum (blue, cyan, mint, yellow, peach, pink, purple).
+       A brand mark, not an audio-quality or transport state. */
+    --unda-spectrum: linear-gradient(
+      90deg,
+      #6ba8ff,
+      #5ed6d6,
+      #7ee4b5,
+      #f6d56b,
+      #ffa78b,
+      #f78fb3,
+      #c29bff
+    );
+
+    /* Semantic interaction states, shared by both accent themes. */
+    --surface-playing: var(--accent-dark);
+    --surface-playing-hover: color-mix(
+      in oklab,
+      var(--accent-dark) 94%,
+      var(--accent)
+    );
     --warning: #e0b07a;
     /* The lamp's format colours, after iFi's LED: what the DAC receives. */
     --tone-cd: #f2d45c;
@@ -89,19 +114,38 @@
     /* Size and shape. */
     --hit: 32px;
     --hit-row: 28px;
-    --hit-primary: 40px;
+    --hit-primary: 36px;
+    /* Compact desktop controls: buttons and fields share one height. */
+    --control-height: 30px;
+    --control-height-small: 24px;
     --row-height: 40px;
-    --titlebar-height: 40px;
+    --titlebar-height: 48px;
     --radius-s: 4px;
     --radius-m: 6px;
     --radius-round: 50%;
     --focus-ring: 2px solid var(--accent);
+    --accent-halo: color-mix(in srgb, var(--accent) 28%, transparent);
 
     /* Motion: responsive before animated. */
     --dur-fast: 120ms;
     --dur-base: 180ms;
     --dur-panel: 220ms;
     --ease: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  :root,
+  [data-theme='champagne'] {
+    --accent: #d4af7c;
+    --accent-light: #ebdcc2;
+    --accent-mid: #b8935f;
+    --accent-dark: #3a2f20;
+  }
+
+  [data-theme='arctic-blue'] {
+    --accent: #8fa3ff;
+    --accent-light: #c3d4f0;
+    --accent-mid: #6b7faf;
+    --accent-dark: #2a3447;
   }
 
   @media (prefers-reduced-motion: reduce) {

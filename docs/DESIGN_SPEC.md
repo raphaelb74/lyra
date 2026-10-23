@@ -2,6 +2,10 @@
 
 Status: accepted 2026-10-21, delivered in M5 as six phases ("Design overhaul" in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)). Implements [DESIGN_Brief.md](DESIGN_Brief.md). Each phase's outcome may adjust the later ones.
 
+Colour and interaction revision, 2026-10-23: adopt the user's Lyra/UNDA palette references, Champagne/Arctic Blue themes, distinct track hover/selection/playback states and shared action-button treatments. This changes presentation only; audio state, transport and integrity verdicts retain their existing meanings.
+
+The titlebar and the app icon share one lyre (`LyraMark.svelte`, `assets/lyra.svg`), after the brand guide: in the active accent in the titlebar, in Champagne on graphite for the installed icon.
+
 ## 1. Where we start
 
 Baseline audit of `apps/desktop/src` (2026-10-21):
@@ -63,9 +67,9 @@ Lyra reads like a black anodized component. It is graphite surfaces with fine, e
 | Amber | Not bit-perfect (conversion, volume below 0 dB on a non-USB path, …) | `'no'`, reason shown |
 | Off (no lamp) | Nothing playing | `track === null` |
 
-The lamp opens the signal path. Everything around it stays quiet: no other glow, no gradients and no coloured icons.
+The lamp opens the signal path. Its existing transport/integrity meanings remain independent of the selected Lyra accent. Theme changes must not recolour a DSD/PCM state into a different meaning.
 
-Spectral colour is reserved for UNDA's own identity. It may later appear only as the 1 px connecting line in the signal-path view. It is not part of this work.
+Spectral colour is reserved for UNDA's identity: a small spectrum mark beside its status in About. It is not a scientific frequency mapping or an audio-quality scale. It does not colour track selection, controls or diagnostic verdicts.
 
 ## 4. Tokens
 
@@ -73,28 +77,45 @@ All tokens live in `src/styles/tokens.css` under `@layer tokens`. Components use
 
 ### Colour
 
-The brief's palette is refined into a complete set. Contrast ratios are measured against `--bg`.
+The shared neutral foundation uses the user's supplied OKLab values. Champagne is the default accent; Arctic Blue is selectable under Settings → Appearance. The choice is a local viewer preference, restored before the app mounts, and does not alter audio settings. Both themes remain dark.
 
-| Token | Value | Use | Contrast |
-|---|---|---|---|
-| `--bg` | `#0D0F12` | Window background | — |
-| `--surface` | `#15181C` | Sidebar, player bar | — |
-| `--surface-raised` | `#1C2025` | Popovers, menus | — |
-| `--surface-hover` | `#22272D` | Row and button hover | — |
-| `--surface-selected` | `#272D35` | Selected row, current view | — |
-| `--line` | `#2A2F36` | Hairline separators | — |
-| `--line-strong` | `#3A4049` | Input borders, slider track | — |
-| `--text` | `#F1F2F3` | Primary | 17.1 |
-| `--text-secondary` | `#9A9FA7` | Artist, supporting text | 7.2 |
-| `--text-muted` | `#838A94` | Low-priority metadata (the brief's `#666D76` measures 3.7 and fails 4.5). It measures 4.7 on `--surface-raised`. On hover or selected rows it drops below 4.5, so muted text there switches to `--text-secondary`. | 5.5 |
-| `--accent` | `#B8C7D9` | Focus ring, lit lamp, slider fill on hover, current item | 11.2 |
-| `--warning` | `#E0B07A` | Not bit-perfect, clipping, underruns | 9.7 |
-| `--danger` | `#E8958A` | Destructive actions, errors | 8.3 |
-| `--art-empty` | `#1F242A` | Artwork placeholder | — |
+| Token | Value | Use |
+|---|---|---|
+| `--bg` | `oklab(0.168 -0.001 -0.007)` | Window background |
+| `--surface` | `oklab(0.208 -0.002 -0.009)` | Sidebar, panels, player bar |
+| `--surface-elevated` / `--surface-raised` | `oklab(0.242 -0.003 -0.011)` | Popovers, menus |
+| `--border` / `--line` | `oklab(0.303 -0.003 -0.014)` | Hairline separators |
+| `--surface-hover` | `#232830` | Neutral temporary hover |
+| `--surface-selected` | `#2C333D` | Persistent click selection, background only; no selection outline |
+| `--surface-selected-hover` | `#394452` | Hovered selected row |
+| `--surface-playing` | Theme `--accent-dark` | Playing row; accent title and a 3 × 16 px rounded mark, centred on the left |
+| `--surface-playing-hover` | OKLab mix: 94% accent-dark, 6% accent | Hovered playing row; remains distinct from selection while keeping Arctic Blue title contrast above 4.5:1 |
+| `--control-border-hover` | `#73859C` | Secondary control hover borders; not used for item selection |
+| `--line-strong` | `#3E4550` | Input borders, slider track |
+| `--text-primary` / `--text` | `#F1F2F3` | Primary text |
+| `--text-secondary` | `#9AA0A7` | Supporting text and hovered row metadata |
+| `--text-muted` | `#8A929D` | Readable small metadata on base surfaces |
+| `--text-on-emphasis` | `#BEC4CC` | Metadata on selected/playing rows, including hover |
+| `--text-disabled` | `#666D76` | Reference palette's muted grey; decorative/disabled use only |
+| `--on-accent` | `#0D0F12` | Text/icons on filled primary buttons |
+| `--warning` / `--danger` | `#E0B07A` / `#E8958A` | Existing warning/error meanings |
+| `--art-empty` | `#1F242A` | Artwork placeholder |
+
+| Accent token | Champagne | Arctic Blue |
+|---|---|---|
+| `--accent` | `#D4AF7C` | `#8FA3FF` |
+| `--accent-light` (hover) | `#EBDCC2` | `#C3D4F0` |
+| `--accent-mid` (pressed) | `#B8935F` | `#6B7FAF` |
+| `--accent-dark` | `#3A2F20` | `#2A3447` |
+| `--accent-highlight` | `#F7E9D7` | `#E6EEFF` |
+
+UNDA tokens: blue `#6BA8FF`, cyan `#5ED6D6`, mint `#7EE4B5`, yellow `#F6D56B`, peach `#FFA78B`, pink `#F78FB3`, purple `#C29BFF`; `--unda-spectrum` interpolates them in OKLab. The existing `--tone-*` DAC lamp colours stay separate.
+
+`styles/tokens.test.ts` checks text/background contrast for both themes, resolving aliases and OKLab values. Small text keeps at least 4.5:1 on its tested surfaces; the darker reference grey is not used for ordinary labels. Computed browser interaction checks must also verify the actual cascade and mixed playing-hover background.
 
 Pure black and white are not used. The surfaces step up in lightness by about 3–4 % each. Depth comes from tone, and shadows appear only on popovers: `--shadow-pop: 0 12px 32px rgb(0 0 0 / 45%)`, with a 1 px `--line` border.
 
-Only a dark theme is planned. A light theme is out of scope, and the brief does not ask for one.
+Only dark themes are included. A light theme remains out of scope.
 
 ### Typography
 
@@ -126,7 +147,7 @@ That is 7 sizes, down from 12. Only two weights are visible in practice: 450 and
 ### Space, size, radius, motion
 
 - **Space:** a 4 px grid. `--space-1` to `--space-8` are 4, 8, 12, 16, 24, 32, 48 and 64 px.
-- **Hit targets:** at least 32 × 32 px for icon buttons and 28 px for row actions. The primary play/pause button is 40 px.
+- **Hit targets:** at least 32 × 32 px for icon buttons and 28 px for row actions. The primary play/pause button is 36 px. Buttons and fields share `--control-height` (30 px, 13 px text); `.small` is 24 px. Buttons that hold content (album cards, artists, the player's now-playing) keep 14 px text.
 - **Radius**, by hierarchy rather than one value for everything:
   - `--radius-s` 4 px: artwork, inputs, rows, small buttons.
   - `--radius-m` 6 px: buttons, popovers.
@@ -194,11 +215,12 @@ The components are kept small, and each exists because it is reused.
 | Component | Replaces | Notes |
 |---|---|---|
 | `Icon.svelte` | Unicode glyphs | Inline SVG, `aria-hidden`; the parent button carries the label |
-| Button styles (CSS) | global `button`, `.small`, `.back`, `.danger` | Variants:<br>• `primary`: filled `--text` on `--bg` text, used once per view, e.g. "Play album".<br>• `secondary`: `--line-strong` border.<br>• `tertiary`: text only.<br>• `icon`: 32 px square, hover `--surface-hover`.<br>• `danger`: modifier. |
-| `Slider.svelte` | seek + volume `input[type=range]` | Native range input, restyled, so keyboard and AT support come free. Track 2 px, 4 px on hover or drag. Filled part `--text`, `--accent` while active. The thumb is hidden until hover, focus or drag. `aria-valuetext` ("1:23 of 4:56", "−12.5 dB"). It holds the value while dragging so updates don't jitter. |
+| Button styles (CSS) | global `button`, `.small`, `.back`, `.danger` | Variants:<br>• `primary`: accent fill, `--on-accent` text; accent-light hover, accent-mid pressed.<br>• `secondary`: default, `--line-strong` border and neutral hover.<br>• `tertiary`: text only.<br>• `icon`: 32 px square; `.primary.icon` is the shared 36 px round transport.<br>• `small`: 24 px compact control.<br>• `danger`: explicit destructive modifier with danger-surface hover.<br>Colours/states live in `base.css`; components own layout, not private primary-button recipes. |
+| `Slider.svelte` | seek + volume `input[type=range]` | Native range input, restyled, so keyboard and AT support come free. Track 2 px, 4 px on hover or drag. Accent fill, accent-light while active; thumb accent-light. The thumb is hidden until hover, focus or drag. `aria-valuetext` ("1:23 of 4:56", "−12.5 dB"). It holds the value while dragging so updates don't jitter. |
 | `Artwork.svelte` | 4 placeholders | Fixed aspect ratio, lazy `loading="lazy"`, `--art-empty` with a centred disc icon, `--radius-s`, no border |
-| Track rows (CSS) | 4 duplicate grids | `.rows` / `.row` in `styles/components.css`:<br>• 40 px rows, hairline only between groups (discs).<br>• Columns: number (tnum, right-aligned), title + artist, format, duration (tnum, right-aligned).<br>• Hover `--surface-hover`, selected `--surface-selected`, playing row `--accent` text plus a small level icon.<br>• Row actions appear on hover or focus. |
+| Track rows (CSS) | 4 duplicate grids | `.rows` / `.row` in `styles/components.css`:<br>• 40 px rows, hairline only between groups (discs).<br>• Hover, click selection and playback use distinct tokens above.<br>• Selection changes the background only, with no border or outline. Playing + selected keeps only the playing mark.<br>• Each track row ends with ⋯, which opens the same menu as a right-click.<br>• Queue entries reuse row states with their own flex layout. Its Now playing card uses the playing treatment.<br>• Double click/Enter still plays; single click still selects. |
 | `Popover.svelte` | AddToPlaylist menu | Anchored below or above its trigger, `--surface-raised`, `--shadow-pop`. Focus moves to the first item, arrow keys move between items, Escape or an outside click closes it and returns focus. Also used by the device picker. |
+| `Toast.svelte` | inline "Saved… Undo" lines | One notice at a time, centred at the foot of the view above the player bar: accent check, short text ("Saved · Files untouched"), an optional accent action (Undo) and ×. It leaves after 8 s (paused on hover or focus), on ×, or on a new view. `role="status"`. |
 | `FormatIndicator.svelte` | `outputLabel` + verdict text | Lamp plus a short label. A button that opens the signal path. Used in the player bar and Now Playing. |
 
 There is no dialog component: removing a folder or playlist keeps the two-click inline confirmation, which the brief prefers for simple operations. There is no state library and no router.
@@ -209,17 +231,17 @@ There is no dialog component: removing a folder or playlist keeps the two-click 
 
 - **Left:** 48 px artwork, title (`--type-label`), and "Artist — Album" (`--type-small`, secondary). Clicking it opens Now Playing.
 - **Centre:**
-  - Previous, play/pause (40 px round, `--text` filled) and next.
+  - Previous, play/pause (36 px round, shared primary accent style) and next.
   - Under them, the seek slider with tabular times on both sides.
   - Stop stays visible: a smaller 32 px tertiary icon button after Next. It is also Ctrl+.
 - **Right:**
   - Format indicator.
   - Device picker: the card name and a chevron, opening a popover that lists devices with "USB" and the active output.
-  - Volume slider (hidden when the device has no hardware volume), with its value on hover as "−12.5 dB" or "64 %".
+  - Right side, one row centred on the bar's height: volume, signal path, output device, queue. Volume is an icon button (hidden when the device has no hardware volume; lock icon when locked; amber dot below 0 dB on USB) that opens a vertical 160 px slider with the value ("−12.5 dB" or "64 %") and its hint. When every control reports dB (`set_volume_db`), the slider runs from max(−60 dB, the device floor) to 0 dB: arrow keys and the wheel step 0.5 dB, Ctrl+↑/↓ 2 dB. Otherwise 0–100 %: 1 % and 5 %.
   - Queue button: opens or closes the queue pane (also Ctrl+5); accent and a dot while open.
 - **Shuffle and repeat** flank previous and next; on, they turn accent with a dot. Repeat cycles off, all, one.
 - **Time:** the length after the seek bar switches to time left on click, remembered between launches.
-- **Below 1100 px:** "Artist — Album" collapses to the artist, and the volume shrinks to an icon button with a popover slider.
+- **Below 1100 px:** "Artist — Album" collapses to the artist; the signal path label truncates first.
 - **Announcements:** a visually hidden `aria-live="polite"` region announces "Playing *title*", "Paused" and errors. It does not announce position ticks.
 
 ### Format label (short, from backend state only)
@@ -274,13 +296,16 @@ These are vertical stages joined by a hairline. Each stage states a fact the bac
   - The 500-row cap becomes windowed rendering: a fixed 40 px row height makes a small hand-written virtual list possible, about 60 lines and no dependency.
   - This is done only if A07 shows the cap is a problem. Otherwise the "showing 500 of N, refine your search" note stays.
 - **Playlists:** the shared rows. Up, down and remove appear as row actions on hover or focus, and Alt+↑ / Alt+↓ moves the focused row.
-- **Queue pane:** 340 px on the right, sliding in over `--dur-panel` and pushing the view; open state remembered. "Now playing" with its cover, then "Up next" in play order (wrapping when repeating all), with covers. Row actions on hover or focus: Play next and Remove; the same plus Play in the right-click menu. Clear keeps only the playing track. Albums, artists and tracks get "Play next" and "Add to queue" in their right-click menus; when nothing plays, they start playback. Up next rows reorder by dragging (an accent line shows where the row lands; the pane scrolls near its edges) or with Alt+↑ / Alt+↓. The playing track and the one already decoded after it stay put; a row dropped on them plays right after.
+- **Coming back:** each view returns to where it was scrolled. The library stays mounted behind Playlists and Settings, so an open album and its filters are still there. The window opens at last session's size (`window.json`, logical pixels, maximized state).
+- **Queue pane:** 340 px on the right, sliding over `--dur-panel` by transform only (the view makes room at once, under the pane); open state remembered. "Now playing" with its cover, then "Up next" in play order (wrapping when repeating all), with covers. Row actions on hover or focus: Play next and Remove; the same plus Play in the right-click menu. Clear keeps only the playing track. Albums, artists and tracks get "Play next" and "Add to queue" in their right-click menus; when nothing plays, they start playback. Up next rows reorder by dragging (an accent line shows where the row lands; the pane scrolls near its edges) or with Alt+↑ / Alt+↓. The playing track and the one already decoded after it stay put; a row dropped on them plays right after.
 
 ### Settings
 
 One compact page of titled groups (built 2026-10-21). Each group is one panel of rows: the setting's name and a single line describing the current choice on the left, a segmented control on the right. There are no boxed radio lists and no paragraphs of explanation.
 
 Groups, in order:
+
+- **Appearance:** Champagne / Arctic Blue accent choice, remembered locally; no audio settings IPC involved.
 
 - **Audio:**
   - Device list with the active output and the "Ask the driver" capabilities.
@@ -347,3 +372,11 @@ All six phases belong to M5. Phases 1–3 also complete the former M4c-2 items (
 3. **Signal path:** reported by the UNDA engine (§7).
 4. **Scope:** all six phases in M5.
 5. **Stop button:** kept in the player bar.
+
+## 11. UI consistency validation (2026-10-23)
+
+The Champagne/Arctic Blue revision passes Rust formatting, workspace Clippy with warnings denied, workspace tests, frontend formatting, Svelte/TypeScript checks, ESLint, all 94 frontend tests, the frontend production build and a native debug `.deb` build.
+
+`tests/e2e/desktop-smoke.py` now uses a temporary XDG profile so tests do not change the listener's library or appearance preference. In the real WebKitGTK window it checks theme persistence across reload, actual pointer hover/pressed states, distinct idle/selected/playing colours, playing-plus-selected precedence, shared rectangular/round primary controls and rendered text contrast. It waits for transitions to settle before comparing colours.
+
+The interaction checks use synthetic rows with the production shared CSS and do not play audio. The smoke test also retains its native IPC/device-list/idle-player checks. It generates `artifacts/ui-{champagne,arctic-blue}-{900,1440}.png`, `artifacts/ui-states.json`, and the usual desktop screenshot/report. Both themes were visually inspected at narrow/wide sizes. Full-library workflows, assistive-technology testing and the remaining physical-DAC acceptance checks are separate from these shared-style checks; M5 is not marked complete by this pass.

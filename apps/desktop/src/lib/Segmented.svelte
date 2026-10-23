@@ -79,7 +79,7 @@
   }
   label.chosen {
     background: var(--surface-selected);
-    color: var(--text);
+    color: var(--accent);
     font-weight: var(--weight-medium);
   }
   input {

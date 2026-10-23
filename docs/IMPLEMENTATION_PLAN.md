@@ -73,10 +73,14 @@ Five PRs: **M4a** library and album browser, **M4b-1** queue, gapless and Now Pl
   6. Settings. *Done:* compact rows with segmented controls; music folders; Output › Diagnostics; About with version and engine status. Licences in About (`scripts/record-notices.py` writes `src/assets/notices.json`; regenerate after lockfile updates). Keyboard shortcut list, from the same table as the key handling (`SHORTCUTS` in `shortcuts.ts`).
 
   Each phase's outcome may adjust the later ones.
+  UI consistency pass (2026-10-23): [design revision](DESIGN_SPEC.md#colour) adopts Champagne/Arctic Blue accents, independent hover/selection/playing row states, shared primary/secondary/tertiary/icon controls and a local Appearance setting. Audio and hardware acceptance remain separate.
 - [x] Name the audio engine **UNDA** (Unified Native Digital Audio): the `player-core` crate is now `crates/unda`; the name shows in Settings › About. Other crates keep their descriptive names.
 - [x] Library preservation ([review](CURRENT_STATE_REVIEW.md) T01): a music folder that cannot be read, or that looks empty while the library has tracks in it (an unplugged drive), keeps its tracks and playlists and shows "not found" in Settings; tracks under an unreadable subfolder and known files that fail to read are kept; adding a parent folder moves the inner folders' tracks instead of deleting them. Removing a folder in Settings still removes its tracks.
 - [x] DoP only to DACs that decode it ([review](CURRENT_STATE_REVIEW.md) T09): DoP goes to a device that also exposes native DSD, or that the user marked “plays DoP” under Settings › Output (`dopDevices` in `settings.json`); otherwise it is refused with that hint, or converted when conversion is on. The PCM carrier and an untouched volume are no longer taken as proof.
 - [ ] Gapless and seek regression tests; unplug/replug tests; buffer underrun diagnostics.
+- [ ] Read-ahead for network and slow storage (own PR, after the design pass): the decoding side reads 20–30 s of compressed file ahead into a bounded buffer (capped in bytes, so DSD256 cannot fill memory), off the output thread. The seek bar shows how far is buffered. Removes dropouts from NAS stalls and disk spin-up.
+- [ ] Hardware efficiency pass, measured before and after (CPU %, RSS, threads, idle wakeups per second): the volume watcher reopens the mixer every 100 ms forever; wait on ALSA mixer events instead (no idle wakeups, faster than 100 ms for the DoP lock). Position polling only while playing and visible. SIMD only where a profile shows a hot loop (DSD→PCM already runs 35–46× real time on one core).
+- [ ] Volume levelling (ReplayGain): read `REPLAYGAIN_*` / `R128_*` tags at scan; measure missing albums with EBU R128 (BS.1770) in a background, low-priority thread. Applied through the DAC's hardware volume, never by scaling samples, so the stream stays bit-perfect; album mode by default (gapless albums keep one level), track mode for shuffle. Off where the DAC has no hardware volume, and during DoP (locked at 0 dB). Shown in the signal path.
 - [ ] MPRIS integration and icons, on the D-Bus client added in M4c-2. *Started:* `src-tauri/src/mpris.rs` serves `org.mpris.MediaPlayer2.lyra` (play/pause, next, previous, stop, seek, raise; status, title, artist, album, cover and length), so laptop media keys, the desktop's sound menu and `playerctl` control Lyra; the window also obeys media keys when it has focus. *Left:* test the media keys and sound menu while playing; volume through MPRIS; A12 evidence.
 - [ ] Packages for recent distributions: `.deb`, `.rpm`, AppImage, Flatpak (needs explicit ALSA device access in the sandbox), AUR. Test each on a real install.
 - [ ] Parser fuzzing, dependency license/security audit, log privacy review.
@@ -95,6 +99,22 @@ Linux stays the reference platform. UI, library and engine are shared; each plat
 - [ ] Packaging and signing: Windows installer (MSI/NSIS) with code signing; macOS `.dmg` with notarization.
 
 **Done when:** PCM and DoP are bit-perfect on both platforms with recorded hardware evidence, and installers are signed.
+
+## M7 — Wireless outputs (after v1)
+
+Same rule as wired outputs: the most direct path, and the signal path says exactly what happens. UPnP can be bit-perfect; Bluetooth never is and is labelled lossy; AirPlay is parked.
+
+- [ ] UPnP/DLNA output. Lyra acts as control point and media server; the network player (renderer) plays and keeps the clock, so this sits beside `AudioSink`, as a remote transport driven by UNDA's queue, not as a sink.
+  - Discovery: SSDP search for `MediaRenderer` and OpenHome `Product` devices; device description and `ConnectionManager.GetProtocolInfo` give the formats and rates it accepts (FLAC, WAV/L16, DSF/DFF, DoP).
+  - Serving: a small HTTP server on the LAN interface serves only queued tracks, under random per-session URLs, with Range for seeking; no directory listing, no paths in URLs; stops with the output.
+  - Two modes, chosen per track from the renderer's formats: send the file untouched (the renderer decodes; bit-perfect up to the renderer) or, when the renderer lacks the format, send decoded PCM as WAV/L16 at the source rate. Never resample; refuse instead, as for ALSA.
+  - Control: `AVTransport` (SetAVTransportURI, Play, Pause, Seek, Stop) with `SetNextAVTransportURI` for gapless; the OpenHome Playlist service where offered. `RenderingControl` volume when the renderer exposes it. Position from GENA events, polling as fallback.
+  - Signal path: renderer name and model, what is sent (file or PCM), format reported by the renderer; verdict "bit-perfect to the renderer" only when the bytes leave Lyra untouched.
+  - Dependencies: reuse `quick-xml` and `ureq`, already in the tree; small std UDP code for SSDP. Pick the HTTP server (std `TcpListener` or `hyper`, already in the tree) at design time.
+- [ ] Bluetooth: the best available lossy path, never called bit-perfect. Output through PipeWire's BlueZ sink at the source rate when the codec allows it (LDAC 44.1–96 kHz; aptX HD 48 kHz). Show the negotiated codec and bitrate (BlueZ `MediaTransport1`) in the signal path, with a "lossy wireless" verdict. Documented alternative today: a USB Bluetooth transmitter (LDAC / aptX Adaptive) is a normal USB audio device, so the existing ALSA path reaches it bit-perfect.
+- [ ] AirPlay (parked): ALAC at 16/44.1 (some AirPlay 2 receivers take 24/48), so it is bit-perfect only for CD-rate sources and needs downsampling otherwise. Sending does not need Apple's SDK (open implementations such as OwnTone exist), but AirPlay 2 pairing and timing make it a large subsystem to maintain. Reconsider only on user demand.
+
+**Done when:** a FLAC, a hi-res PCM file and a DSF play gaplessly to at least two UPnP renderers from different vendors, with the bytes received checked against the source where the renderer allows it; Bluetooth shows its codec and lossy verdict.
 
 ## Initial M0 prompt
 

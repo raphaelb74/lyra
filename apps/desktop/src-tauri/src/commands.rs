@@ -638,11 +638,40 @@ pub fn set_volume(
     percent: u8,
     state: State<'_, AppState>,
 ) -> Result<Option<VolumeInfo>, IpcError> {
+    change_volume(device, &state, |device| {
+        audio_alsa::set_volume(device, percent)
+    })
+}
+
+/// Sets `device`'s total hardware attenuation in dB; refused while DoP
+/// plays on it.
+#[tauri::command]
+pub fn set_volume_db(
+    device: String,
+    decibels: f64,
+    state: State<'_, AppState>,
+) -> Result<Option<VolumeInfo>, IpcError> {
+    if !decibels.is_finite() {
+        return Err(IpcError::invalid_request(
+            "The volume must be a number of dB",
+        ));
+    }
+    change_volume(device, &state, |device| {
+        audio_alsa::set_volume_db(device, decibels)
+    })
+}
+
+/// Applies `set` to a hardware device's volume, unless DoP holds it at 0 dB.
+fn change_volume(
+    device: String,
+    state: &AppState,
+    set: impl FnOnce(&str) -> Result<Option<audio_alsa::VolumeLevel>, audio_alsa::AlsaError>,
+) -> Result<Option<VolumeInfo>, IpcError> {
     let device = hardware_device(device)?;
     if let Some(reason) = state.player.status().volume_lock(&device) {
         return Err(IpcError::invalid_request(reason));
     }
-    let level = audio_alsa::set_volume(&device, percent).map_err(|error| volume_error(&error))?;
+    let level = set(&device).map_err(|error| volume_error(&error))?;
     Ok(level.map(|level| volume_info(level, None)))
 }
 
@@ -707,6 +736,8 @@ pub fn volume_info(level: audio_alsa::VolumeLevel, locked: Option<&'static str>)
     VolumeInfo {
         percent: level.percent,
         decibels: level.decibels,
+        min_decibels: level.decibel_range.map(|(min, _)| min),
+        max_decibels: level.decibel_range.map(|(_, max)| max),
         usb: level.usb,
         locked,
     }

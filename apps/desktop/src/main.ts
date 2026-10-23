@@ -3,6 +3,7 @@ import './styles/base.css';
 import './styles/components.css';
 import App from './App.svelte';
 import { isTyping } from './lib/shortcuts';
+import { readTheme } from './lib/theme';
 import { mount } from 'svelte';
 
 const target = document.getElementById('app');
@@ -11,6 +12,8 @@ if (!target) throw new Error('Missing #app element in index.html');
 
 // Focus rings follow the keyboard: a click leaves none (styles/base.css).
 const root = document.documentElement;
+
+root.dataset.theme = readTheme();
 
 root.dataset.input = 'pointer';
 

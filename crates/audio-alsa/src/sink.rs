@@ -18,8 +18,8 @@ const PERIODS: u32 = 4;
 /// 125–250 ms, long enough to ride out scheduling hiccups on a busy
 /// desktop. Seek and stop drop it, so it adds no control latency.
 const PERIODS_PER_SECOND: u32 = 16;
-/// Native DSD warm-up (see [`AlsaSink::warm_up`]): idle pattern played, then
-/// a pause before the real open.
+/// Warm-up (see [`AlsaSink::warm_up`]): silence played, then a pause before
+/// the real open.
 const WARM_UP_SILENCE: Duration = Duration::from_millis(100);
 const WARM_UP_PAUSE: Duration = Duration::from_millis(150);
 /// Longest single wait for buffer space before re-checking the device.
@@ -43,6 +43,35 @@ pub struct AlsaSink {
     stream: Option<Stream>,
     reservation: Option<Reservation>,
     stats: Arc<SinkStats>,
+    /// What the device was last opened as while Lyra held the card; `None`
+    /// after a close, when the sound server may have used it since.
+    mode: Option<Mode>,
+}
+
+/// The part of an open that switches a DAC between modes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Mode {
+    device: String,
+    encoding: Encoding,
+    sample_rate: u32,
+    channels: usize,
+}
+
+impl Mode {
+    fn of(device: &str, output: &OutputFormat) -> Self {
+        Self {
+            device: device.to_owned(),
+            encoding: output.encoding,
+            sample_rate: output.sample_rate,
+            channels: output.channels,
+        }
+    }
+}
+
+/// Native DSD always warms up; PCM and DoP when the device's mode changes,
+/// or on the first open since Lyra took the card.
+fn needs_warm_up(previous: Option<&Mode>, next: &Mode) -> bool {
+    matches!(next.encoding, Encoding::Dsd(_)) || previous != Some(next)
 }
 
 /// Buffer geometry the driver granted, for diagnostics.
@@ -222,14 +251,15 @@ impl AlsaSink {
 }
 
 impl AlsaSink {
-    /// Plays a moment of DSD idle pattern on the open stream and closes it,
-    /// keeping the card.
+    /// Plays a moment of silence (DSD idle pattern for DSD) on the open
+    /// stream and closes it, keeping the card.
     ///
     /// Some USB DACs (the iFi USB Audio SE, see docs/hardware) sometimes
-    /// stay in PCM mode when a native DSD stream starts after a mode change,
-    /// and play the DSD as loud hiss; nothing on the host side shows it.
-    /// Stopping and playing again always worked: the DAC is already in DSD
-    /// at that rate. Opening twice does the same on the first play.
+    /// stay in the previous mode after a mode change and play the new stream
+    /// as loud noise: DSD as hiss, or PCM as noise after DSD or after the
+    /// sound server's rate. Nothing on the host side shows it. Stopping and
+    /// playing again always worked: the DAC is already in that mode. Opening
+    /// twice does the same on the first play.
     fn warm_up(&mut self, output: OutputFormat) {
         let frames =
             usize::try_from(u128::from(output.sample_rate) * WARM_UP_SILENCE.as_millis() / 1000)
@@ -248,12 +278,15 @@ impl AlsaSink {
 impl AudioSink for AlsaSink {
     fn open(&mut self, device: &str, stream: &StreamFormat) -> Result<OutputFormat, SinkError> {
         let mut result = self.open_stream(device, stream);
-        if let Ok(output) = result
-            && matches!(output.encoding, Encoding::Dsd(_))
+        let mode = result.as_ref().ok().map(|output| Mode::of(device, output));
+        if let (Ok(output), Some(next)) = (&result, &mode)
+            && needs_warm_up(self.mode.as_ref(), next)
         {
-            self.warm_up(output);
+            self.warm_up(*output);
+            // The same request opens the same mode again.
             result = self.open_stream(device, stream);
         }
+        self.mode = mode.filter(|_| result.is_ok());
         if result.is_err() {
             // Nothing is playing: the sound server may have the card back.
             self.stats.closed();
@@ -343,6 +376,7 @@ impl AudioSink for AlsaSink {
         // Dropping the handle closes the device; queued audio is discarded.
         self.stream = None;
         self.reservation = None;
+        self.mode = None;
         self.stats.closed();
     }
 }
@@ -422,7 +456,39 @@ fn period_frames(rate: u32) -> alsa::pcm::Frames {
 
 #[cfg(test)]
 mod tests {
-    use super::{card_control, device_number, hw_part, period_frames};
+    use format_dsd::DsdLayout;
+    use format_pcm::SampleEncoding;
+    use unda::Encoding;
+
+    use super::{Mode, card_control, device_number, hw_part, needs_warm_up, period_frames};
+
+    fn mode(encoding: Encoding, sample_rate: u32) -> Mode {
+        Mode {
+            device: "hw:CARD=SE,DEV=0".to_owned(),
+            encoding,
+            sample_rate,
+            channels: 2,
+        }
+    }
+
+    #[test]
+    fn warms_up_on_a_mode_change_and_always_for_native_dsd() {
+        let pcm = mode(Encoding::Pcm(SampleEncoding::S24In3Le), 44_100);
+        let dsd = mode(Encoding::Dsd(DsdLayout::U32Be), 88_200);
+
+        // First open since Lyra took the card, and PCM after DSD.
+        assert!(needs_warm_up(None, &pcm));
+        assert!(needs_warm_up(Some(&dsd), &pcm));
+        // Another rate is another mode.
+        assert!(needs_warm_up(
+            Some(&mode(Encoding::Pcm(SampleEncoding::S24In3Le), 96_000)),
+            &pcm
+        ));
+        // The next track in the same format opens at once.
+        assert!(!needs_warm_up(Some(&pcm), &pcm));
+        // Native DSD: every open, as before.
+        assert!(needs_warm_up(Some(&dsd), &dsd));
+    }
 
     #[test]
     fn parses_hw_names() {

@@ -2,7 +2,6 @@
   import { isTauri } from '@tauri-apps/api/core';
   import { onMount, tick } from 'svelte';
   import { cubicOut } from 'svelte/easing';
-  import { slide } from 'svelte/transition';
 
   import {
     BackendError,
@@ -14,7 +13,7 @@
     type Repeat,
     type TrackDetails,
   } from './lib/ipc';
-  import { onLibraryChanged, onStatus } from './lib/events';
+  import { onDevicesChanged, onLibraryChanged, onStatus } from './lib/events';
   import Library from './lib/Library.svelte';
   import NowPlaying from './lib/NowPlaying.svelte';
   import PlayerBar from './lib/PlayerBar.svelte';
@@ -33,6 +32,8 @@
   import DevicePicker from './lib/DevicePicker.svelte';
   import VolumeControl from './lib/VolumeControl.svelte';
   import { readFlag, writeFlag } from './lib/storage';
+  import Toast from './lib/Toast.svelte';
+  import { dismissToast } from './lib/toast.svelte';
 
   const api = backend();
 
@@ -47,6 +48,16 @@
     | 'diagnostics'
     | 'licences'
     | 'fixtags';
+
+  type Section = 'albums' | 'artists' | 'tracks';
+
+  function isSection(candidate: View): candidate is Section {
+    return (
+      candidate === 'albums' ||
+      candidate === 'artists' ||
+      candidate === 'tracks'
+    );
+  }
 
   const views: readonly { id: View; label: string; icon: IconName }[] = [
     { id: 'albums', label: 'Albums', icon: 'disc-3' },
@@ -80,6 +91,24 @@
   let view = $state<View>('albums');
   /** Where Now Playing and Diagnostics go back to. */
   let back = $state<View>('albums');
+  /** The library stays mounted behind other views, on the section last
+   * shown, so its open album and filters survive a trip to Settings. */
+  let lastSection: Section = 'albums';
+  const section = $derived.by(() => {
+    if (isSection(view)) lastSection = view;
+
+    return lastSection;
+  });
+  let mainElement = $state<HTMLElement>();
+  /** How far each view was scrolled, restored when it comes back. */
+  const scrolled: Partial<Record<View, number>> = {};
+
+  // A new view: back where it was left, and no notice from the old one.
+  $effect(() => {
+    if (mainElement) mainElement.scrollTop = scrolled[view] ?? 0;
+
+    dismissToast();
+  });
   let details = $state<TrackDetails | null>(null);
   /** Bumped when the library changes: an edit may rename what plays. */
   let libraryVersion = $state(0);
@@ -112,13 +141,25 @@
     }
   }
 
+  /** The device picked by hand; chosen again when it is plugged back in. */
+  let pickedDevice = '';
+
+  function pickDevice(name: string) {
+    pickedDevice = name;
+    selectedDevice = name;
+  }
+
   async function loadDevices() {
     try {
       devices = await api.listDevices();
 
-      if (!devices.some((d) => d.name === selectedDevice)) {
-        // The list comes most-wanted first (USB DACs, then built-in
-        // audio); never switch while a listed device is chosen.
+      const listed = (name: string) => devices.some((d) => d.name === name);
+      const midTrack = status.state !== 'stopped' && status.state !== 'error';
+
+      if (listed(pickedDevice)) selectedDevice = pickedDevice;
+      // The list comes most-wanted first (USB DACs, then built-in audio),
+      // but a track keeps the device it started on.
+      else if (!(midTrack && listed(selectedDevice))) {
         selectedDevice = devices[0]?.name ?? '';
       }
     } catch (error) {
@@ -133,18 +174,21 @@
     writeFlag(QUEUE_OPEN_KEY, open);
   }
 
-  /** The panel slide follows --dur-panel, which is 0 with reduced motion. */
-  function panelMotion() {
-    const token = getComputedStyle(document.documentElement)
-      .getPropertyValue('--dur-panel')
-      .trim();
+  /**
+   * The queue pane slides by transform only: nothing is laid out again
+   * frame by frame. The view makes room at once, under the pane.
+   * Follows --dur-panel, which is 0 with reduced motion.
+   */
+  function panelSlide(node: Element) {
+    const token = getComputedStyle(node).getPropertyValue('--dur-panel').trim();
 
     const amount = parseFloat(token) || 0;
 
     return {
-      axis: 'x' as const,
       duration: token.endsWith('ms') ? amount : amount * 1000,
       easing: cubicOut,
+      css: (_t: number, u: number) =>
+        `transform: translateX(${String(u * 100)}%)`,
     };
   }
 
@@ -265,6 +309,9 @@
       onLibraryChanged(() => {
         libraryVersion += 1;
       }),
+      onDevicesChanged(() => {
+        void loadDevices();
+      }),
     ];
 
     return () => {
@@ -314,7 +361,7 @@
 <div class="app" data-connected={connected}>
   <TitleBar />
   <ContextMenu />
-  <div class="layout">
+  <div class="layout" class:queue-open={queueOpen}>
     <aside aria-label="Application">
       <nav aria-label="Main navigation">
         {#each views as item (item.id)}
@@ -346,85 +393,94 @@
         </button>
       </nav>
     </aside>
-    <main>
-      {#if connectionError}
-        <div class="alert engine" role="alert">
-          <span>{connectionError}</span>
-          <button
-            type="button"
-            class="small"
-            disabled={checking}
-            onclick={checkBackend}>{checking ? 'Retrying…' : 'Retry'}</button
-          >
+    <div class="stage">
+      <main
+        bind:this={mainElement}
+        onscroll={(event) => {
+          scrolled[view] = event.currentTarget.scrollTop;
+        }}
+      >
+        {#if connectionError}
+          <div class="alert engine" role="alert">
+            <span>{connectionError}</span>
+            <button
+              type="button"
+              class="small"
+              disabled={checking}
+              onclick={checkBackend}>{checking ? 'Retrying…' : 'Retry'}</button
+            >
+          </div>
+        {/if}
+        {#if shownError}
+          <p class="alert" role="alert">{shownError}</p>
+        {/if}
+        <div class="keep" hidden={!isSection(view)}>
+          <Library
+            {section}
+            {api}
+            device={selectedDevice}
+            playingId={libraryId}
+            onError={showError}
+          />
         </div>
-      {/if}
-      {#if shownError}
-        <p class="alert" role="alert">{shownError}</p>
-      {/if}
-      {#if view === 'albums' || view === 'artists' || view === 'tracks'}
-        <Library
-          section={view}
-          {api}
-          device={selectedDevice}
-          playingId={libraryId}
-          onError={showError}
-        />
-      {:else if view === 'playlists'}
-        <Playlists
-          {api}
-          device={selectedDevice}
-          playingId={libraryId}
-          onError={showError}
-        />
-      {:else if view === 'now'}
-        <NowPlaying
-          {status}
-          {details}
-          device={playingDevice}
-          onBack={() => (view = back)}
-        />
-      {:else if view === 'settings'}
-        <Settings
-          {api}
-          {appInfo}
-          {connected}
-          {checking}
-          {device}
-          onCheck={checkBackend}
-          onOpenDiagnostics={() => {
-            visit('diagnostics');
-          }}
-          onOpenLicences={() => {
-            visit('licences');
-          }}
-          onOpenFixTags={() => {
-            visit('fixtags');
-          }}
-          onError={showError}
-        />
-      {:else if view === 'fixtags'}
-        <FixTags
-          {api}
-          albumId={null}
-          scope="Whole library"
-          backLabel="Settings"
-          onBack={() => (view = 'settings')}
-          onError={showError}
-        />
-      {:else if view === 'licences'}
-        <Licences onBack={() => (view = 'settings')} />
-      {:else}
-        <Diagnostics
-          {api}
-          {device}
-          {status}
-          onBack={() => (view = 'settings')}
-          onError={showError}
-        />
-      {/if}
-    </main>
+        {#if view === 'playlists'}
+          <Playlists
+            {api}
+            device={selectedDevice}
+            playingId={libraryId}
+            onError={showError}
+          />
+        {:else if view === 'now'}
+          <NowPlaying
+            {status}
+            {details}
+            device={playingDevice}
+            onBack={() => (view = back)}
+          />
+        {:else if view === 'settings'}
+          <Settings
+            {api}
+            {appInfo}
+            {connected}
+            {checking}
+            {device}
+            onCheck={checkBackend}
+            onOpenDiagnostics={() => {
+              visit('diagnostics');
+            }}
+            onOpenLicences={() => {
+              visit('licences');
+            }}
+            onOpenFixTags={() => {
+              visit('fixtags');
+            }}
+            onError={showError}
+          />
+        {:else if view === 'fixtags'}
+          <FixTags
+            {api}
+            albumId={null}
+            scope="Whole library"
+            backLabel="Settings"
+            onBack={() => (view = 'settings')}
+            onError={showError}
+          />
+        {:else if view === 'licences'}
+          <Licences onBack={() => (view = 'settings')} />
+        {:else if view === 'diagnostics'}
+          <Diagnostics
+            {api}
+            {device}
+            {status}
+            onBack={() => (view = 'settings')}
+            onError={showError}
+          />
+        {/if}
+      </main>
+      <Toast />
+    </div>
     {#if queueOpen}
-      <div class="queue-pane" transition:slide={panelMotion()}>
+      <div class="queue-pane" transition:panelSlide>
         <QueuePanel
           {api}
           {status}
@@ -465,7 +521,24 @@
       void command(() => api.seek(seconds));
     }}
   >
+    {#snippet volume()}
+      {#if selectedDevice !== ''}
+        <VolumeControl
+          {api}
+          device={selectedDevice}
+          {status}
+          onError={showError}
+        />
+      {/if}
+    {/snippet}
     {#snippet output()}
+      <DevicePicker
+        {devices}
+        selected={selectedDevice}
+        loaded={devicesLoaded}
+        onSelect={pickDevice}
+        onRefresh={loadDevices}
+      />
       <button
         type="button"
         class="icon"
@@ -476,21 +549,6 @@
           setQueueOpen(!queueOpen);
         }}><Icon name="list-ordered" size={18} /></button
       >
-      {#if selectedDevice !== ''}
-        <VolumeControl
-          {api}
-          device={selectedDevice}
-          {status}
-          onError={showError}
-        />
-      {/if}
-      <DevicePicker
-        {devices}
-        selected={selectedDevice}
-        loaded={devicesLoaded}
-        onSelect={(name: string) => (selectedDevice = name)}
-        onRefresh={loadDevices}
-      />
     {/snippet}
     {#snippet signalPath()}
       {#if status.track}
@@ -520,8 +578,18 @@
     z-index: 100;
   }
   .layout {
+    --queue-width: 340px;
+
+    position: relative;
+    /* The queue pane's z-index stays inside: the player bar's popovers
+       (volume, device) still open over it. */
+    isolation: isolate;
     display: flex;
     min-height: 0;
+    overflow: hidden;
+  }
+  .layout.queue-open {
+    padding-right: var(--queue-width);
   }
   aside {
     width: var(--sidebar-width);
@@ -554,9 +622,11 @@
   nav button:hover:not(:disabled) {
     color: var(--text);
   }
-  nav [aria-current='page'] {
-    color: var(--text);
-    background: var(--surface-selected);
+  /* The current page carries the brand accent, as in the design guide. */
+  nav [aria-current='page'],
+  nav [aria-current='page']:hover:not(:disabled) {
+    color: var(--accent-light);
+    background: var(--accent-dark);
   }
   nav [aria-current='page'] :global(svg) {
     color: var(--accent);
@@ -574,19 +644,34 @@
 
     padding: var(--space-2) var(--page-gutter) var(--space-6);
     min-width: 0;
-    max-width: 1400px;
     overflow-y: auto;
   }
   /* Views flow top to bottom; one may fill the height (Artists). */
-  main > :global(*) {
+  main > :global(*),
+  .keep > :global(*) {
     flex-shrink: 0;
   }
-  /* Fixed inner width: the pane slides in without its text reflowing. */
+  /* The library stays mounted while hidden: it lays out as part of main. */
+  .keep {
+    display: contents;
+  }
+  .keep[hidden] {
+    display: none;
+  }
+  /* Holds the toast over the view, whatever the view scrolls to. */
+  .stage {
+    flex: 1;
+    min-width: 0;
+    max-width: 1400px;
+    display: flex;
+    position: relative;
+  }
+  /* Over the layout's right edge; the open layout keeps room for it. */
   .queue-pane {
-    --queue-width: 340px;
-
-    flex-shrink: 0;
-    overflow: hidden;
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: var(--queue-width);
+    z-index: 20;
   }
   .engine {
     display: flex;

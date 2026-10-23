@@ -24,6 +24,7 @@
   import { scanText } from './format';
   import { attempt, type Album, type Backend, type ScanStatus } from './ipc';
   import { addToPlaylist, openMenu, queueActions } from './menu.svelte';
+  import { showToast } from './toast.svelte';
 
   interface Props {
     /** Chosen in the sidebar. */
@@ -59,13 +60,8 @@
   const openAlbum = $derived(opened?.from === section ? opened.album : null);
   const titles = { albums: 'Albums', artists: 'Artists', tracks: 'Tracks' };
 
-  /** A save the user can still undo from here. */
-  let undoable = $state(false);
-  let undoNotice = $state<string | null>(null);
-
   /** Opens an album straight on its editor. */
   function edit(album: Album) {
-    undoNotice = null;
     void showAlbum(album, 'edit');
   }
 
@@ -75,10 +71,16 @@
   }
 
   async function undo() {
-    undoable = false;
-    const undone = await attempt(api.undoEdit, onError);
+    if (await attempt(api.undoEdit, onError)) showToast({ text: 'Undone' });
+  }
 
-    undoNotice = undone ? 'Undone.' : null;
+  function saved() {
+    showToast({
+      text: 'Saved',
+      detail: 'Files untouched',
+      action: { label: 'Undo', run: () => void undo() },
+    });
+    turnTo('view');
   }
 
   /** Filters stay while an album is open and between sections. */
@@ -248,19 +250,6 @@
   });
 </script>
 
-{#if undoable || undoNotice}
-  <p class="muted saved" role="status">
-    {#if undoable}
-      Saved in Lyra; your music files are unchanged.
-      <button type="button" class="tertiary small" onclick={() => void undo()}
-        >Undo</button
-      >
-    {:else}
-      {undoNotice}
-    {/if}
-  </p>
-{/if}
-
 {#if openAlbum && opened?.page === 'edit'}
   <AlbumEditor
     {api}
@@ -268,10 +257,7 @@
     onBack={() => {
       turnTo('view');
     }}
-    onSaved={() => {
-      undoable = true;
-      turnTo('view');
-    }}
+    onSaved={saved}
     {onError}
   />
 {:else if openAlbum && opened?.page === 'fix'}
@@ -292,10 +278,7 @@
     onBack={() => {
       turnTo('view');
     }}
-    onSaved={() => {
-      undoable = true;
-      turnTo('view');
-    }}
+    onSaved={saved}
   />
 {:else if openAlbum}
   <AlbumView
@@ -306,14 +289,12 @@
     {onError}
     onBack={closeAlbum}
     onEdit={() => {
-      undoNotice = null;
       turnTo('edit');
     }}
     onFixTags={() => {
       turnTo('fix');
     }}
     onMatch={() => {
-      undoNotice = null;
       turnTo('match');
     }}
   />
@@ -323,47 +304,50 @@
     class:fill={section === 'artists'}
     aria-label={titles[section]}
   >
-    <div class="heading">
-      <h2>{titles[section]}</h2>
-      {#if section === 'albums' && albums.length > 0}
-        <div class="tools">
-          <span class="muted num"
-            >{shownAlbums.length === albums.length
-              ? `${String(albums.length)} albums`
-              : `${String(shownAlbums.length)} of ${String(albums.length)}`}</span
-          >
-          <input
-            type="search"
-            placeholder="Filter albums"
-            aria-label="Filter albums by title, artist or year"
-            bind:value={albumFilter.query}
-          />
-          <FilterMenu
-            label="Filter and sort albums"
-            groups={albumGroups}
-            active={albumsFiltered}
-            onReset={() => {
-              albumFilter = { ...NO_ALBUM_FILTER, query: albumFilter.query };
-            }}
-          />
-        </div>
-      {:else if section === 'artists' && albums.length > 0}
-        <div class="tools">
-          <input
-            type="search"
-            placeholder="Filter artists"
-            aria-label="Filter artists by name"
-            bind:value={artistQuery}
-          />
-          <FilterMenu
-            label="Sort artists"
-            groups={artistGroups}
-            active={artistSort !== 'name'}
-            onReset={() => (artistSort = 'name')}
-          />
-        </div>
-      {/if}
-    </div>
+    <!-- Tracks draws its own, with its search and Play. -->
+    {#if section !== 'tracks' || albums.length === 0}
+      <div class="heading">
+        <h2>{titles[section]}</h2>
+        {#if section === 'albums' && albums.length > 0}
+          <div class="tools">
+            <span class="muted num"
+              >{shownAlbums.length === albums.length
+                ? `${String(albums.length)} albums`
+                : `${String(shownAlbums.length)} of ${String(albums.length)}`}</span
+            >
+            <input
+              type="search"
+              placeholder="Filter albums"
+              aria-label="Filter albums by title, artist or year"
+              bind:value={albumFilter.query}
+            />
+            <FilterMenu
+              label="Filter and sort albums"
+              groups={albumGroups}
+              active={albumsFiltered}
+              onReset={() => {
+                albumFilter = { ...NO_ALBUM_FILTER, query: albumFilter.query };
+              }}
+            />
+          </div>
+        {:else if section === 'artists' && albums.length > 0}
+          <div class="tools">
+            <input
+              type="search"
+              placeholder="Filter artists"
+              aria-label="Filter artists by name"
+              bind:value={artistQuery}
+            />
+            <FilterMenu
+              label="Sort artists"
+              groups={artistGroups}
+              active={artistSort !== 'name'}
+              onReset={() => (artistSort = 'name')}
+            />
+          </div>
+        {/if}
+      </div>
+    {/if}
     {#if notice !== null || scan?.running}
       <p class="muted scanning" role="status">
         {notice ?? (scan === null ? '' : scanText(scan))}
@@ -373,9 +357,9 @@
       {#if loaded}
         <div class="drop">
           {#if hasFolders}
-            <p>No FLAC, WAV, DSF or DFF files found yet.</p>
+            <p>No music yet.</p>
           {:else}
-            <p>Add a music folder, or drop one onto this window.</p>
+            <p>Add a folder in Settings, or drop one here.</p>
             <button
               type="button"
               class="primary"
@@ -443,9 +427,6 @@
   }
   .tools input {
     width: 220px;
-  }
-  .saved {
-    margin: 0 0 var(--space-3);
   }
   .scanning {
     margin: 0 0 var(--space-4);

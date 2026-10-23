@@ -176,10 +176,7 @@ impl NowPlaying {
         let output = self.output?;
         if let Encoding::Converted(_) = output.encoding {
             return Some(BitPerfect::No {
-                reason: format!(
-                    "DSD is converted to PCM at {} Hz (conversion is on in Settings)",
-                    output.sample_rate
-                ),
+                reason: "DSD converted to PCM".into(),
             });
         }
         let exact = output.channels == self.source.channels()
@@ -197,16 +194,16 @@ impl NowPlaying {
             };
         if !exact {
             return Some(BitPerfect::No {
-                reason: "output format differs from the source".into(),
+                reason: "Format changed on the way".into(),
             });
         }
         Some(match output.hardware_volume {
             HardwareVolume::None | HardwareVolume::Unity => BitPerfect::Yes,
             HardwareVolume::Attenuated { centibels } => BitPerfect::No {
-                reason: format!("DAC volume is {} dB, not 0 dB", format_db(centibels)),
+                reason: format!("DAC volume {} dB", format_db(centibels)),
             },
             HardwareVolume::Unknown => BitPerfect::Unverified {
-                reason: "the DAC volume level cannot be read".into(),
+                reason: "DAC volume unknown".into(),
             },
         })
     }
@@ -352,7 +349,7 @@ mod tests {
         assert_eq!(
             playing(HardwareVolume::Attenuated { centibels: -601 }).bit_perfect(),
             Some(BitPerfect::No {
-                reason: "DAC volume is −6.01 dB, not 0 dB".into()
+                reason: "DAC volume −6.01 dB".into()
             })
         );
         assert!(matches!(

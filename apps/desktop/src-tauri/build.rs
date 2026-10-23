@@ -46,6 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "set_settings",
             "get_volume",
             "set_volume",
+            "set_volume_db",
             "get_diagnostics",
             "probe_device",
             "album_editor",
@@ -60,6 +61,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "match_cover",
             "apply_match",
         ]));
+    // The window icon is embedded at compile time: on Linux, Tauri takes the
+    // first PNG in `bundle.icon` (tauri.conf.json), so 256 px comes first to
+    // stay sharp on HiDPI panels. Rebuild when any icon changes.
+    println!("cargo:rerun-if-changed=icons");
     tauri_build::try_build(attributes)?;
     Ok(())
 }

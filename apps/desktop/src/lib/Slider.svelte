@@ -63,7 +63,7 @@
 />
 
 <style>
-  /* A thin precise line: filled part in text colour, handle on demand. */
+  /* Shared accent for both transport and volume, handle on demand. */
   .slider {
     --track: 2px;
     --thumb: 12px;
@@ -97,7 +97,7 @@
     border-radius: var(--track);
     background: linear-gradient(
       to right,
-      var(--text) var(--fill),
+      var(--accent) var(--fill),
       var(--line-strong) var(--fill)
     );
     transition: height var(--dur-fast) var(--ease);
@@ -106,7 +106,7 @@
   .slider:active::-webkit-slider-runnable-track {
     background: linear-gradient(
       to right,
-      var(--accent) var(--fill),
+      var(--accent-light) var(--fill),
       var(--line-strong) var(--fill)
     );
   }
@@ -117,7 +117,7 @@
     margin-top: calc((var(--track) - var(--thumb)) / 2);
     border: 0;
     border-radius: var(--radius-round);
-    background: var(--text);
+    background: var(--accent-light);
     opacity: 0;
     transition: opacity var(--dur-fast) var(--ease);
   }
@@ -146,14 +146,14 @@
   .slider::-moz-range-progress {
     height: var(--track);
     border-radius: var(--track);
-    background: var(--text);
+    background: var(--accent);
   }
   .slider::-moz-range-thumb {
     width: var(--thumb);
     height: var(--thumb);
     border: 0;
     border-radius: var(--radius-round);
-    background: var(--text);
+    background: var(--accent-light);
     opacity: 0;
   }
   .slider:hover:not(:disabled)::-moz-range-thumb,

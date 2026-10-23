@@ -120,7 +120,7 @@
         <li>
           <button
             type="button"
-            class="artist"
+            class="artist content"
             data-id={artist.id}
             aria-current={artist.id === current?.id ? 'true' : undefined}
             onclick={() => {
@@ -178,7 +178,7 @@
           </div>
           <button
             type="button"
-            class="icon play"
+            class="icon primary"
             aria-label={`Play ${current.name}`}
             title="Play"
             disabled={device === '' || albums.length === 0}
@@ -264,16 +264,5 @@
     font-size: var(--type-heading);
     line-height: var(--leading-heading);
     font-weight: var(--weight-strong);
-  }
-  .play {
-    width: var(--hit-primary);
-    height: var(--hit-primary);
-    border-radius: var(--radius-round);
-    background: var(--text);
-    color: var(--bg);
-  }
-  .play:hover:not(:disabled) {
-    background: var(--text-secondary);
-    color: var(--bg);
   }
 </style>

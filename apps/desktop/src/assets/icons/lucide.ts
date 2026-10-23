@@ -254,6 +254,11 @@ export const icons = {
     ['circle', { cx: '9', cy: '9', r: '2' }],
     ['path', { d: 'm21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21' }],
   ],
+  ellipsis: [
+    ['circle', { cx: '12', cy: '12', r: '1' }],
+    ['circle', { cx: '19', cy: '12', r: '1' }],
+    ['circle', { cx: '5', cy: '12', r: '1' }],
+  ],
 } as const satisfies Record<string, readonly IconPart[]>;
 
 export type IconName = keyof typeof icons;

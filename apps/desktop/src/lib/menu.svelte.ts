@@ -23,29 +23,35 @@ export type MenuItem =
 interface OpenMenu {
   x: number;
   y: number;
+  /** The panel ends at `x` instead of starting there (under a ⋯ button). */
+  alignEnd: boolean;
   items: MenuItem[];
 }
 
 export const menu = $state<{ open: OpenMenu | null }>({ open: null });
 
 /**
- * Opens `items` where the pointer is; from the keyboard (Menu key,
- * Shift+F10), under the focused element.
+ * Opens `items` where the pointer is. From a button (⋯) or the keyboard
+ * (Menu key, Shift+F10), under the element instead.
  */
 export function openMenu(event: MouseEvent, items: MenuItem[]) {
   event.preventDefault();
   event.stopPropagation();
 
+  const fromButton = event.type === 'click';
   let { clientX: x, clientY: y } = event;
 
-  if (x === 0 && y === 0 && event.currentTarget instanceof Element) {
+  if (
+    (fromButton || (x === 0 && y === 0)) &&
+    event.currentTarget instanceof Element
+  ) {
     const box = event.currentTarget.getBoundingClientRect();
 
-    x = box.left + box.width / 2;
+    x = fromButton ? box.right : box.left + box.width / 2;
     y = box.bottom;
   }
 
-  menu.open = { x, y, items };
+  menu.open = { x, y, alignEnd: fromButton, items };
 }
 
 export function closeMenu() {
@@ -55,6 +61,16 @@ export function closeMenu() {
 /** Shows other items in the open menu, in its place. */
 export function replaceItems(items: MenuItem[]) {
   if (menu.open !== null) menu.open = { ...menu.open, items };
+}
+
+/** Turns shuffle on and plays `ids` from a random track. */
+export async function playShuffled(
+  api: Backend,
+  ids: number[],
+  device: string,
+): Promise<void> {
+  await api.setShuffle(true);
+  await api.playTracks(ids, Math.floor(Math.random() * ids.length), device);
 }
 
 /** "Play next" and "Add to queue"; when nothing plays, they play the tracks. */

@@ -14,7 +14,9 @@
     position: number;
     /** Library data of the playing track, when it comes from the library. */
     details: TrackDetails | null;
-    /** Volume and output device, on the right of the transport. */
+    /** Volume, first on the right: the control reached for most. */
+    volume: Snippet;
+    /** Output device and queue, after the signal path. */
     output: Snippet;
     /** The signal path, shown from the format line. */
     signalPath: Snippet;
@@ -33,6 +35,7 @@
     status,
     position,
     details,
+    volume,
     output,
     signalPath,
     onOpen,
@@ -103,7 +106,7 @@
 <footer aria-label="Player">
   <button
     type="button"
-    class="now"
+    class="now content"
     aria-label={title === null ? 'Now playing' : `Now playing: ${title}`}
     title="Now playing"
     onclick={onOpen}
@@ -123,7 +126,6 @@
         {/if}
       {:else}
         <strong>Nothing playing</strong>
-        <small class="truncate">Choose an album to start</small>
       {/if}
     </span>
   </button>
@@ -151,7 +153,7 @@
     </div>
     <button
       type="button"
-      class="icon play"
+      class="icon primary"
       aria-label={status.state === 'playing' ? 'Pause' : 'Play'}
       title={status.state === 'playing' ? 'Pause' : 'Play'}
       disabled={!active}
@@ -219,24 +221,30 @@
     >
   </div>
 
-  <div class="output-controls">{@render output()}</div>
-  {#if active}
-    <div class="signal">
-      <Popover
-        label={`Signal path: ${signal ?? 'Opening…'}, ${verdictText}`}
-        triggerClass="signal-trigger"
-        above
-      >
-        {#snippet trigger()}
-          {#if track}<Lamp {track} />{/if}
-          <span class="num" data-status={verdict?.status ?? 'none'}
-            >{signal ?? 'Opening…'}</span
-          >
-        {/snippet}
-        {@render signalPath()}
-      </Popover>
-    </div>
-  {/if}
+  <!-- Volume, signal path, then output and queue: one row, centred on the
+       bar's height like the cover on the left. -->
+  <div class="end">
+    {@render volume()}
+    {#if active}
+      <div class="signal">
+        <Popover
+          label={`Signal path: ${signal ?? 'Opening…'}, ${verdictText}`}
+          triggerClass="signal-trigger"
+          above
+          clear="footer"
+        >
+          {#snippet trigger()}
+            {#if track}<Lamp {track} />{/if}
+            <span class="num truncate" data-status={verdict?.status ?? 'none'}
+              >{signal ?? 'Opening…'}</span
+            >
+          {/snippet}
+          {@render signalPath()}
+        </Popover>
+      </div>
+    {/if}
+    {@render output()}
+  </div>
 
   <p class="visually-hidden" aria-live="polite">{announcement}</p>
 </footer>
@@ -305,22 +313,6 @@
   .mode:not([aria-pressed='true']) {
     color: var(--text-muted);
   }
-  .play {
-    width: var(--hit-primary);
-    height: var(--hit-primary);
-    border-radius: var(--radius-round);
-    background: var(--text);
-    color: var(--bg);
-  }
-  .play:hover:not(:disabled) {
-    background: var(--text-secondary);
-    color: var(--bg);
-  }
-  .play:disabled {
-    opacity: 1;
-    background: var(--surface-hover);
-    color: var(--text-muted);
-  }
   .stop {
     color: var(--text-muted);
   }
@@ -338,6 +330,9 @@
   .time {
     min-width: 4em;
   }
+  .time {
+    min-height: 0;
+  }
   .elapsed {
     text-align: right;
   }
@@ -353,22 +348,31 @@
     background: transparent;
     color: var(--text-secondary);
   }
-  .output-controls {
+  .end {
+    container: end / inline-size;
     grid-column: 3;
-    grid-row: 1;
+    grid-row: 1 / span 2;
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: var(--space-3);
-    width: 100%;
+    gap: var(--space-1);
     min-width: 0;
   }
+  /* The signal gives way first; a hairline sets it apart from the controls. */
   .signal {
-    grid-column: 3;
-    grid-row: 2;
-    justify-self: end;
+    flex: 0 100 auto;
+    min-width: 0;
+    display: flex;
+    padding-right: var(--space-2);
+    margin: 0 var(--space-1);
+    border-right: 1px solid var(--line);
+  }
+  .signal :global(.popover) {
+    width: 100%;
   }
   .signal :global(.signal-trigger) {
+    min-width: 0;
+    max-width: 100%;
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -384,9 +388,18 @@
     color: var(--text);
   }
   .signal :global(.panel) {
-    width: min(420px, calc(100vw - 2 * var(--space-4)));
+    width: min(300px, calc(100vw - 2 * var(--space-4)));
     max-height: 480px;
     padding: var(--space-4);
+  }
+  .signal .num {
+    min-width: 0;
+  }
+  /* Too tight for the label: the lamp alone, its tooltip has the rest. */
+  @container end (width < 420px) {
+    .signal .num {
+      display: none;
+    }
   }
   /* Not bit-perfect: the label, not the lamp, turns amber. */
   .num[data-status='no'] {

@@ -82,21 +82,46 @@
     font-weight: var(--weight-regular);
     border: 0;
     border-radius: var(--radius-s);
-    background: transparent;
+    background: var(--row-idle-surface, transparent);
   }
 
-  .row:hover:not(:disabled) {
+  .row:where(:hover, :focus-visible):not(:disabled) {
     background: var(--surface-hover);
   }
 
-  /* Selected by a click; a double click plays it. */
+  /* Click selection is neutral; it never looks like playback. */
   .row[data-selected='true'] {
-    background: var(--surface-hover);
+    background: var(--surface-selected);
   }
 
+  .row[data-selected='true']:where(:hover, :focus-visible) {
+    background: var(--surface-selected-hover);
+  }
+
+  /* Playback wins over hover/selection; the mark is a non-colour cue. */
   .row[aria-current='true'] {
-    background: var(--surface-selected);
+    position: relative;
+    background: var(--surface-playing);
     color: var(--accent);
+  }
+
+  /* The playing mark: a short rounded stroke, centred on the row's left. */
+  .row[aria-current='true']::before,
+  .playing-mark::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 3px;
+    height: 16px;
+    translate: 0 -50%;
+    /* Over half the width: fully round ends. */
+    border-radius: var(--radius-s);
+    background: var(--accent);
+  }
+
+  .row[aria-current='true']:where(:hover, :focus-visible) {
+    background: var(--surface-playing-hover);
   }
 
   .row > span {
@@ -112,9 +137,13 @@
   }
 
   .row:hover .meta,
-  .row[aria-current='true'] .meta,
   .row .title small {
     color: var(--text-secondary);
+  }
+
+  .row:is([data-selected='true'], [aria-current='true']) .meta,
+  .row:is([data-selected='true'], [aria-current='true']) .title small {
+    color: var(--text-on-emphasis);
   }
 
   .row .title small {

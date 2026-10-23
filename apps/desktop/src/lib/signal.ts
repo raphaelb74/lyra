@@ -1,12 +1,10 @@
-import { wireLabel } from './format';
+import { decibels, wireLabel } from './format';
 import type { Output, Step, Track } from './ipc';
 
 /** One stage of the signal path, from the engine's report only. */
 export interface Stage {
-  title: 'Source' | 'Processing' | 'Volume' | 'Output' | 'Device';
+  title: 'Source' | 'Processing' | 'DAC volume' | 'Output' | 'Device';
   text: string;
-  /** Muted second line. */
-  detail: string | null;
 }
 
 /** `96 kHz`, `44.1 kHz`, `2.8224 MHz`. */
@@ -16,46 +14,40 @@ function rate(hertz: number): string {
     : `${String(hertz / 1000)} kHz`;
 }
 
+/** Said only when unusual: stereo goes without saying. */
 function channels(count: number): string {
-  return count === 1 ? '1 channel' : `${String(count)} channels`;
+  if (count === 2) return '';
+
+  return count === 1 ? ' · Mono' : ` · ${String(count)} ch`;
 }
 
 function stepText(step: Step): string {
   switch (step.kind) {
     case 'padded':
-      return `${String(step.fromBits)}-bit samples sent as ${String(step.toBits)}-bit, low bits zero (lossless)`;
+      return `${String(step.fromBits)}-bit in ${String(step.toBits)}-bit, lossless`;
     case 'dopPacked':
-      return 'Packed into DoP markers (lossless for the DAC)';
-    case 'converted': {
-      const gain =
-        step.gainDb === 0
-          ? 'no gain'
-          : `${step.gainDb > 0 ? '+' : '−'}${String(Math.abs(step.gainDb))} dB gain`;
-
-      return `Converted to PCM: low-pass and decimation, ${gain} (not bit-perfect)`;
-    }
+      return 'DoP packing, lossless';
+    case 'converted':
+      return step.gainDb === 0
+        ? 'DSD to PCM'
+        : `DSD to PCM, ${step.gainDb > 0 ? '+' : '−'}${String(Math.abs(step.gainDb))} dB`;
   }
 }
 
 function volumeText(output: Output): string {
   switch (output.hardwareVolume) {
     case 'none':
-      return 'No software volume; the DAC has no volume control';
+      return 'Fixed';
     case 'unity':
-      return 'No software volume; DAC volume at 0 dB';
+      return '0 dB';
     case 'attenuated':
-      return `No software volume; DAC volume ${decibels(output.hardwareDb ?? 0)}`;
+      return decibels(output.hardwareDb ?? 0);
     case 'unknown':
-      return 'No software volume; the DAC volume level cannot be read';
+      return 'Unknown';
   }
 }
 
-/** `−12.5 dB`. */
-function decibels(value: number): string {
-  return `${value < 0 ? '−' : ''}${String(Math.abs(value))} dB`;
-}
-
-/** Source, processing, volume, output and device, in that order. */
+/** Source, processing, DAC volume, output and device, in that order. */
 export function signalStages(track: Track, deviceLabel: string): Stage[] {
   const source =
     track.dsdMultiple === null
@@ -63,17 +55,13 @@ export function signalStages(track: Track, deviceLabel: string): Stage[] {
       : `DSD${String(track.dsdMultiple)} · ${track.codec.toUpperCase()} · ${rate(track.sampleRate)}`;
 
   const stages: Stage[] = [
-    {
-      title: 'Source',
-      text: `${source} · ${channels(track.channels)}`,
-      detail: track.fileName,
-    },
+    { title: 'Source', text: `${source}${channels(track.channels)}` },
   ];
 
   const output = track.output;
 
   if (output === null) {
-    stages.push({ title: 'Output', text: 'Opening the device…', detail: null });
+    stages.push({ title: 'Output', text: 'Opening…' });
 
     return stages;
   }
@@ -83,21 +71,15 @@ export function signalStages(track: Track, deviceLabel: string): Stage[] {
       title: 'Processing',
       text:
         track.processing.length === 0
-          ? 'None: samples sent as read'
-          : track.processing.map(stepText).join('; '),
-      detail: null,
+          ? 'None'
+          : track.processing.map(stepText).join(' · '),
     },
-    { title: 'Volume', text: volumeText(output), detail: null },
+    { title: 'DAC volume', text: volumeText(output) },
     {
       title: 'Output',
-      text: `${wireLabel(track, output)} · ${channels(output.channels)}`,
-      detail: null,
+      text: `${wireLabel(track, output)}${channels(output.channels)}`,
     },
-    {
-      title: 'Device',
-      text: deviceLabel,
-      detail: null,
-    },
+    { title: 'Device', text: deviceLabel },
   );
 
   return stages;

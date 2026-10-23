@@ -33,7 +33,7 @@ describe('desktop IPC boundary', () => {
   it.each([
     ['a string', 'get_app_info not allowed', 'get_app_info not allowed'],
     ['an error object', { message: 'Backend crashed' }, 'Backend crashed'],
-    ['anything else', null, 'Try checking the backend again'],
+    ['anything else', null, 'Cannot reach the UNDA engine'],
   ])(
     'turns a rejection with %s into a readable error',
     async (_, cause, message) => {
@@ -325,7 +325,14 @@ describe('playback commands', () => {
   });
 
   it('accepts a card volume, or none, and nothing malformed', async () => {
-    const level = { percent: 63, decibels: -23.5, usb: false, locked: null };
+    const level = {
+      percent: 63,
+      decibels: -23.5,
+      minDecibels: -127,
+      maxDecibels: 0,
+      usb: false,
+      locked: null,
+    };
 
     const volume = (value: JsonValue) =>
       backend(() => Promise.resolve(value), true).volume('hw:CARD=PCH,DEV=0');

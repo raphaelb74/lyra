@@ -40,6 +40,13 @@ export function onDeviceVolume(
   });
 }
 
+/** A sound card was plugged in or out: list the devices again. */
+export function onDevicesChanged(handle: () => void): Promise<UnlistenFn> {
+  return listen('devices-changed', () => {
+    handle();
+  });
+}
+
 /** Folders or albums changed: reload them. */
 export function onLibraryChanged(handle: () => void): Promise<UnlistenFn> {
   return listen('library-changed', () => {

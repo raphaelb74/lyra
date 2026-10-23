@@ -82,7 +82,7 @@
   {:else}
     <div class="info">
       <h3 id="now-title">Nothing playing</h3>
-      <p class="muted">Choose an album in the library to start.</p>
+      <p class="muted">Choose an album to start.</p>
     </div>
   {/if}
 </section>

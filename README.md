@@ -1,41 +1,100 @@
-# Lyra
+<p align="center">
+  <img src="docs/assets/lyra-mark.svg" width="96" height="96" alt="">
+</p>
 
-A Linux-first, bit-perfect music player for PCM and DSD, written in Rust with a Tauri 2 + Svelte 5 interface.
+<h1 align="center">Lyra</h1>
 
-> **Status: M4 in progress.** Plays FLAC and WAV bit-perfectly, and DSF/DFF as native DSD or DoP, to an ALSA `hw:` device. A music library scans your folders into albums with artwork; a gapless queue, playlists, Settings, opt-in DSD→PCM conversion and hardware volume are in. Diagnostics, keyboard shortcuts, design and packaging come next (see the [plan](docs/IMPLEMENTATION_PLAN.md)).
+<p align="center">
+  <b>Your music, exactly as it was recorded.</b><br>
+  A Linux music player that sends every bit straight to your DAC. No mixer, no resampling, no surprises.
+</p>
 
-## What works
+<p align="center">
+  <a href="#why">Why</a> ·
+  <a href="#what-reaches-your-dac">What works</a> ·
+  <a href="#get-started">Get started</a> ·
+  <a href="#build-it-yourself">Build</a> ·
+  <a href="docs/hardware/">Hardware reports</a> ·
+  <a href="docs/IMPLEMENTATION_PLAN.md">Roadmap</a>
+</p>
+
+> [!NOTE]
+> **Pre-release.** Lyra plays, scans and organises a library today, and is being polished for its first packages. Build it from source for now.
+
+## Why
+
+On a Linux desktop, music usually goes through the sound server first: mixed with everything else, often resampled, sometimes turned down in software. You paid for a DAC; it rarely gets the file you bought.
+
+Lyra takes the short road. Its engine, **UNDA**, written in Rust, opens the DAC directly through ALSA and hands it the samples untouched, at the file's own rate and depth. PCM stays PCM. DSD goes out as native DSD, or as DoP when that is what the DAC speaks. When something can't be played bit-perfectly, Lyra says so instead of quietly converting it.
+
+And it stays light. No bundled browser, no background services. **Efficiency is a product goal**: every feature has to justify its memory and CPU.
+
+- **Direct to hardware.** Rust straight to an ALSA `hw:` device. No Web Audio, PulseAudio or PipeWire in the playback path.
+- **No hidden processing.** No resampling, no software volume. If the DAC can't take a format, you're told why.
+- **Native DSD and DoP are separate.** Each is detected from the device at runtime, never assumed from a spec sheet.
+- **Claims need evidence.** Bit-perfect is claimed after fixture tests and checks on real DACs.
+
+## What reaches your DAC
 
 | Source | Reaches the DAC as | Verified on hardware |
 | --- | --- | --- |
-| FLAC, WAV (16–32 bit, any rate the DAC takes) | PCM at the exact rate, lossless layout | ZEN ONE: 16/44.1, 24/48, 24/96; USB Audio SE: 16/44.1, 24/96 |
-| DSF, DFF (DSD64–DSD512) | native DSD (`DSD_U8`/`U16`/`U32`), else DoP | ZEN ONE: native DSD64–256, DoP DSD64–128; USB Audio SE: native DSD64 |
-| DSF, DFF on a device without DSD (opt-in) | 24-bit PCM at 88.2 or 44.1 kHz, labelled not bit-perfect | built-in audio (CS4208) |
+| FLAC, WAV (16–32 bit, any rate the DAC takes) | PCM at the exact rate, lossless layout | iFi ZEN ONE: 16/44.1, 24/48, 24/96 · iFi USB Audio SE: 16/44.1, 24/96 |
+| DSF, DFF (DSD64–DSD512) | Native DSD, otherwise DoP | ZEN ONE: native DSD64–256, DoP DSD64–128 · USB Audio SE: native DSD64 |
+| DSF, DFF on a device without DSD (opt-in) | 24-bit PCM at 88.2 or 44.1 kHz, labelled *not bit-perfect* | Built-in audio (CS4208) |
 
-- **Library:** add a folder (button or drag and drop). Lyra reads tags and cover art from FLAC, WAV, DSF and DFF, rescans only what changed, and never writes to your music.
-- **Bit-perfect status** for every track: format, rate, transport, and the DAC's own volume (Lyra sets a USB DAC's near-0 dB volume to exactly 0 dB while playing, then restores it).
-- **Clear refusals** instead of conversions: a rate the DAC can't take, a busy device (and which program holds it), DSD on an output that can't decode it.
+Any ALSA device should work for PCM. DSD needs a DAC that exposes native DSD or decodes DoP. Per-DAC evidence lives in the [hardware reports](docs/hardware/).
 
-**DSD on built-in audio.** Built-in sound cards don't decode DSD, natively or as DoP. Sending them DoP would play loud noise, so by default Lyra refuses. In Settings you can turn on **Convert DSD to PCM**: DSD is then filtered and converted to 24-bit PCM at 88.2 kHz (44.1 kHz if that's all the device takes). It's only used when neither native DSD nor DoP can work, and it is never bit-perfect; the player always labels it "DSD converted to PCM".
+## Features
 
-**Volume.** Lyra never scales the samples: volume is the card's own hardware control. Use the control under Output (or Ctrl+↑/↓), or your desktop's volume keys and slider, which reach the same control through PipeWire; Lyra's slider follows them. On a USB DAC, anything below 0 dB usually changes the samples, and the bit-perfect status says so as soon as it happens. During DoP the volume must stay at 0 dB: Lyra locks its control, and stops playback at once if the volume moves anyway, before DoP turns into noise.
+- **Signal path, always visible.** Source, processing, DAC volume, output and device for the playing track, with a bit-perfect verdict.
+- **A real library.** Add a folder (or drop it on the window). Albums, artists, tracks and cover art from FLAC, WAV, DSF and DFF; rescans only what changed.
+- **Gapless queue and playlists**, keyboard shortcuts, media keys.
+- **Tag tools that never touch your files.** Edit albums, tidy messy tags, match editions against MusicBrainz. Every change lives in Lyra and can be undone.
+- **Hardware volume only.** The DAC's own control, from Lyra, the keyboard or your desktop's volume keys. Locked at 0 dB during DoP, where any change would turn DSD into noise.
+- **DAC-friendly format changes.** A short silence while the DAC switches rate or mode, a warm-up for DACs that need one, and a clean DSD ending when you stop.
+- **Survives unplugged drives.** A missing music folder keeps its albums and playlists until it's back.
+- **Champagne or Arctic Blue**, always dark.
 
-**Format changes.** Many DACs need a moment to switch between rates, or between PCM and DSD, and play noise if music arrives too early. Lyra plays a short silence first when the format changes (0.5 s by default, adjustable in Settings), and ends a DSD stream on DSD silence when you stop or quit.
+### Not there yet
 
-**Hardware.** See the [hardware reports](docs/hardware/) for per-DAC evidence (iFi ZEN ONE, iFi USB Audio SE). Any ALSA device should work for PCM; DSD needs a DAC that exposes native DSD or decodes DoP.
+- Packages (`.deb`, `.rpm`, AppImage, Flatpak, AUR)
+- Read-ahead buffering for NAS and network shares
+- Volume levelling (ReplayGain), through the DAC's own volume
+- Windows and macOS
 
-## Principles
+### Not for you?
 
-- **Direct to hardware.** Audio goes from Rust straight to an ALSA `hw:` device. No Web Audio, PulseAudio or PipeWire in the playback path.
-- **No hidden processing.** No resampling or software volume. DSD→PCM conversion happens only if you turn it on, only as the last resort, and is always labelled. If the DAC can't take a format, Lyra says so.
-- **Native DSD and DoP are separate.** Each is detected at runtime from ALSA, not assumed from a DAC's spec sheet.
-- **Claims need evidence.** Bit-perfect output is claimed only after fixture tests and hardware verification.
+Lyra plays **local files** on **Linux**, nothing else. If you stream, or want a server for every room, look at Roon or Audirvāna. If you want a light player on a headless box, MPD is excellent.
 
-## Quick start
+## Where your data goes
 
-Requires Rust (rustup), Node 24 and the Tauri Linux packages. See [Development](docs/DEVELOPMENT.md).
+- **Nowhere, by default.** Lyra works offline. No account, no analytics, no telemetry.
+- **Online lookups are opt-in.** Turned on, and only when you open ID Match on an album, Lyra sends that album's title and artist to MusicBrainz and asks the Cover Art Archive for covers.
+- **Your music files are read-only to Lyra.** Edits, covers and playlists stay in Lyra's own library.
 
-Lyra opens the DAC directly, so nothing else may use it while Lyra plays. If PipeWire is using the DAC, Lyra asks it to hand the DAC over and gives it back when playback stops; desktop sound on that DAC is silent meanwhile. Only a program that ignores this request (see [Development](docs/DEVELOPMENT.md#hardware-testing)) still makes Lyra report the device as busy.
+## Get started
+
+**Linux.** Build from source (below). Lyra needs exclusive access to the DAC while it plays: if PipeWire is using it, Lyra asks for it politely and hands it back when playback stops. Desktop sound on that DAC is silent meanwhile.
+
+**Windows and macOS.** Planned, after the Linux release ([M6](docs/IMPLEMENTATION_PLAN.md)).
+
+## Other questions
+
+**Why does it say "Not bit-perfect" when I turn the volume down?**
+Lyra's stream is untouched, but most USB DACs apply their volume digitally, inside the DAC. At 0 dB nothing is changed anywhere.
+
+**My DAC plays noise for a moment when the format changes.**
+Raise *Resync delay* in Settings (0.5 s by default). Some DACs need a second to switch between rates or between PCM and DSD.
+
+**Why Tauri and not a native toolkit?**
+The interface uses the system's WebKitGTK, not a bundled browser, and never touches audio: UNDA and the library are plain Rust crates with no dependency on Tauri.
+
+**Is AI used to build Lyra?**
+Yes. Lyra is developed with AI coding assistants under written rules ([AGENTS.md](AGENTS.md)); every change goes through the same tests, lints and hardware checks.
+
+## Build it yourself
+
+Needs Rust (rustup), Node 24 and the Tauri Linux packages. Details in [Development](docs/DEVELOPMENT.md).
 
 ```sh
 cd apps/desktop
@@ -46,32 +105,30 @@ CARGO_BUILD_JOBS=2 npm run tauri build    # release build and .deb
 
 Run every check with `scripts/check.sh`.
 
-## Layout
-
 ```text
 apps/desktop/          Svelte UI (no audio) and Tauri adapter (src-tauri/)
-crates/unda     playback engine: controller and writer threads, state, native/DoP policy
-crates/audio-alsa      ALSA device discovery, exact-format output, DAC volume
+crates/unda            UNDA, the playback engine: controller and writer threads, native/DoP policy
+crates/audio-alsa      ALSA discovery, exact-format output, DAC volume
 crates/format-pcm      WAV/FLAC decoding to exact integer samples
 crates/format-dsd      DSF/DFF parsing, DoP and native DSD packing
-crates/dsd-pcm         opt-in DSD→PCM conversion (filters, decimation, dither)
-crates/library         SQLite library: folder scanner, tags, artwork cache
-scripts/               check.sh (all checks), DAC probe, test fixtures, license inventory
-tests/e2e/             real-window smoke tests (WebKitGTK + IPC)
-apps/desktop/tools/    vendored ESLint rules (anti-slop), run by `npm run lint`
-.claude/               Claude Code agents and vendored Rust review skills
+crates/dsd-pcm         Opt-in DSD→PCM conversion (filters, decimation, dither)
+crates/library         SQLite library: scanner, tags, artwork, edits
+crates/musicbrainz     Opt-in MusicBrainz and Cover Art Archive client
+scripts/               check.sh, DAC probe, test fixtures, licence inventory
+tests/e2e/             Real-window smoke tests (WebKitGTK + IPC)
 ```
 
-The audio engine and the library do not depend on Tauri. The UI talks to them only through Tauri commands, and plays only tracks inside your library folders.
-
-## Documentation
-
-- [Specification](docs/SPECIFICATION.md): what Lyra must do
-- [Implementation plan](docs/IMPLEMENTATION_PLAN.md): milestones M0–M5
-- [Development](docs/DEVELOPMENT.md): setup, checks, smoke tests
-- [Hardware reports](docs/hardware/): per-DAC evidence · [M0 validation](docs/history/M0_VALIDATION.md)
-- [Agent rules](AGENTS.md) · [Third-party licenses](docs/THIRD_PARTY.md)
+| Read | For |
+| --- | --- |
+| [Specification](docs/SPECIFICATION.md) | What Lyra must do |
+| [Implementation plan](docs/IMPLEMENTATION_PLAN.md) | Milestones and what's next |
+| [Design spec](docs/DESIGN_SPEC.md) | The interface, tokens and components |
+| [Development](docs/DEVELOPMENT.md) | Setup, checks, smoke tests |
+| [Hardware reports](docs/hardware/) | Per-DAC evidence |
+| [Agent rules](AGENTS.md) · [Third-party licences](docs/THIRD_PARTY.md) | Contributing, licences |
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Font: Manrope (SIL OFL). Icons: Lucide (ISC). Metadata from MusicBrainz (CC0).
+
+Lyra is not affiliated with iFi audio, Roon Labs or Audirvāna. Product names belong to their owners.

@@ -43,8 +43,7 @@
     <h3 id="licences-title">Licences</h3>
   </div>
   <p class="muted intro">
-    Lyra and its UNDA engine are MIT-licensed, and built on the open-source work
-    below. Select one to read its licence.
+    Lyra and UNDA are MIT-licensed, built on the work below.
   </p>
   {#if failed}
     <p class="muted">The licence list could not be loaded.</p>

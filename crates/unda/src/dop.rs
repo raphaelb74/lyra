@@ -12,8 +12,7 @@ use crate::sink::{Encoding, HardwareVolume, OutputFormat};
 use crate::status::{ErrorKind, PlayerError, format_db};
 
 /// Why the volume control is locked while DoP plays.
-pub(crate) const VOLUME_LOCKED: &str =
-    "The volume stays at 0 dB during DoP playback: any change would turn the DSD into noise.";
+pub(crate) const VOLUME_LOCKED: &str = "Locked at 0 dB during DoP";
 
 pub(crate) fn is_dop(output: &OutputFormat) -> bool {
     matches!(output.encoding, Encoding::Dop(_))
