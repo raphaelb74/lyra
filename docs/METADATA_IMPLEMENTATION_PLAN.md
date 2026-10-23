@@ -79,11 +79,11 @@ Dropped as more than this needs: separate artist credit and identity tables (MT4
 
 - [ ] Add the default-off online setting and first-use disclosure; no background startup/scan requests when disabled.
 - [ ] Implement a provider interface for search, release lookup, track alignment and cover candidates, separate from local editing/writing.
-- [ ] Implement MusicBrainz identification using reviewed fields and IDs; one shared limiter across jobs, a meaningful user-agent, request deduplication and cached responses under the applicable policy.
+- [ ] Implement MusicBrainz identification using reviewed fields and IDs; one shared limiter across jobs, a meaningful user-agent, request deduplication and cached responses under the applicable policy. _Block 1, the client (`crates/musicbrainz`, `ureq`): one limiter shared across threads, `Lyra/<version> ( contact )`, answers kept in memory for the session, release search and lookup. Identification itself is block 2._
 - [ ] Add Cover Art Archive lookup by selected release; test all permitted redirect destinations and image limits.
 - [ ] Build results/edition comparison, manual track remapping, per-field acceptance and provenance display.
 - [ ] Persist accepted field choices separately; provider refresh respects manual overrides and source preferences.
-- [ ] Test cancellation, bounded response/decompression, 429/503/backoff, timeout, no result, no art and expired cache; secrets/path information must not appear in requests/logs.
+- [ ] Test cancellation, bounded response/decompression, 429/503/backoff, timeout, no result, no art and expired cache; secrets/path information must not appear in requests/logs. _Block 1 covers bounded answers (4 MB, also after gzip), 429/503 with backoff and `Retry-After`, timeout, unreachable, not found, no art, redirect hosts and loops, and that no cookie or authorization header is sent, all against a local fake server. Cancellation comes with the app wiring; there is no disk cache to expire._
 - [ ] Document provider service/content policies, attribution, cache retention and how to disable/clear fetched data.
 
 **Done when:** a selected synthetic/test album can be matched and reviewed; accepted fields/art remain available offline where permitted; ambiguous editions require a decision; all CI provider interactions are mocked. MT10, MT11, MT13 and MT16 pass. A manual live smoke report is dated and separate from CI.
