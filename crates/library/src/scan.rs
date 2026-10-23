@@ -515,6 +515,12 @@ fn follow_moves(
     Ok(())
 }
 
+/// Every `tracks` column a read of the file sets: what a moved track takes
+/// from its new file. A test checks it against the schema.
+const FILE_COLUMNS: &str = "folder_id, size, mtime_ns, album_id, artist_id, title, disc, track,
+    duration_ms, codec, sample_rate, bits_per_sample, channels, genre, album_artist_id,
+    compilation, audio_id";
+
 /// Gives track `old` everything of track `new`, its moved file, then
 /// deletes `new`.
 fn move_track(conn: &Connection, old: i64, new: i64) -> Result<(), LibraryError> {
@@ -532,15 +538,11 @@ fn move_track(conn: &Connection, old: i64, new: i64) -> Result<(), LibraryError>
         [new],
     )?;
     conn.execute(
-        "UPDATE tracks SET path = ?3,
-             (folder_id, size, mtime_ns, album_id, artist_id, title, disc, track, duration_ms,
-              codec, sample_rate, bits_per_sample, channels, genre, album_artist_id,
-              compilation, audio_id) =
-             (SELECT folder_id, size, mtime_ns, album_id, artist_id, title, disc, track,
-                     duration_ms, codec, sample_rate, bits_per_sample, channels, genre,
-                     album_artist_id, compilation, audio_id
-              FROM tracks AS moved WHERE moved.id = ?2)
-         WHERE id = ?1",
+        &format!(
+            "UPDATE tracks SET path = ?3, ({FILE_COLUMNS}) =
+                 (SELECT {FILE_COLUMNS} FROM tracks AS moved WHERE moved.id = ?2)
+             WHERE id = ?1"
+        ),
         params![old, new, path],
     )?;
     conn.execute("DELETE FROM file_values WHERE track_id = ?1", [old])?;
@@ -675,4 +677,32 @@ fn settle(conn: &mut Connection, regroup: Regroup) -> Result<Vec<String>, Librar
 /// SQLite integers are signed 64-bit.
 fn count(value: usize) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::FILE_COLUMNS;
+    use crate::db::Library;
+
+    #[test]
+    fn a_move_copies_every_file_column() {
+        let library = Library::in_memory().unwrap();
+        let columns: BTreeSet<String> = library
+            .conn
+            .prepare("SELECT name FROM pragma_table_info('tracks')")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let mut expected: BTreeSet<String> = FILE_COLUMNS
+            .split(',')
+            .map(|column| column.trim().to_owned())
+            .collect();
+        // Identity, and the path the move sets itself.
+        expected.extend(["id".to_owned(), "path".to_owned()]);
+        assert_eq!(columns, expected);
+    }
 }

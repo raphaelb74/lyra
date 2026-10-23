@@ -188,19 +188,10 @@ fn file_value(
     target: Target,
     field: Field,
 ) -> Result<Option<String>, LibraryError> {
-    let tracks: Vec<i64> = match target {
-        Target::Track(id) => vec![id],
-        Target::Release(id) => conn
-            .prepare_cached("SELECT id FROM tracks WHERE album_id = ?1 ORDER BY disc, track, path")?
-            .query_map([id], |row| row.get(0))?
-            .collect::<Result<_, _>>()?,
-    };
-    for track in tracks {
-        if let Some(value) = values::file_shown(&shown::file_values(conn, track)?, field) {
-            return Ok(Some(value));
-        }
+    match target {
+        Target::Track(id) => Ok(values::file_shown(&shown::file_values(conn, id)?, field)),
+        Target::Release(id) => shown::release_file_value(conn, id, field),
     }
-    Ok(None)
 }
 
 fn exists(conn: &Connection, target: Target) -> Result<bool, LibraryError> {

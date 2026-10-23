@@ -8,6 +8,7 @@ mod art;
 mod db;
 mod edits;
 mod key;
+mod migrations;
 mod playlists;
 mod scan;
 mod scanner;

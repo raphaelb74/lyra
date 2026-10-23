@@ -27,30 +27,44 @@ The [Windows plan](M6_WINDOWS_IMPLEMENTATION.md) shares decisions about path ide
 - [x] Add forward-only migrations after the current schema. Back up the database safely before migration (`VACUUM INTO`, newest three kept; migrations may run Rust code, with foreign keys checked before each commits).
 - [x] Separate stable local release identity from album title/artist; retain existing track/playlist IDs. Design conservative reconstruction for already-merged editions. _Migration 5: grouping by MusicBrainz release ID, else release folder (disc folders joined), album and album artist; the next scan regroups, and a release whose tracks all move keeps its ID and artwork._
 - [x] Track identity independent of the path: a move or rename (MT6, or done outside Lyra) updates the path, not the ID. _Migration 6: `audio_id` (FLAC audio MD5, else codec, size, rate, channels and length); only a unique match on both sides counts as a move._
-- [ ] Add file observations, manual overrides, source preferences and accepted provider IDs/values with typed fields and revisions. _File values, edits with origin (manual, rule, provider) and a fixed field list done (migration 7); source preferences and revisions remain._
+- [x] File values and edits with typed fields. _Migration 7: exact file values, edits with origin (manual, rule, provider), a fixed field list._
 - [x] Represent absent/set/clear/reset independently. Define release-wide versus track-specific field resolution. _Each field has a track or release scope; a release field's file value is its first track's._
-- [ ] Distinguish artist credits from artist identity; allow offline entities with no provider ID.
-- [ ] Matching keys (NFC, full Unicode lower-casing, collapsed whitespace, invisible characters removed) for artists and releases, replacing SQLite's ASCII-only `NOCASE`; file values stored exactly, with an unreadable-text flag for invalid bytes ([decisions](METADATA_DECISIONS.md) 5–7). Adds `unicode-normalization`. _Artists (migration 4) and releases (album and album-artist keys in the grouping, migration 5) done; exact file values come with block 4._
-- [ ] Add durable artwork references, immutable asset digests and disposable thumbnail/cache accounting.
-- [ ] Add edit transaction history and a versioned backup/restore workflow covering the DB and selected artwork. Backup excludes credentials and evictable response caches. _History and undo of saved steps done; backup/restore as a user action comes with the editor._
-- [ ] Make rescans update only observations; preserve edits and surface unavailable tracks. Use revisions to reject stale scanner results. _Rescans replace file values only; edits stay and are marked for review when the file changes under them. Revisions remain (MT2)._
+- [x] Matching keys (NFC, full Unicode lower-casing, collapsed whitespace, invisible characters removed) for artists and releases, replacing SQLite's ASCII-only `NOCASE`; file values stored exactly ([decisions](METADATA_DECISIONS.md) 5–7). Adds `unicode-normalization`. _Invalid bytes kept as bytes moves to MT5a, whose raw comment reader can see them._
+- [x] Edit history and undo of saved steps; rescans replace file values only, and edits stay, marked for review when the file changes under them.
 
-**Done when:** migration tests preserve IDs and playlists; two editions with identical display names remain separate; local overrides survive full/incremental scans and restart; backup restores a complete consistent library. Cover MT01, MT02, MT14 and MT15 model cases.
+Leftovers moved to MT2: revisions, source preferences, artist credits, artwork references, backup/restore.
 
-**Risk:** historic album rows may already combine editions. Do not automatically infer a perfect split. Retain reviewable mappings and offer correction where files do not supply enough evidence.
+## MT2 — Edit service, cleanup and artwork lifecycle
 
-## MT2 — Edit service, preview and artwork lifecycle
+In blocks, each a working library with its own tests. Nothing here changes music files.
 
-- [ ] Implement pure field validation and effective-value resolution with typed errors and operation semantics.
-- [ ] Cleanup rules as pure functions proposing edits: text hygiene, encoding repair, numbers, dates, album artist, featured artists, capitals, duplicate artists, genres, sort names ([decision](METADATA_DECISIONS.md) 10). A corpus of badly tagged fixtures, including names each rule must leave alone.
-- [ ] Add revision-bound edit previews and atomic local edit commits; include affected IDs and release grouping consequences.
-- [ ] Implement local edit undo with revision conflict checks and explicit reset-to-file operations.
-- [ ] Add restricted local artwork selection through Rust, bounded decode, durable storage, thumbnail invalidation and total cache accounting.
-- [ ] Introduce worker jobs, short database transactions and targeted change events; no I/O/network while a UI/library global mutex is held.
-- [ ] Extend typed Rust/TypeScript IPC, validators and Tauri permissions. Resolve selected IDs server-side; do not accept arbitrary write paths.
-- [ ] Propagate changed labels to queue, Now Playing, search and desktop metadata without touching the stream format or playback buffers.
+**Block 1: cleanup rules.**
 
-**Done when:** service-level tests exercise preview/commit/conflict/undo, replacement artwork and unavailable files; invalid or stale operations make no partial local edit. MT01–MT04 and MT13 pass at the service boundary. Playback engine dependencies remain unchanged.
+- [ ] Cleanup rules as pure functions from file values to proposed edits: text hygiene, encoding repair, numbers, dates, album artist, featured artists, capitals, duplicate artists, genres, sort names ([decision](METADATA_DECISIONS.md) 10).
+- [ ] A corpus of badly tagged FLAC and DSF fixtures, including names each rule must leave alone.
+
+**Block 2: edit service.**
+
+- [ ] Revisions per track and release; previews that report shown values before and after, and affected IDs; commits bound to the revisions a preview saw, so a stale preview saves nothing.
+- [ ] Undo with conflict checks: a step is undone only while its edits are still what it saved. Explicit reset to file values.
+- [ ] Field validation completed (MusicBrainz ID form, lengths, multi-value rules) with typed errors.
+- [ ] Source preferences: which origin wins when a rule and a provider both propose a field. _From MT1._
+- [ ] A release's edits follow its tracks when the release is replaced, instead of going with it.
+
+**Block 3: artists and artwork.**
+
+- [ ] Distinguish artist credits from artist identity; allow offline entities with no provider ID. _From MT1._
+- [ ] Durable artwork references, immutable asset digests and disposable thumbnail/cache accounting. _From MT1._
+- [ ] Restricted local artwork selection through Rust, bounded decode, durable storage, thumbnail invalidation and total cache accounting.
+
+**Block 4: backup and app wiring.**
+
+- [ ] Versioned backup and restore of the database and selected artwork, as a service the editor will call. Excludes credentials and evictable response caches. _From MT1._
+- [ ] Worker jobs, short database transactions and targeted change events; no I/O or network while a UI or library mutex is held.
+- [ ] Typed Rust/TypeScript IPC, validators and Tauri permissions. Selected IDs are resolved in Rust; no arbitrary write paths.
+- [ ] Changed labels reach the queue, Now Playing, search and desktop metadata without touching the stream format or playback buffers.
+
+**Done when:** service-level tests exercise preview/commit/conflict/undo, replacement artwork, backup/restore and unavailable files; invalid or stale operations make no partial local edit. MT01–MT04 and MT13 pass at the service boundary. Playback engine dependencies remain unchanged.
 
 ## MT3 — Embedded offline editor
 
